@@ -38,14 +38,22 @@ norm_file() {
 valid_cron_file() {
   local f="$1"
   if [ "$f" = "$CRONTAB" ]; then return 0; fi
-  case "$f" in
-    "$CROND_DIR"/*) ;;
-    *) die "fichero no permitido: $f" ;;
-  esac
-  local base; base="$(basename "$f")"
+  # The parent directory must be /etc/cron.d, compared literally. A prefix glob
+  # is not enough: `*` in a bash `case` also matches `/`, so "$CROND_DIR"/*
+  # accepts /etc/cron.d/../../anywhere. Resolving the path and comparing the
+  # result is not enough either: a symlink kept in a directory the caller owns
+  # can point into cron.d for the check and be swapped before the file is read,
+  # and cron-to-timer copies what it reads into a root unit's ExecStart=.
+  [ "$(dirname -- "$f")" = "$CROND_DIR" ] || die "fichero no permitido: $f"
+  local base; base="$(basename -- "$f")"
   case "$base" in
+    .|..) die "nombre de fichero no permitido: $base" ;;
     *[!a-zA-Z0-9._-]*) die "nombre de fichero no permitido: $base" ;;
   esac
+  # No symlinks inside cron.d either. With the parent fixed to a directory only
+  # root can write, a regular file validated here cannot be replaced before it
+  # is used, which is what makes this check hold.
+  [ -L "$f" ] && die "fichero no permitido (enlace simbólico): $f"
   [ -f "$f" ] || die "no existe: $f"
 }
 
