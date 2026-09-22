@@ -140,7 +140,10 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("POST /api/me/2fa/setup", s.my2FASetup)
 	a.HandleFunc("POST /api/me/2fa/confirm", s.my2FAConfirm)
 	a.HandleFunc("POST /api/me/2fa/disable", s.my2FADisable)
-	a.HandleFunc("GET /api/me/2fa/recovery", s.my2FARecovery)
+	// POST, not GET: it destroys the stored recovery codes and issues new ones.
+	// As a GET it was exempt from the CSRF, rate and demo guards, and SameSite=Lax
+	// still sends the session cookie on a cross-site top-level navigation.
+	a.HandleFunc("POST /api/me/2fa/recovery", s.my2FARecovery)
 	// usuarios (admin)
 	a.HandleFunc("GET /api/users", s.auth.RequireAdmin(s.listUsers))
 	a.HandleFunc("POST /api/users", s.auth.RequireAdmin(s.createUser))

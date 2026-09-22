@@ -13,6 +13,13 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `GET /api/me` → `{user, role}` o 401.
 - `POST /api/me/password` `{current, new}` → 204. Cierra el resto de sesiones del usuario.
 
+## 2FA (TOTP) del propio usuario (#84)
+- `GET /api/me/2fa` → `{enabled:bool, recovery_remaining:int}`. Solo lectura: **nunca** regenera nada. Los recovery codes se guardan hasheados, así que no pueden volver a mostrarse; `recovery_remaining` es cuántos quedan sin gastar.
+- `POST /api/me/2fa/setup` → `{secret, otpauth, qr}`. Genera un secreto nuevo provisional (invalida cualquier setup sin confirmar).
+- `POST /api/me/2fa/confirm` `{code}` → `{codes:[…10]}`. Activa 2FA y entrega los recovery codes (única vez que se ven).
+- `POST /api/me/2fa/disable` `{code}` → 204.
+- `POST /api/me/2fa/recovery` → `{codes:[…10]}`. **Regenera**: borra los códigos anteriores y emite diez nuevos. Es POST precisamente porque muta: como GET quedaba fuera de los guards de CSRF/rate/demo y una navegación cross-site bastaba para dejar al usuario sin códigos.
+
 ## Usuarios (solo admin)
 - `GET /api/users` → `[{user, role:"admin"|"user", last_login, sessions}]`
 - `POST /api/users` `{user, password, role}` → 201. 409 si existe.

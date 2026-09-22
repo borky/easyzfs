@@ -385,7 +385,22 @@ func (s *Server) my2FAStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"enabled": enabled})
+	// Recovery codes are stored hashed, so they can only be shown once, at
+	// generation. Report how many are left instead, so the UI never has to
+	// regenerate just to render the panel.
+	remaining := 0
+	if enabled {
+		codes, err := s.users.ListRecoveryCodes(r.Context(), user)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
+			return
+		}
+		remaining = len(codes)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled":            enabled,
+		"recovery_remaining": remaining,
+	})
 }
 
 // my2FASetup — POST /api/me/2fa/setup → {secret, otpauth, qr}.
@@ -503,7 +518,7 @@ func (s *Server) my2FADisable(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// my2FARecovery — GET /api/me/2fa/recovery → {codes}.
+// my2FARecovery — POST /api/me/2fa/recovery → {codes}.
 // Regenera los recovery codes (solo con 2FA activo). Los anteriores se borran.
 func (s *Server) my2FARecovery(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())

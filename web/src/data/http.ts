@@ -121,7 +121,7 @@ export class HttpProvider implements DataProvider {
   setup2FA = () => post<TwoFASetup>('/me/2fa/setup');
   confirm2FA = (code: string) => post<TwoFARecovery>('/me/2fa/confirm', { code });
   disable2FA = (code: string) => post<void>('/me/2fa/disable', { code });
-  regenerateRecoveryCodes = () => get<TwoFARecovery>('/me/2fa/recovery');
+  regenerateRecoveryCodes = () => post<TwoFARecovery>('/me/2fa/recovery');
 
   // Avatar: el blob ya viene recortado y re-codificado (webp/jpeg) del
   // diálogo de recorte; se manda crudo como importBackup.

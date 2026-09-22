@@ -302,12 +302,75 @@ func TestMy2FADisableSinCodigoFallido(t *testing.T) {
 	}
 }
 
+// The recovery endpoint regenerates (destroys and replaces) the codes, so it is
+// POST: as a GET it sat outside the CSRF/rate/demo guards, and a cross-site
+// navigation was enough to leave the user without their saved codes.
+func TestRecoveryCodesRechazaGET(t *testing.T) {
+	h := setup2FAServer(t)
+	cookie := loginOK(t, h)
+	enable2FA(t, h, cookie)
+
+	rec := do2FAReq(t, h, cookie, "GET", "/api/me/2fa/recovery", "")
+	if rec.Code == http.StatusOK {
+		t.Fatalf("GET /api/me/2fa/recovery devolvió 200; debe rechazarse")
+	}
+}
+
+// Opening the 2FA panel must not touch the recovery codes: the frontend used
+// to regenerate them on every mount, silently invalidating the ones the user
+// had saved. The status endpoint only reports how many are left.
+func TestStatusNoRegeneraRecoveryCodes(t *testing.T) {
+	h := setup2FAServer(t)
+	cookie := loginOK(t, h)
+	enable2FA(t, h, cookie)
+
+	rec := do2FAReq(t, h, cookie, "POST", "/api/me/2fa/recovery", "")
+	if rec.Code != 200 {
+		t.Fatalf("recovery status %d (%s)", rec.Code, rec.Body.String())
+	}
+	var gen map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &gen); err != nil {
+		t.Fatal(err)
+	}
+	codes, _ := gen["codes"].([]any)
+	if len(codes) != 10 {
+		t.Fatalf("se esperaban 10 codes, got %d", len(codes))
+	}
+
+	// Two status reads in a row: the count does not move.
+	for i := 0; i < 2; i++ {
+		st := do2FAReq(t, h, cookie, "GET", "/api/me/2fa", "")
+		if st.Code != 200 {
+			t.Fatalf("status %d (%s)", st.Code, st.Body.String())
+		}
+		var m map[string]any
+		if err := json.Unmarshal(st.Body.Bytes(), &m); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := m["recovery_remaining"].(float64); int(n) != 10 {
+			t.Fatalf("consulta %d: recovery_remaining=%v, esperaba 10", i+1, m["recovery_remaining"])
+		}
+	}
+
+	// And the first generated code still works for signing in.
+	recLogin, _ := loginReal(t, h, `{"user":"admin","password":"password123"}`)
+	var m2 map[string]any
+	if err := json.Unmarshal(recLogin.Body.Bytes(), &m2); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := m2["pending"].(string)
+	body := `{"pending":"` + pending + `","code":"` + codes[0].(string) + `"}`
+	if rec2 := do2FAReq(t, h, nil, "POST", "/api/login/2fa", body); rec2.Code != 200 {
+		t.Fatalf("el recovery code original dejó de valer: %d (%s)", rec2.Code, rec2.Body.String())
+	}
+}
+
 func TestLoginConRecoveryCode(t *testing.T) {
 	h := setup2FAServer(t)
 	cookie := loginOK(t, h)
 	enable2FA(t, h, cookie)
 	// Generar recovery codes.
-	rec := do2FAReq(t, h, cookie, "GET", "/api/me/2fa/recovery", "")
+	rec := do2FAReq(t, h, cookie, "POST", "/api/me/2fa/recovery", "")
 	if rec.Code != 200 {
 		t.Fatalf("recovery status %d (%s)", rec.Code, rec.Body.String())
 	}

@@ -371,7 +371,7 @@ export class MockProvider implements DataProvider {
   };
 
   // 2FA en demo: inerte (no se puede activar sobre el mock; devuelve no activo).
-  get2FAStatus = async (): Promise<TwoFAStatus> => { await delay(); return { enabled: false }; };
+  get2FAStatus = async (): Promise<TwoFAStatus> => { await delay(); return { enabled: false, recovery_remaining: 0 }; };
   setup2FA = async (): Promise<TwoFASetup> => {
     await delay();
     const secret = 'JBSWY3DPEHPK3PXP';

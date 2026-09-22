@@ -31,6 +31,9 @@ export interface TwoFARecovery {
 
 export interface TwoFAStatus {
   enabled: boolean;
+  // Unused recovery codes left. The codes themselves are stored hashed and are
+  // only ever shown once, right after they are generated.
+  recovery_remaining: number;
 }
 
 // API keys de solo lectura (#87)

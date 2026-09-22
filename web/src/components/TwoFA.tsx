@@ -16,6 +16,7 @@ export function TwoFAPanel() {
   const [setup, setSetup] = useState<TwoFASetup | null>(null);
   const [recovery, setRecovery] = useState<TwoFARecovery | null>(null);
   const [codes, setCodes] = useState<string[]>([]);
+  const [remaining, setRemaining] = useState(0);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -27,12 +28,10 @@ export function TwoFAPanel() {
     try {
       const st = await getProvider().get2FAStatus();
       setPhase(st.enabled ? 'active' : 'off');
-      if (st.enabled) {
-        try {
-          const c = await getProvider().regenerateRecoveryCodes();
-          setCodes(c.codes);
-        } catch { /* sin códigos: no bloquear el estado activo */ }
-      }
+      // Only report how many codes are left. This used to regenerate them on
+      // every mount, which silently invalidated the codes the user had saved
+      // each time the panel was opened.
+      setRemaining(st.recovery_remaining);
     } catch {
       setPhase('off');
     }
@@ -58,6 +57,7 @@ export function TwoFAPanel() {
       const rec = await getProvider().confirm2FA(code.trim());
       setRecovery(rec);
       setCodes(rec.codes);
+      setRemaining(rec.codes.length);
       setPhase('active');
       setMsg('');
       setCode('');
@@ -83,6 +83,7 @@ export function TwoFAPanel() {
       const rec = await getProvider().regenerateRecoveryCodes();
       setRecovery(rec);
       setCodes(rec.codes);
+      setRemaining(rec.codes.length);
     } catch (e) { setErr(errorMessage(e, t)); }
     setBusy(false);
   };
@@ -153,6 +154,11 @@ export function TwoFAPanel() {
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
             <b style={{ fontSize: 13 }}>{t('s_2fa_recovery_title')}</b>
+            {codes.length === 0 && (
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                {t('s_2fa_recovery_left', { n: remaining })}
+              </div>
+            )}
             {codes.length > 0 && (
               <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 4, margin: '8px 0', padding: 0, listStyle: 'none' }}>
                 {codes.map((c) => (
