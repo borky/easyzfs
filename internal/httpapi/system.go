@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"easyzfs/internal/auth"
 	"easyzfs/internal/db"
 	"easyzfs/internal/model"
 	"easyzfs/internal/updater"
@@ -148,6 +149,13 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
+	}
+	// The route is not admin-only (the UI needs the thresholds for every user),
+	// but a webhook URL is usually a capability URL with the secret in the path.
+	// Only an admin — never a plain user, never a read-only API key, which auth
+	// allows on any GET — gets to see it. Same discipline as GET /api/channels.
+	if auth.RoleFromContext(r.Context()) != "admin" {
+		st.Webhook = ""
 	}
 	writeJSON(w, http.StatusOK, st)
 }

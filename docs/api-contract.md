@@ -32,6 +32,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `GET /api/performance` → `{arc:{size_bytes, hit_pct}|null, pools:[{name, read_bps, write_bps}]}`
   - Caché del colector `perf` (tick 60 s). ARC de `/proc/spl/kstat/zfs/arcstats` (respaldo: zarcsummary/arc_summary); `arc:null` = sin fuente en el sistema (la UI oculta la tarjeta). `read_bps`/`write_bps` = bytes/s de `zpool iostat -Hpy 1 1` (muestra de 1 s).
 - `GET /api/settings` → `{lang:"auto"|"es"|"en", cap_warn_pct, cap_crit_pct, disk_temp_c, webhook, notify_scrub_errors, notify_smart_change}`
+  - `webhook` llega vacío para quien no sea admin (usuario normal o API key de solo lectura): suele ser una URL con el secreto dentro.
 - `PUT /api/settings` (admin) mismo body → 204. 400 `invalid_input` si `cap_warn_pct`/`cap_crit_pct` fuera de 1-100, `warn >= crit` o `disk_temp_c` fuera de 20-90.
 - `GET /api/alerts` → `[{id, ts, level:"info"|"warn"|"crit", source, target, message, acked}]`
   - `target` — destino navegable en la UI según la fuente de la alerta: `"pools:<pool>"` (capacidad, DEGRADED/FAULTED, scrub con errores), `"disks:<dev>"` (temperatura, SMART), `"tasks"`, `"settings"`; `""` = sin destino.
