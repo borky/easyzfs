@@ -153,31 +153,120 @@ func TestDatasetUnloadKey(t *testing.T) {
 	}
 }
 
-func TestDatasetChangeKey(t *testing.T) {
+// newChangeKeyService — a fake zfs that models the three calls change-key
+// makes: 'get encryptionroot', the dry-run 'load-key -n -L prompt' (which
+// accepts only $ZFS_CURRENT_KEY on stdin, and otherwise fails with zfs's own
+// wording), and 'change-key'. Every call logs its argv to zfs-args.log and
+// its stdin to zfs-stdin.log, so the tests can check nothing leaks into argv
+// and that change-key never runs after a failed check.
+func newChangeKeyService(t *testing.T, currentKey, loadKeyFailure string) (*Service, string, string) {
+	t.Helper()
 	svc, argsLog, stdinLog := newKeyTestService(t)
+	dir := t.TempDir()
+	zfs := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + argsLog + "\n" +
+		"case \"$1\" in\n" +
+		"  get) echo tank/secretos ; exit 0 ;;\n" +
+		"  load-key)\n" +
+		"    IFS= read -r k ; printf '%s\\n' \"$k\" >> " + stdinLog + "\n" +
+		"    if [ -n \"$ZFS_LOAD_KEY_FAILURE\" ]; then echo \"$ZFS_LOAD_KEY_FAILURE\" >&2 ; exit 1 ; fi\n" +
+		"    if [ \"$k\" = \"$ZFS_CURRENT_KEY\" ]; then exit 0 ; fi\n" +
+		"    echo \"Key load error: Incorrect key provided for 'tank/secretos'.\" >&2 ; exit 255 ;;\n" +
+		"  change-key) cat >> " + stdinLog + " ; exit 0 ;;\n" +
+		"esac\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "zfs"), []byte(zfs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("ZFS_CURRENT_KEY", currentKey)
+	t.Setenv("ZFS_LOAD_KEY_FAILURE", loadKeyFailure)
+	return svc, argsLog, stdinLog
+}
+
+func TestDatasetChangeKey(t *testing.T) {
+	actual := "v13ja-cl4ve-larga"
 	nueva := "nu3va-cl4ve-larga"
-	if err := svc.DatasetChangeKey(context.Background(), "tester", "tank/secretos", nueva); err != nil {
+	svc, argsLog, stdinLog := newChangeKeyService(t, actual, "")
+	if err := svc.DatasetChangeKey(context.Background(), "tester", "tank/secretos", actual, nueva); err != nil {
 		t.Fatalf("DatasetChangeKey: %v", err)
 	}
 	args, _ := os.ReadFile(argsLog)
-	got := strings.TrimSpace(string(args))
-	if got != "change-key -o keyformat=passphrase tank/secretos" {
-		t.Fatalf("argv = %q", got)
+	want := "get -H -o value encryptionroot tank/secretos\n" +
+		"load-key -n -L prompt tank/secretos\n" +
+		"change-key -o keyformat=passphrase tank/secretos\n"
+	if string(args) != want {
+		t.Fatalf("argv =\n%s\nwant\n%s", args, want)
 	}
-	if strings.Contains(got, nueva) {
-		t.Fatal("la passphrase nueva aparece en argv")
+	if strings.Contains(string(args), nueva) || strings.Contains(string(args), actual) {
+		t.Fatal("a passphrase appears in argv")
 	}
 	stdin, _ := os.ReadFile(stdinLog)
-	if s := string(stdin); s != nueva+"\n"+nueva+"\n" {
-		t.Fatalf("stdin = %q, esperaba la nueva clave dos veces", s)
+	if s := string(stdin); s != actual+"\n"+nueva+"\n"+nueva+"\n" {
+		t.Fatalf("stdin = %q, want the current key once, then the new one twice", s)
 	}
 	var detail string
 	if err := svc.db.QueryRow(
 		"SELECT detail FROM audit_log WHERE action='dataset.change_key'").Scan(&detail); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
-	if strings.Contains(detail, nueva) {
-		t.Errorf("la passphrase aparece en audit_log: %s", detail)
+	if strings.Contains(detail, nueva) || strings.Contains(detail, actual) {
+		t.Errorf("a passphrase appears in audit_log: %s", detail)
+	}
+}
+
+// Any non-empty current_key used to pass. A wrong one must now be refused
+// before change-key runs, and the refusal audited without the key.
+func TestDatasetChangeKeyWrongCurrentKey(t *testing.T) {
+	svc, argsLog, _ := newChangeKeyService(t, "v13ja-cl4ve-larga", "")
+	err := svc.DatasetChangeKey(context.Background(), "tester", "tank/secretos", "not-the-key", "nu3va-cl4ve-larga")
+	if !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("err = %v, want ErrWrongKey", err)
+	}
+	args, _ := os.ReadFile(argsLog)
+	if strings.Contains(string(args), "change-key") {
+		t.Fatalf("change-key ran after a failed check:\n%s", args)
+	}
+	var n int
+	svc.db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE action='dataset.change_key'").Scan(&n)
+	if n != 0 {
+		t.Fatal("a refused change was audited as a successful one")
+	}
+	var detail string
+	if err := svc.db.QueryRow(
+		"SELECT detail FROM audit_log WHERE action='dataset.change_key.denied'").Scan(&detail); err != nil {
+		t.Fatalf("the refusal was not audited: %v", err)
+	}
+	if strings.Contains(detail, "not-the-key") {
+		t.Errorf("the attempted key appears in audit_log: %s", detail)
+	}
+}
+
+// A failure that is not zfs saying the key is wrong must still refuse the
+// change, but must not be reported as a wrong passphrase.
+func TestDatasetChangeKeyCheckFailsClosed(t *testing.T) {
+	svc, argsLog, _ := newChangeKeyService(t, "v13ja-cl4ve-larga", "cannot open 'tank/secretos': I/O error")
+	err := svc.DatasetChangeKey(context.Background(), "tester", "tank/secretos", "v13ja-cl4ve-larga", "nu3va-cl4ve-larga")
+	if err == nil {
+		t.Fatal("the change went ahead although the key check failed")
+	}
+	if errors.Is(err, ErrWrongKey) {
+		t.Fatalf("an I/O error was reported as a wrong key: %v", err)
+	}
+	args, _ := os.ReadFile(argsLog)
+	if strings.Contains(string(args), "change-key") {
+		t.Fatalf("change-key ran after a failed check:\n%s", args)
+	}
+}
+
+func TestDatasetChangeKeyRequiresCurrent(t *testing.T) {
+	svc, argsLog, _ := newChangeKeyService(t, "v13ja-cl4ve-larga", "")
+	err := svc.DatasetChangeKey(context.Background(), "tester", "tank/secretos", "", "nu3va-cl4ve-larga")
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if args, _ := os.ReadFile(argsLog); len(args) != 0 {
+		t.Fatalf("zfs was called without a current key:\n%s", args)
 	}
 }
 

@@ -29,6 +29,10 @@ var (
 	ErrInvalidAction = errors.New("acción inválida")
 	ErrInvalidInput  = errors.New("entrada inválida")
 	ErrSnapshotNotFound = errors.New("el snapshot no existe; refresca la lista")
+	// ErrWrongKey — the current passphrase supplied to change-key is not the
+	// dataset's key. Mapped to 403 (never 401: the frontend reads any 401 as an
+	// expired session and logs the user out).
+	ErrWrongKey = errors.New("la passphrase actual no es correcta")
 )
 
 // Whitelists de nombres (lección 6 + ejecución segura del skill).
@@ -596,15 +600,27 @@ func (s *Service) DatasetUnloadKey(ctx context.Context, actor, name string) erro
 }
 
 // DatasetChangeKey — 'zfs change-key -o keyformat=passphrase <name>' con la
-// NUEVA passphrase por stdin (zfs la pide dos veces; con keyformat=passphrase
-// y la clave cargada no pide la actual, por eso currentKey no se usa — el
-// handler la exige como confirmación de posesión, documentado en el contrato).
-func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, newPassphrase string) error {
+// NUEVA passphrase por stdin (zfs la pide dos veces).
+//
+// With keyformat=passphrase and the key loaded, zfs never asks for the current
+// passphrase, so the API's current_key used to be accepted and ignored: any
+// non-empty string let an admin session re-wrap a dataset to a key its owner
+// does not know. Possession is now checked first with a dry-run load-key.
+func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, currentPassphrase, newPassphrase string) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
 	}
+	if currentPassphrase == "" {
+		return fmt.Errorf("%w: se requiere la passphrase actual", ErrInvalidInput)
+	}
 	if len(newPassphrase) < 8 {
 		return fmt.Errorf("%w: la passphrase nueva debe tener al menos 8 caracteres", ErrInvalidInput)
+	}
+	if err := s.verifyDatasetKey(ctx, name, currentPassphrase); err != nil {
+		if errors.Is(err, ErrWrongKey) {
+			s.audit(ctx, actor, "dataset.change_key.denied", name, nil, false) // never the key itself
+		}
+		return err
 	}
 	s.audit(ctx, actor, "dataset.change_key", name, nil, false) // SIN claves
 	keyBuf := []byte(newPassphrase + "\n" + newPassphrase + "\n")
@@ -612,6 +628,37 @@ func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, newPassphra
 	if _, err := executil.RunStdin(ctx, 30*time.Second, keyBuf, "zfs",
 		"change-key", "-o", "keyformat=passphrase", name); err != nil {
 		return fmt.Errorf("cambiar clave: %w", err)
+	}
+	return nil
+}
+
+// verifyDatasetKey checks a passphrase against the dataset's wrapping key
+// without changing anything: 'zfs load-key -n' is a dry run, and OpenZFS
+// allows it while the key is already loaded. It must target the encryption
+// root, which is where the key lives. '-L prompt' makes zfs read the key from
+// stdin even when keylocation points at a file; otherwise the check would be
+// made against that file, not against what the user typed.
+//
+// Only zfs's own "incorrect key" verdict is reported as ErrWrongKey. Any other
+// failure is returned as is, so the change is refused either way but a broken
+// zfs or a timeout is never mislabelled as a wrong passphrase.
+func (s *Service) verifyDatasetKey(ctx context.Context, name, passphrase string) error {
+	out, err := executil.Run(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "encryptionroot", name)
+	if err != nil {
+		return fmt.Errorf("verificar clave actual: %w", err)
+	}
+	root := strings.TrimSpace(string(out))
+	if !reDataset.MatchString(root) {
+		return fmt.Errorf("verificar clave actual: raíz de cifrado inesperada %q", root)
+	}
+	keyBuf := []byte(passphrase + "\n")
+	defer executil.Zero(keyBuf)
+	if _, err := executil.RunStdin(ctx, 30*time.Second, keyBuf, "zfs",
+		"load-key", "-n", "-L", "prompt", root); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "incorrect key") {
+			return ErrWrongKey
+		}
+		return fmt.Errorf("verificar clave actual: %w", err)
 	}
 	return nil
 }

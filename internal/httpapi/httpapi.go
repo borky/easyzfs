@@ -420,6 +420,9 @@ func actionErr(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, actions.ErrSnapshotNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, actions.ErrWrongKey):
+		// 403, not 401: the frontend treats any 401 as an expired session.
+		writeErr(w, http.StatusForbidden, "wrong_key", err.Error())
 	case strings.Contains(err.Error(), "inválid"):
 		writeErr(w, http.StatusBadRequest, "invalid_input", err.Error())
 	default:

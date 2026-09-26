@@ -284,6 +284,8 @@ export function alertTargetView(target?: string): ViewId | null {
 export function errorMessage(e: unknown, t: AppCtx['t']): string {
   if (e instanceof ApiError) {
     if (e.code === 'confirm_required') return e.message;
+    // Before the generic 403 below: a wrong passphrase is not a permission problem.
+    if (e.code === 'wrong_key') return t('err_wrong_key');
     if (e.status === 401) return t('login_error');
     if (e.status === 403) return t('no_permission');
     return e.message;

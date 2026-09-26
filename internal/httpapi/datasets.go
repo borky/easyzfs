@@ -152,9 +152,8 @@ func (s *Server) lockDataset(w http.ResponseWriter, r *http.Request) {
 }
 
 // changeKeyDataset — POST /api/datasets/{name}/change-key {current_key, new_key}
-// (admin) → 204. Con keyformat=passphrase y la clave cargada, zfs solo pide la
-// nueva (dos veces, por stdin); current_key se exige como confirmación de
-// posesión pero no se envía al CLI (documentado en docs/api-contract.md).
+// (admin) → 204. current_key is verified by a dry-run load-key before the
+// change; a wrong one is 403 wrong_key (see actions.DatasetChangeKey).
 func (s *Server) changeKeyDataset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var body struct {
@@ -181,7 +180,7 @@ func (s *Server) changeKeyDataset(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := s.act.DatasetChangeKey(r.Context(), actor(r), name, body.NewKey); err != nil {
+	if err := s.act.DatasetChangeKey(r.Context(), actor(r), name, body.CurrentKey, body.NewKey); err != nil {
 		actionErr(w, err)
 		return
 	}

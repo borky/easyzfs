@@ -80,7 +80,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - **Cifrado nativo** (lote D; admin; audit sin claves NUNCA):
   - `POST /api/datasets/{name}/unlock` `{key}` → 204 (`zfs load-key`, clave por stdin; monta). 400 `invalid_input` (sin clave o dataset sin cifrar), 404 `not_found`.
   - `POST /api/datasets/{name}/lock` → 204 (`zfs unload-key`, sin `-f`: si el dataset está ocupado se devuelve el error legible de zfs).
-  - `POST /api/datasets/{name}/change-key` `{current_key, new_key}` → 204 (`zfs change-key -o keyformat=passphrase`; la nueva va por stdin dos veces). Con keyformat=passphrase y la clave cargada, zfs no pide la actual: `current_key` se exige como confirmación de posesión pero no se envía al CLI (limitación conocida: el backend no verifica la passphrase actual; quien la tenga mal obtendrá éxito igualmente — la nueva clave se aplica). `new_key` mín. 8.
+  - `POST /api/datasets/{name}/change-key` `{current_key, new_key}` → 204 (`zfs change-key -o keyformat=passphrase`; la nueva va por stdin dos veces). Con keyformat=passphrase y la clave cargada, zfs no pide la actual, así que `current_key` se verifica antes con un dry-run `zfs load-key -n -L prompt <raíz de cifrado>` (por stdin). Clave incorrecta → 403 `wrong_key` y no se toca nada (auditado como `dataset.change_key.denied`, sin claves). Cualquier otro fallo de la verificación también aborta el cambio, pero con el error real, no como `wrong_key`. `new_key` mín. 8. Pensado para datasets `keyformat=passphrase` (los únicos que crea la UI): con `keyformat=raw` la verificación falla y el cambio se rechaza (`hex` sí funciona).
 
 ## Snapshots
 - `GET /api/snapshots?dataset=` → agrupado: `[{dataset, snaps:[{name, full, ts, used_bytes, kind:"auto"|"manual"}]}]`
