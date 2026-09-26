@@ -74,6 +74,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
     - Lectura bajo demanda con caché TTL 30 s por dataset (excepción puntual a la caché de collectors, documentada en `docs/specs-p1-v2.5.md`). 404 `not_found`.
   - `PATCH /api/datasets/{name}/properties` (admin) `{property, value}` → 204.
     - Whitelist estricta en `internal/actions/props.go` (compression, recordsize, atime, relatime, sync, checksum, copies, xattr, acltype, aclinherit, primarycache, secondarycache, logbias, canmount, mountpoint, exec, setuid, devices, readonly, snapdir, quota, reservation, volsize, volblocksize). 400 `invalid_property` / 400 `invalid_value` (nunca llega a zfs). Propiedades no aplicables al tipo (mountpoint en volume…) → 400.
+    - `mountpoint`: `none`, `legacy`, o una ruta absoluta simple **dentro de la lista permitida**: el árbol del propio pool (`/<pool>` y lo que cuelga, y también el mountpoint real del dataset raíz del pool si es otro, p. ej. `/data`; nunca `/`) o estrictamente por debajo de `/mnt`, `/media`, `/srv` o `/home`. Además, como segunda capa, se rechazan las rutas de sistema (`/etc`, `/usr`, `/root`, `/var/lib/dpkg`, el directorio de datos de EasyZFS, `/opt/easyzfs`…, y cualquier ruta que las contenga): un pool puede llamarse `etc`. Por último se recorre la ruta: ningún componente existente puede ser un enlace simbólico, y cada directorio por el que pasa debe ser de root y no escribible por grupo ni otros (si no, alguien podría cambiar el siguiente tramo por un enlace antes de que root monte). Un tramo que el servicio no pueda inspeccionar también se rechaza. Error → 400 `invalid_input` con el motivo. Límite: solo cubre valores explícitos; un mountpoint heredado no pasa por aquí.
   - `POST /api/datasets/{name}/properties/{prop}/inherit` (admin) → 204. Solo propiedades de la whitelist con `source == "local"`; 400 `invalid_property`, 409 `not_local`. Audit `dataset.setprop`/`dataset.inherit`.
 - `DELETE /api/datasets/{name}` `{confirm, recursive}` → 202
 - **Cifrado nativo** (lote D; admin; audit sin claves NUNCA):
@@ -84,6 +85,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 ## Snapshots
 - `GET /api/snapshots?dataset=` → agrupado: `[{dataset, snaps:[{name, full, ts, used_bytes, kind:"auto"|"manual"}]}]`
 - `POST /api/snapshots` `{dataset, name, recursive}` → 201
+- `POST /api/snapshots/{full}/clone` (admin) `{target, mountpoint?}` → 201 `{name}`. `mountpoint` opcional, con la misma validación que la propiedad `mountpoint` (ver Datasets); fuera de lo permitido → 400 `invalid_input` con el motivo.
 - `DELETE /api/snapshots/{full}` `{confirm}` → 204 (`full` = `tank/docs@snap`, URL-encoded)
 - `POST /api/snapshots/{full}/rollback` `{confirm}` → 202
 

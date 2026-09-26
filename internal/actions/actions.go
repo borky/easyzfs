@@ -827,6 +827,13 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 	}
 	args := []string{"clone"}
 	if mountpoint != "" {
+		// Same check the properties endpoint applies to this very property
+		// (see props.go). Unvalidated, 'zfs clone -o mountpoint=/etc' mounts the
+		// clone over /etc as root on the next mount, shadowing sudoers, shadow
+		// and unit files.
+		if err := checkMountpoint(ctx, mountpoint, target); err != nil {
+			return err
+		}
 		args = append(args, "-o", "mountpoint="+mountpoint)
 	}
 	args = append(args, snapshotFull, target)

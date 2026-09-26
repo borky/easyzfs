@@ -169,6 +169,9 @@ func main() {
 	// Colectores (reales o mock) + providers para los handlers.
 	providers, cols := collectors.Build(cfg, database, h, alerter)
 
+	// Never let a dataset be mounted over the data dir: the root update unit
+	// installs whatever is in its update/ subdirectory.
+	actions.ProtectMountpoint(cfg.DataDir())
 	act := actions.NewService(database)
 	jobStore := scheduler.NewStore(database)
 	sched := scheduler.New(jobStore, act, h, providers.Disks.Disks)

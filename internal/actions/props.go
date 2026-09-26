@@ -9,10 +9,15 @@ package actions
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
 	"fmt"
+	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"easyzfs/internal/executil"
@@ -81,6 +86,198 @@ var reSize = regexp.MustCompile(`^[0-9]+([KMGTPE]i?B?)?$`)
 // sin ';' ni metacharacteres; también admite none|legacy).
 var reMountpoint = regexp.MustCompile(`^/[a-zA-Z0-9_./\-]+$`)
 
+// systemMountpoints — roots where mounting a dataset shadows binaries,
+// credentials, units or root-run scripts, leaving the system recoverable only
+// from a console. Both the root itself and anything below it are refused.
+// /var/lib/easyzfs and /opt/easyzfs are EasyZFS's own: the root update unit
+// installs whatever sits in <datadir>/update, and the optional weekly updater
+// runs a script from /opt/easyzfs as root. main adds the configured data dir
+// too, since DB_PATH can move it (see ProtectMountpoint).
+var systemMountpoints = []string{
+	"/etc", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/usr",
+	"/boot", "/dev", "/proc", "/sys", "/run", "/root",
+	"/var/spool/cron", "/var/lib/dpkg", "/var/lib/easyzfs", "/opt/easyzfs",
+}
+
+// exactMountpoints — refused as a mountpoint themselves, but mounting below
+// them is normal (/var/lib/docker, /var/log/archive…), so only the exact path
+// is denied. /home, /opt, /srv, /mnt and /tmp stay allowed entirely.
+var exactMountpoints = []string{"/var", "/var/lib", "/var/log"}
+
+// ProtectMountpoint adds a path, and everything below it, to the refused
+// mountpoints. main registers the configured data directory with it. A
+// relative path is made absolute, and when the path resolves through a
+// symlink both spellings are protected: mount(2) would follow the link.
+func ProtectMountpoint(p string) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return
+	}
+	add := func(q string) {
+		if q = path.Clean(q); strings.HasPrefix(q, "/") && q != "/" {
+			systemMountpoints = append(systemMountpoints, q)
+		}
+	}
+	add(abs)
+	if r, err := filepath.EvalSymlinks(abs); err == nil && r != abs {
+		add(r)
+	}
+}
+
+// deniedMountpoint reports whether an absolute, cleaned path is refused:
+// the root, an exact-only path, a protected root or anything below one, or an
+// ancestor of a protected root (mounting on /opt hides /opt/easyzfs just as
+// surely as mounting on /opt/easyzfs does).
+func deniedMountpoint(p string) bool {
+	if p == "/" {
+		return true
+	}
+	for _, e := range exactMountpoints {
+		if p == e {
+			return true
+		}
+	}
+	for _, sys := range systemMountpoints {
+		if p == sys || strings.HasPrefix(p, sys+"/") || strings.HasPrefix(sys, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// allowedMountRoots — besides the dataset's own pool tree (/<pool> and
+// below), the only places a dataset may be mounted explicitly, and only
+// strictly below them: /srv/<name>, /mnt/<name>… This is an allowlist on
+// purpose. A denylist of dangerous places kept missing some (/var/lib/dpkg,
+// ancestors such as /opt, links such as /var/run), and none of these trees is
+// where root-run code or credentials live.
+var allowedMountRoots = []string{"/mnt", "/media", "/srv", "/home"}
+
+// mountTrustedUID — the only owner a directory on the way to a mountpoint may
+// have. A test seam; root in production.
+var mountTrustedUID = 0
+
+// poolRootMountpoint returns where the pool's root dataset is mounted, or ""
+// if that cannot be read or is not a usable path. A pool is not always at
+// /<pool>: its root may carry mountpoint=/data, and its children then live
+// under /data. A variable so tests need no zfs.
+var poolRootMountpoint = func(ctx context.Context, pool string) string {
+	out, err := executil.Run(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "mountpoint", pool)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// poolTrees — the pool's own trees: /<pool>, and the root dataset's actual
+// mountpoint when it is elsewhere. A root mounted at "/" (or anything that is
+// not a plain absolute path, such as none or legacy) is ignored: it would put
+// the whole filesystem on the allowlist.
+func poolTrees(ctx context.Context, pool string) []string {
+	if pool == "" {
+		return nil
+	}
+	trees := []string{"/" + pool}
+	if mp := poolRootMountpoint(ctx, pool); reMountpoint.MatchString(mp) {
+		if mp = path.Clean(mp); mp != "/" && mp != "/"+pool {
+			trees = append(trees, mp)
+		}
+	}
+	return trees
+}
+
+// underAllowedRoot — the lexical allowlist check.
+func underAllowedRoot(p string, trees []string) bool {
+	for _, t := range trees {
+		if p == t || strings.HasPrefix(p, t+"/") {
+			return true
+		}
+	}
+	for _, r := range allowedMountRoots {
+		if strings.HasPrefix(p, r+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// trustedDir — owned by root and writable by nobody else. Anyone else who
+// can write to a directory on the way can swap the next component for a
+// symlink between this check and the moment root mounts (at set time or at
+// the next boot), and mount(2) would follow it. Same rule as sshd's
+// StrictModes.
+func trustedDir(dir string) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || !fi.IsDir() || int(st.Uid) != mountTrustedUID || fi.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("%s no es un directorio de root protegido contra escritura", dir)
+	}
+	return nil
+}
+
+// checkMountpointPath walks p from base down. Every directory it passes
+// through must be trusted, and no existing component may be a symlink. It
+// stops at the first component that does not exist yet: zfs will create the
+// rest as root, and the trusted parent means nobody else can get there first.
+// A component that cannot be inspected (EACCES for the service account) is
+// refused: root's mount would enter it all the same.
+func checkMountpointPath(base, p string) error {
+	cur := base
+	rel := strings.TrimPrefix(strings.TrimPrefix(p, base), "/")
+	for _, part := range strings.Split(rel, "/") {
+		if err := trustedDir(cur); err != nil {
+			return err
+		}
+		next := filepath.Join(cur, part)
+		fi, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("no se puede inspeccionar %s: %w", next, err)
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s es un enlace simbólico", next)
+		}
+		cur = next
+	}
+	return nil
+}
+
+// checkMountpoint — full validation of an explicit mountpoint for a dataset:
+// syntax, the allowlist, the system denylist (kept underneath as a second
+// layer: a pool may legally be named "etc"), and the path-trust walk. The
+// error says why, so the admin is not left guessing.
+//
+// Known limit: only an explicit mountpoint passes through here. One that is
+// inherited, e.g. by a dataset created beneath a root-on-ZFS dataset mounted
+// at /, does not.
+func checkMountpoint(ctx context.Context, v, dataset string) error {
+	if v == "none" || v == "legacy" {
+		return nil
+	}
+	if !reMountpoint.MatchString(v) {
+		return fmt.Errorf("%w: mountpoint no válido: %q", ErrInvalidInput, v)
+	}
+	clean := path.Clean(v)
+	pool, _, _ := strings.Cut(dataset, "/")
+	trees := poolTrees(ctx, pool)
+	if !underAllowedRoot(clean, trees) {
+		return fmt.Errorf("%w: mountpoint fuera de las rutas permitidas (%s, /mnt/…, /media/…, /srv/…, /home/…): %s",
+			ErrInvalidInput, strings.Join(trees, ", "), clean)
+	}
+	if deniedMountpoint(clean) {
+		return fmt.Errorf("%w: mountpoint en una ruta de sistema: %s", ErrInvalidInput, clean)
+	}
+	if err := checkMountpointPath("/", clean); err != nil {
+		return fmt.Errorf("%w: mountpoint no seguro: %v", ErrInvalidInput, err)
+	}
+	return nil
+}
+
 // valid — comprueba que el valor es admisible para la propiedad.
 func (p propSpec) valid(v string) bool {
 	switch p.kind {
@@ -105,6 +302,8 @@ func (p propSpec) valid(v string) bool {
 		}
 		return n&(n-1) == 0 // potencia de 2
 	case propPath:
+		// Syntax only: where it may point depends on the dataset's pool and
+		// on the filesystem, so DatasetPropSet calls checkMountpoint as well.
 		return v == "none" || v == "legacy" || reMountpoint.MatchString(v)
 	}
 	return false
@@ -170,7 +369,7 @@ func (p propSpec) describeKind() string {
 	case propSizePow2:
 		return fmt.Sprintf("potencia de 2 entre %d y %d bytes", p.minBytes, p.maxBytes)
 	case propPath:
-		return "ruta absoluta, none o legacy"
+		return "none, legacy, o una ruta bajo /<pool>, /mnt, /media, /srv o /home"
 	}
 	return "valor válido"
 }
@@ -216,6 +415,11 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 	}
 	if !spec.valid(value) {
 		return fmt.Errorf("%w: valor inválido para %s (%s)", ErrInvalidInput, property, spec.describeKind())
+	}
+	if spec.kind == propPath {
+		if err := checkMountpoint(ctx, value, name); err != nil {
+			return err
+		}
 	}
 	s.audit(ctx, actor, "dataset.setprop", name,
 		map[string]any{"property": property, "value": value}, false)
