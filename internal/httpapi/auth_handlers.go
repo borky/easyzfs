@@ -39,8 +39,9 @@ type loginAttempt struct {
 
 // loginLimiter agrupa los intentos por clave "IP|usuario".
 type loginLimiter struct {
-	mu  sync.Mutex
-	att map[string]*loginAttempt
+	mu        sync.Mutex
+	att       map[string]*loginAttempt
+	lastPurge time.Time // the purge scans the whole map, so it runs at most once per loginWindow
 }
 
 func newLoginLimiter() *loginLimiter {
@@ -56,11 +57,18 @@ func (l *loginLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 		l.att[key] = a
 	}
 	// higiene best-effort: purga de claves sin actividad reciente
-	if len(l.att) > 1024 {
+	if len(l.att) > 1024 && now.Sub(l.lastPurge) >= loginWindow {
+		l.lastPurge = now
 		for k, v := range l.att {
 			v.mu.Lock()
-			stale := now.Sub(v.lastSeen()) > loginBlockDuration &&
-				len(v.window) == 0 && v.failures == 0
+			// Stale means: not blocked, and idle for longer than a block lasts.
+			// This used to also require an empty window and zero failures, but
+			// the window is only pruned by allow() for that same key and every
+			// failed attempt leaves failures at 1, so a one-shot attempt under a
+			// fresh username could never be collected and the map grew without
+			// bound. Forgetting failures after this much idle time costs little:
+			// the lockout already allows ~10 guesses per block period.
+			stale := !now.Before(v.blockedTo) && now.Sub(v.lastSeen()) > loginBlockDuration
 			v.mu.Unlock()
 			if stale {
 				delete(l.att, k)
@@ -133,6 +141,22 @@ func (l *loginLimiter) failure(key string, now time.Time) {
 // ~64 MiB; el unit tiene MemoryMax=256M). Máximo 2 en vuelo.
 var argonSem = make(chan struct{}, 2)
 
+// loginQueue bounds how many logins may be in flight or waiting for argonSem.
+// argonSem alone caps concurrency but not the queue behind it, and the per-key
+// limiter bounds nothing for a single client: its key includes a username the
+// client chooses, so every fresh name is a fresh key with a fresh window, and
+// used to leave a map entry behind. Admission here comes first, so a flood is
+// refused before it can create limiter state or park goroutines.
+var loginQueue = make(chan struct{}, 32)
+
+// loginMaxUserLen — twice the longest username an account can have (users'
+// nameRe allows 32). The limiter's key embeds the username, and decodeJSON
+// accepts a 1 MiB body, so without this cap each fresh key could hold up to a
+// megabyte for the 15 minutes an idle key is kept: a flood at argon2's pace
+// would still exhaust a 256 MB service. Longer names cannot match an account,
+// so they are refused like any wrong credential, before any state is created.
+const loginMaxUserLen = 64
+
 // loginKey — clave del limiter: IP del cliente + usuario.
 func loginKey(r *http.Request, user string) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -151,6 +175,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.User) > loginMaxUserLen {
+		writeErr(w, http.StatusUnauthorized, "bad_credentials", "usuario o contraseña incorrectos")
+		return
+	}
+	select {
+	case loginQueue <- struct{}{}:
+		defer func() { <-loginQueue }()
+	default:
+		w.Header().Set("Retry-After", "1")
+		writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados inicios de sesión en curso; inténtalo de nuevo en unos segundos")
 		return
 	}
 	key := loginKey(r, body.User)

@@ -8,7 +8,7 @@ Acciones destructivas exigen `{"confirm":"<nombre exacto del objetivo>"}` en el 
 Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas: RFC3339 UTC.
 
 ## Auth y sesión
-- `POST /api/login` `{user, password}` → `{user:"admin", role:"admin"}` + cookie. 401 si credenciales mal. 429 `rate_limited` si se supera el límite (5 intentos/min por IP+usuario; bloqueo 15 min tras 10 fallos consecutivos).
+- `POST /api/login` `{user, password}` → `{user:"admin", role:"admin"}` + cookie. 401 si credenciales mal. 429 `rate_limited` si se supera el límite (5 intentos/min por IP+usuario; bloqueo 15 min tras 10 fallos consecutivos), o con `Retry-After: 1` si ya hay 32 logins en curso o esperando. Un `user` de más de 64 bytes (ninguna cuenta puede tenerlo) → 401 sin crear estado.
 - `POST /api/logout` → 204. Invalida la sesión.
 - `GET /api/me` → `{user, role}` o 401.
 - `POST /api/me/password` `{current, new}` → 204. Cierra el resto de sesiones del usuario.
