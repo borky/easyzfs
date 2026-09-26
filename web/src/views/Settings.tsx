@@ -102,7 +102,9 @@ function UpdateCheckRow({ version }: { version: string | undefined }) {
       const [st, plan] = await Promise.all([getProvider().checkUpdate(), getProvider().getUpdatePlan()]);
       setStatus(st);
       setPlan(plan);
-      setState(st.available ? 'available' : 'uptodate');
+      // A failed check still answers 200 with the cached status; an empty
+      // latest means no check has ever succeeded, which is not 'up to date'.
+      setState(st.available ? 'available' : st.latest ? 'uptodate' : 'error');
       refreshUpdateState(); // que el ribbon global se actualice tras el check manual
     } catch {
       setState('error');

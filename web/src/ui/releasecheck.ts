@@ -46,8 +46,13 @@ export function useReleaseCheck(_currentVersion: string | undefined, enabled: bo
               url: st.releaseUrl || RELEASES_URL,
               notes: st.releaseNotes || '',
             });
-          } else {
+          } else if (st && st.latest) {
             setState({ kind: 'uptodate' });
+          } else {
+            // An empty latest means no check has succeeded yet: at boot, with
+            // GitHub unreachable, or for good with EASYZFS_NO_UPDATE_CHECK.
+            // That is unknown, not up to date.
+            setState({ kind: 'unknown' });
           }
         })
         .catch(() => {

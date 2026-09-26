@@ -66,6 +66,12 @@ type Config struct {
 	// PoolMissingAfter — un pool conocido que no se ve en zpool list durante
 	// este tiempo dispara alerta crítica pool_missing (#136). En segundos.
 	PoolMissingAfter time.Duration // EASYZFS_POOL_MISSING_AFTER (def 300)
+
+	// NoUpdateCheck — EASYZFS_NO_UPDATE_CHECK=1 turns off the automatic release
+	// check against api.github.com (at boot, then every 24 h). It sends nothing
+	// but is still a recurring outbound call nobody opted into. A check the
+	// admin asks for from Settings still runs: that one is explicit.
+	NoUpdateCheck bool
 }
 
 // DataDir — directorio de datos del daemon (deriva de DB_PATH): ahí viven la
@@ -128,6 +134,8 @@ func Load() *Config {
 		ZpoolIdleInterval:  time.Duration(envInt("EASYZFS_ZPOOL_IDLE_INTERVAL", 300)) * time.Second,
 
 		PoolMissingAfter: time.Duration(envInt("EASYZFS_POOL_MISSING_AFTER", 300)) * time.Second,
+
+		NoUpdateCheck: envBool("EASYZFS_NO_UPDATE_CHECK"),
 	}
 	if cfg.Demo {
 		cfg.Mock = true // demo implica colectores mock

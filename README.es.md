@@ -272,6 +272,7 @@ El servicio lee `/etc/easyzfs/env`:
 | `EASYZFS_ZPOOL_INTERVAL` | `10` | Intervalo de recolección completa (segundos) con la web UI abierta |
 | `EASYZFS_ZPOOL_ALERT_INTERVAL` | `60` | Intervalo del heartbeat de salud/alertas (segundos) con la UI cerrada |
 | `EASYZFS_ZPOOL_IDLE_INTERVAL` | `300` | Intervalo de recolección completa (segundos) con la UI cerrada |
+| `EASYZFS_NO_UPDATE_CHECK` | - | `1` = el servicio no hace su propia comprobación de versión contra api.github.com (al arrancar y cada 24 h). La comprobación manual desde Ajustes sigue funcionando. No afecta al timer semanal de auto-actualización que puede instalar `deploy/install.sh` |
 | `VAPID_PUBLIC_KEY` | - | Clave pública Web Push (generada por el instalador) |
 | `VAPID_PRIVATE_KEY` | - | Clave privada Web Push (solo servidor; push desactivado si falta) |
 | `VAPID_SUBJECT` | `mailto:easyzfs@localhost` | Contacto VAPID (`mailto:`, requerido por Safari) |

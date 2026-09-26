@@ -190,7 +190,11 @@ func main() {
 	updaterSvc := updater.New(version, cfg.DataDir(), os.Getenv("GITHUB_TOKEN"))
 	// Chequeo inicial + ticker de 24 h: el estado se cachea y /api/update/status
 	// lo lee sin tocar GitHub (evita el rate-limit de la API, patrón NetPulse).
-	updaterSvc.Start(ctx)
+	if cfg.NoUpdateCheck {
+		log.Println("comprobación automática de actualizaciones desactivada (EASYZFS_NO_UPDATE_CHECK)")
+	} else {
+		updaterSvc.Start(ctx)
+	}
 
 	// Versión de OpenZFS del host (una vez, al arranque).
 	zfsVersion := "mock"

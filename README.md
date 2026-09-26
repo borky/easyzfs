@@ -266,6 +266,7 @@ The service reads `/etc/easyzfs/env`:
 | `EASYZFS_ZPOOL_INTERVAL` | `10` | Full collection interval (seconds) while the web UI is open |
 | `EASYZFS_ZPOOL_ALERT_INTERVAL` | `60` | Health/alert heartbeat interval (seconds) while the UI is closed |
 | `EASYZFS_ZPOOL_IDLE_INTERVAL` | `300` | Full collection interval (seconds) while the UI is closed |
+| `EASYZFS_NO_UPDATE_CHECK` | - | `1` = the service skips its own release check against api.github.com (at boot, then every 24 h). A manual check from Settings still works. Does not affect the separate weekly auto-update timer that `deploy/install.sh` can install |
 | `VAPID_PUBLIC_KEY` | - | Web Push public key (installer-generated) |
 | `VAPID_PRIVATE_KEY` | - | Web Push private key (server only; push disabled if missing) |
 | `VAPID_SUBJECT` | `mailto:easyzfs@localhost` | VAPID contact (`mailto:`, required by Safari) |
