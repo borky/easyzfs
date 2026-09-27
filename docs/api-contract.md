@@ -15,7 +15,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `POST /api/login` `{user, password}` → `{user:"admin", role:"admin"}` + cookie. 401 si credenciales mal. 429 `rate_limited` si se supera el límite (5 intentos/min por IP+usuario; bloqueo 15 min tras 10 fallos consecutivos), o con `Retry-After: 1` si ya hay 32 logins en curso o esperando. Un `user` de más de 64 bytes (ninguna cuenta puede tenerlo) → 401 sin crear estado.
 - `POST /api/logout` → 204. Invalida la sesión.
 - `GET /api/me` → `{user, role}` o 401.
-- `POST /api/me/password` `{current, new}` → 204. Cierra el resto de sesiones del usuario.
+- `POST /api/me/password` `{current, new}` → 204. Cierra el resto de sesiones del usuario. `current` incorrecta → 403 `bad_credentials` (no 401, que cerraría la sesión en el front); los fallos cuentan para el limitador del login (429 `rate_limited`).
 
 ## 2FA (TOTP) del propio usuario (#84)
 - `GET /api/me/2fa` → `{enabled:bool, recovery_remaining:int}`. Solo lectura: **nunca** regenera nada. Los recovery codes se guardan hasheados, así que no pueden volver a mostrarse; `recovery_remaining` es cuántos quedan sin gastar.

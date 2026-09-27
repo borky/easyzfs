@@ -133,3 +133,27 @@ func TestReauthHeadersOnBackupImport(t *testing.T) {
 		t.Fatalf("right password: %d %s, want the handler's 400 invalid_backup", w.Code, w.Body.String())
 	}
 }
+
+// Changing one's own password checks the current one under the login
+// limiter, and a wrong one is a 403 (a 401 would log the user out).
+func TestMyPasswordWrongCurrentIsLimited(t *testing.T) {
+	_, h, c := setupReauth(t)
+	try := func(cur string) int {
+		r := httptest.NewRequest("POST", "/api/me/password", strings.NewReader(`{"current":"`+cur+`","new":"another-password-123"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(c)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	if got := try("wrong-one"); got != http.StatusForbidden {
+		t.Fatalf("wrong current password: %d, want 403", got)
+	}
+	var last int
+	for i := 0; i < loginMaxPerMinute; i++ {
+		last = try("wrong-one")
+	}
+	if last != http.StatusTooManyRequests {
+		t.Fatalf("after %d wrong answers: %d, want 429", loginMaxPerMinute+1, last)
+	}
+}

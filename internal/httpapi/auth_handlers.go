@@ -405,14 +405,29 @@ func (s *Server) changeMyPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := auth.UserFromContext(r.Context())
+	// The login limiter applies here as in re-authentication: without it a
+	// hijacked session could guess the password through this form, at the
+	// generic rate guard's 30 tries a minute with no lockout. A correct
+	// answer is refunded; wrong ones count.
+	key, now := loginKey(r, user), time.Now()
+	if ok, retry := s.loginLimiter.allow(key, now); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+		writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados intentos; inténtalo más tarde")
+		return
+	}
 	// Mismo semáforo argon2 que en login: acota la memoria en verificaciones.
 	argonSem <- struct{}{}
 	_, err := s.users.Verify(r.Context(), user, body.Current)
 	<-argonSem
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "bad_credentials", "la contraseña actual no es correcta")
+		s.loginLimiter.failure(key, now)
+		// 403, not 401: the frontend treats any 401 as an expired session,
+		// so a mistyped current password logged the user out.
+		writeErr(w, http.StatusForbidden, "bad_credentials", "la contraseña actual no es correcta")
 		return
 	}
+	s.loginLimiter.success(key)
+	s.loginLimiter.refund(key, now)
 	if err := s.users.SetPassword(r.Context(), user, body.New); err != nil {
 		if errors.Is(err, users.ErrWeakPassword) {
 			writeErr(w, http.StatusBadRequest, "weak_password", err.Error())
