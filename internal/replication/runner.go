@@ -211,7 +211,7 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 		return fmt.Errorf("snapshot %s: %w", fullSnap, err)
 	}
 	incremental := j.LastBookmark != ""
-	op, err := r.ops.Start("replication", Target(j), "bash", "-c", r.pipeline(j, fullSnap, incremental))
+	op, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, incremental)...)
 	if err != nil {
 		return fmt.Errorf("lanzar replicación: %w", err)
 	}
@@ -237,7 +237,7 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 	if err := r.destroyDest(ctx, j); err != nil {
 		return fmt.Errorf("force_full: no se pudo destruir el destino: %w", err)
 	}
-	op2, err := r.ops.Start("replication", Target(j), "bash", "-c", r.pipeline(j, fullSnap, false))
+	op2, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, false)...)
 	if err != nil {
 		return fmt.Errorf("force_full: lanzar envío completo: %w", err)
 	}
@@ -291,31 +291,38 @@ func (r *Runner) prune(ctx context.Context, j *Job) {
 // destroyDest — 'zfs destroy -r' del destino (local o vía SSH) para force_full.
 func (r *Runner) destroyDest(ctx context.Context, j *Job) error {
 	if j.DestType == "ssh" {
+		// ssh as the service user, with its own key: under sudo it was both
+		// the wrong identity and not granted, so it could not run at all.
 		args := append(r.sshArgs(j), j.User+"@"+j.Host, "zfs", "destroy", "-r", j.DestDataset)
-		_, err := executil.Run(ctx, 120*time.Second, "ssh", args...)
+		_, err := executil.RunDirect(ctx, 120*time.Second, "ssh", args...)
 		return err
 	}
 	_, err := executil.Run(ctx, 120*time.Second, "zfs", "destroy", "-r", j.DestDataset)
 	return err
 }
 
-// pipeline — 'set -o pipefail; zfs send -v … | [ssh …] zfs recv -s <dest>'.
-// Todos los interpolados pasaron por las whitelists de Validate().
-func (r *Runner) pipeline(j *Job, fullSnap string, incremental bool) string {
-	send := "zfs send -v"
+// stages — 'zfs send -v … | [ssh …] zfs recv -s <dest>' as separate
+// processes joined by pipes (longops.StartPipeline). It used to be one
+// 'bash -c' string: safe only because every interpolated value passed the
+// whitelists in Validate(), and unusable without root, since sudoers grants
+// zfs but not bash. zfs runs through sudo; ssh runs as the service user.
+// ssh joins its remote arguments for the remote shell, as before; the dataset
+// name there is still whitelist-checked.
+func (r *Runner) stages(j *Job, fullSnap string, incremental bool) []longops.Stage {
+	send := []string{"send", "-v"}
 	if j.Raw {
-		send += " -w"
+		send = append(send, "-w")
 	}
 	if incremental {
-		send += " -i " + j.Source + "#" + BookmarkName
+		send = append(send, "-i", j.Source+"#"+BookmarkName)
 	}
-	send += " " + fullSnap
-	recv := "zfs recv -s " + j.DestDataset
+	send = append(send, fullSnap)
+	recv := longops.Stage{Name: "zfs", Args: []string{"recv", "-s", j.DestDataset}, Sudo: true}
 	if j.DestType == "ssh" {
-		recv = "ssh " + strings.Join(r.sshArgs(j), " ") + " " +
-			j.User + "@" + j.Host + " 'zfs recv -s " + j.DestDataset + "'"
+		args := append(r.sshArgs(j), j.User+"@"+j.Host, "zfs", "recv", "-s", j.DestDataset)
+		recv = longops.Stage{Name: "ssh", Args: args}
 	}
-	return "set -o pipefail; " + send + " | " + recv
+	return []longops.Stage{{Name: "zfs", Args: send, Sudo: true}, recv}
 }
 
 // waitOp espera a que la op termine (sondeo ligero; longops no tiene wait).
@@ -353,7 +360,7 @@ func (r *Runner) mockRun(ctx context.Context, j *Job) error {
 	fail := false
 	if j.DestType == "ssh" {
 		fail = true
-		script = fmt.Sprintf("echo '%s@%s: Permission denied (publickey).' ; sleep 2; exit 1", j.User, j.Host)
+		script = "echo 'Permission denied (publickey).'; sleep 2; exit 1"
 	} else {
 		script = "echo 'send: 412 MiB / 1,2 GiB (34 %)…'; sleep 2; echo 'send: 1,2 GiB / 1,2 GiB (100 %)…'; sleep 1"
 	}

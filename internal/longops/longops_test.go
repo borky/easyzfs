@@ -3,6 +3,7 @@
 package longops
 
 import (
+	"syscall"
 	"testing"
 	"time"
 
@@ -114,5 +115,53 @@ func TestListPurgesOld(t *testing.T) {
 	m.mu.Unlock()
 	if got := len(m.List()); got != 0 {
 		t.Errorf("List=%d entradas, esperaba 0 (purgada por TTL)", got)
+	}
+}
+
+// StartPipeline: stdout of one stage feeds the next with no shell between.
+func TestPipelineConnectsStages(t *testing.T) {
+	m := New(hub.NewHub())
+	op, err := m.StartPipeline("replication", "tank/a",
+		Stage{Name: "printf", Args: []string{"alpha\nbeta\n"}},
+		Stage{Name: "tr", Args: []string{"a-z", "A-Z"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	fin := waitStatus(t, m, op.ID, StatusDone)
+	if len(fin.Lines) != 2 || fin.Lines[0] != "ALPHA" || fin.Lines[1] != "BETA" {
+		t.Errorf("lines=%v, want [ALPHA BETA]", fin.Lines)
+	}
+}
+
+// Like 'set -o pipefail': a failing first stage fails the operation even
+// though the last one exits 0.
+func TestPipelineFailsWhenAnyStageFails(t *testing.T) {
+	m := New(hub.NewHub())
+	op, err := m.StartPipeline("replication", "tank/a",
+		Stage{Name: "false"},
+		Stage{Name: "cat"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	waitStatus(t, m, op.ID, StatusError)
+}
+
+// Cancel must kill every stage, not only the first.
+func TestPipelineCancelKillsAllStages(t *testing.T) {
+	m := New(hub.NewHub())
+	op, err := m.StartPipeline("replication", "tank/a",
+		Stage{Name: "sleep", Args: []string{"30"}},
+		Stage{Name: "sleep", Args: []string{"31"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := m.Cancel(op.ID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	waitStatus(t, m, op.ID, StatusCanceled)
+	for _, pid := range op.pids {
+		if syscall.Kill(pid, 0) == nil {
+			t.Errorf("stage pid %d still alive after cancel", pid)
+		}
 	}
 }

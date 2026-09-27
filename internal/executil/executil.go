@@ -183,6 +183,15 @@ func NewCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// NewCommandDirect — NewCommand without sudo, for a pipeline stage that must
+// run as the service user (ssh, which authenticates with the service's own
+// key and has no business running as root).
+func NewCommandDirect(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
+}
+
 // trimErr recorta stderr para mensajes de error legibles (máx. 200 chars).
 func trimErr(b []byte) string {
 	s := string(b)

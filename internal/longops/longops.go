@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -67,6 +68,7 @@ type Op struct {
 
 	cancel      context.CancelFunc `json:"-"`
 	canceledReq bool               `json:"-"` // Cancel() pidió matarla
+	pids        []int              // every stage of a pipeline (StartPipeline)
 }
 
 // Manager — registro en memoria + lanzamiento/cancelación de procesos.
@@ -99,7 +101,7 @@ func (m *Manager) Start(typ, target, name string, args ...string) (*Op, error) {
 	m.seq++
 	op := &Op{
 		ID:   fmt.Sprintf("op-%d-%d", time.Now().Unix(), m.seq),
-		Type: typ, Target: target, PID: cmd.Process.Pid,
+		Type: typ, Target: target, PID: cmd.Process.Pid, pids: []int{cmd.Process.Pid},
 		Started: time.Now().UTC(), Status: StatusRunning,
 		Lines: []string{}, cancel: cancel,
 	}
@@ -107,12 +109,96 @@ func (m *Manager) Start(typ, target, name string, args ...string) (*Op, error) {
 	m.mu.Unlock()
 	m.publish(op)
 
-	go m.watch(op, cmd, stdout)
+	go m.watch(op, []*exec.Cmd{cmd}, stdout, nil)
 	return op, nil
 }
 
+// Stage — one process of a pipeline. Sudo decides whether executil prepends
+// 'sudo -n' (zfs) or runs it as the service user (ssh).
+type Stage struct {
+	Name string
+	Args []string
+	Sudo bool
+}
+
+// StartPipeline runs stages connected stdout→stdin by OS pipes, with no shell
+// in between: nothing is parsed, so nothing can be injected, and each stage
+// can run with or without sudo. The stderr of every stage and the stdout of
+// the last one are captured as the operation's lines. The operation fails if
+// any stage fails, like 'set -o pipefail'. Cancel kills every stage.
+func (m *Manager) StartPipeline(typ, target string, stages ...Stage) (*Op, error) {
+	if len(stages) == 0 {
+		return nil, errors.New("pipeline vacío")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	cmds := make([]*exec.Cmd, len(stages))
+	var links []*os.File // parent's copies of the inter-stage pipe ends
+	for i, st := range stages {
+		if st.Sudo {
+			cmds[i] = executil.NewCommand(ctx, st.Name, st.Args...)
+		} else {
+			cmds[i] = executil.NewCommandDirect(ctx, st.Name, st.Args...)
+		}
+		cmds[i].Stderr = outW
+		if i > 0 {
+			pr, pw, err := os.Pipe()
+			if err != nil {
+				cancel()
+				closeAll(append(links, outR, outW))
+				return nil, err
+			}
+			cmds[i-1].Stdout = pw
+			cmds[i].Stdin = pr
+			links = append(links, pr, pw)
+		}
+	}
+	cmds[len(cmds)-1].Stdout = outW
+	var pids []int
+	for i, c := range cmds {
+		if err := c.Start(); err != nil {
+			cancel()
+			for _, started := range cmds[:i] {
+				_ = syscall.Kill(-started.Process.Pid, syscall.SIGKILL)
+				_ = started.Wait()
+			}
+			closeAll(append(links, outR, outW))
+			return nil, fmt.Errorf("lanzar %s: %w", stages[i].Name, err)
+		}
+		pids = append(pids, c.Process.Pid)
+	}
+	// The children hold their own copies now. Closing the parent's lets each
+	// reader see EOF when its writer exits, and the capture end when all have.
+	closeAll(append(links, outW))
+
+	m.mu.Lock()
+	m.seq++
+	op := &Op{
+		ID:   fmt.Sprintf("op-%d-%d", time.Now().Unix(), m.seq),
+		Type: typ, Target: target, PID: pids[0], pids: pids,
+		Started: time.Now().UTC(), Status: StatusRunning,
+		Lines: []string{}, cancel: cancel,
+	}
+	m.ops = append([]*Op{op}, m.ops...)
+	m.mu.Unlock()
+	m.publish(op)
+
+	go m.watch(op, cmds, outR, outR)
+	return op, nil
+}
+
+func closeAll(fs []*os.File) {
+	for _, f := range fs {
+		_ = f.Close()
+	}
+}
+
 // watch consume la salida línea a línea y cierra el ciclo de vida de la op.
-func (m *Manager) watch(op *Op, cmd *exec.Cmd, stdout io.Reader) {
+func (m *Manager) watch(op *Op, cmds []*exec.Cmd, stdout io.Reader, closeAfter io.Closer) {
 	scanDone := make(chan struct{})
 	go func() {
 		defer close(scanDone)
@@ -127,7 +213,16 @@ func (m *Manager) watch(op *Op, cmd *exec.Cmd, stdout io.Reader) {
 	// the operation done with its last output missing (os/exec documents
 	// this ordering; it reproduced under load, 4 failures in 40 runs).
 	<-scanDone
-	err := cmd.Wait()
+	if closeAfter != nil {
+		_ = closeAfter.Close()
+	}
+	// Every stage is waited for; the first failure is the operation's error.
+	var err error
+	for _, c := range cmds {
+		if werr := c.Wait(); werr != nil && err == nil {
+			err = werr
+		}
+	}
 	ended := time.Now().UTC()
 	m.mu.Lock()
 	op.Ended = &ended
@@ -237,7 +332,13 @@ func (m *Manager) Cancel(id string) error {
 	// cancel() solo mata el líder (bash/sudo); con Setpgid=true en
 	// executil.NewCommand, Kill(-pgid) alcanza a todos los hijos del
 	// pipeline (zfs send, ssh, etc.). Ignoramos ESRCH (ya murió solo).
-	_ = syscall.Kill(-op.PID, syscall.SIGKILL)
+	pids := op.pids
+	if len(pids) == 0 {
+		pids = []int{op.PID}
+	}
+	for _, pid := range pids {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
 	cancel()
 	return nil
 }

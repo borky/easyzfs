@@ -105,7 +105,8 @@ func (r *Runner) TestConnection(ctx context.Context, host, user string, port int
 	}
 	j := &Job{Host: host, User: user, Port: port}
 	args := append(r.sshArgs(j), user+"@"+host, "zfs", "version")
-	out, err := executil.Run(ctx, 20*time.Second, "ssh", args...)
+	// As the service user: its key lives in the data dir; sudo does not grant ssh.
+	out, err := executil.RunDirect(ctx, 20*time.Second, "ssh", args...)
 	if err != nil {
 		return "", classifySSHError(err)
 	}

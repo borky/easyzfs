@@ -131,10 +131,12 @@ case "$SSH_MODE" in
     echo "Permission denied (publickey)." >&2
     exit 255 ;;
 esac
+# The remote command now arrives as separate arguments, not one string.
 case "$last" in
   version) echo "zfs-2.2.6-1"; echo "zfs-kmod-2.2.6-1" ;;
+esac
+case "$*" in
   *"zfs recv"*) cat > /dev/null ;;
-  *"zfs destroy"*) : ;;
 esac
 exit 0
 `
@@ -427,4 +429,36 @@ func TestRunNowPreventsDoubleExecution(t *testing.T) {
 	if err := r.RunNow(context.Background(), id); err != nil {
 		t.Fatalf("RunNow tras completarse la primera ejecución: %v", err)
 	}
+}
+
+// The pipeline is separate processes, never a shell: zfs through sudo, ssh as
+// the service user (sudo does not grant ssh, and its key is the service's).
+func TestStagesNoShell(t *testing.T) {
+	r := &Runner{dataDir: t.TempDir()}
+	for _, j := range []*Job{localJob(), sshJob()} {
+		st := r.stages(j, j.Source+"@ezrepl-x", true)
+		if len(st) != 2 {
+			t.Fatalf("%s: %d stages, want 2", j.DestType, len(st))
+		}
+		for _, s := range st {
+			if s.Name == "bash" || s.Name == "sh" {
+				t.Fatalf("%s: a shell stage: %+v", j.DestType, s)
+			}
+		}
+		if st[0].Name != "zfs" || !st[0].Sudo || st[0].Args[0] != "send" {
+			t.Errorf("%s: send stage %+v", j.DestType, st[0])
+		}
+		if j.DestType == "ssh" {
+			if st[1].Name != "ssh" || st[1].Sudo {
+				t.Errorf("ssh stage must run as the service user: %+v", st[1])
+			}
+		} else if st[1].Name != "zfs" || !st[1].Sudo || st[1].Args[0] != "recv" {
+			t.Errorf("local recv stage %+v", st[1])
+		}
+	}
+}
+
+func sshJob() *Job {
+	return &Job{Source: "tank/a", DestType: "ssh", DestDataset: "bak/a",
+		Host: "backup.example", User: "repl", Port: 22, Schedule: "daily@03:00"}
 }
