@@ -274,6 +274,8 @@ cmd_cron_to_timer() { # cron-to-timer <fichero> <línea> <nombre>
   # finds the programs, and User= (always written, root included) makes
   # systemd set HOME, USER, LOGNAME and SHELL as cron does. Without it a
   # root job saw an empty $HOME, found by running a migrated unit.
+  # WorkingDirectory=~ is that user's home, where cron starts jobs; systemd
+  # starts them in /, which changed any relative path in the command.
   local shell path
   shell="$(cron_env "$f" "$n" SHELL /bin/sh)"
   path="$(cron_env "$f" "$n" PATH /usr/bin:/bin)"
@@ -287,6 +289,7 @@ Description=$name (migrado de cron por EasyZFS)
 [Service]
 Type=oneshot
 User=$user
+WorkingDirectory=~
 Environment="PATH=$path"
 ExecStart=$shell -c "$cmd"
 EOF

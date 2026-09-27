@@ -45,7 +45,8 @@ func TestCronToTimerRunsThroughTheShell(t *testing.T) {
 		t.Fatalf("conversion failed: %s", errOut)
 	}
 	for _, want := range []string{
-		"User=root\n", // always written: systemd then sets HOME/LOGNAME as cron does
+		"User=root\n",          // always written: systemd then sets HOME/LOGNAME as cron does
+		"WorkingDirectory=~\n", // cron runs jobs in the user's home, systemd in /
 		"Environment=\"PATH=/usr/bin:/bin\"\n",
 		`ExecStart=/bin/sh -c "echo \"a  b\" | tr a-z A-Z > /tmp/o; echo \"$$HOME x%%y\" >> /tmp/o"` + "\n",
 	} {
