@@ -164,6 +164,43 @@ special_to_oncalendar() {
   esac
 }
 
+# valid_unix_user — the cron user field, written into User=.
+valid_unix_user() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "usuario no válido en la línea cron: $1"
+}
+
+# cron_env <file> <line> <VAR> <default> — the value cron gives VAR for the
+# job on that line: the last 'VAR=value' assignment above it, or cron's
+# default. Refused if the value has characters it has no business having.
+cron_env() {
+  local f="$1" n="$2" var="$3" def="$4" v
+  v="$(head -n "$((n - 1))" "$f" | sed -nE "s/^[[:space:]]*${var}[[:space:]]*=[[:space:]]*//p" | tail -1)"
+  v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+  [ -n "$v" ] || v="$def"
+  [[ "$v" =~ ^[A-Za-z0-9._/:-]+$ ]] || die "$var='$v' en $f: valor no admitido para migrar"
+  printf '%s' "$v"
+}
+
+# cron_cmd_to_execstart <cron command> — the command, escaped for a
+# double-quoted argument of 'ExecStart=<shell> -c "…"'. cron runs a job's
+# command through its SHELL; systemd's ExecStart uses no shell, so pipes,
+# redirects, '&&' and variables must go through '-c' to mean the same.
+# Refuses an unescaped '%', which in cron ends the command and turns the
+# rest into the job's stdin; '\%' is a literal '%' and is converted as such.
+cron_cmd_to_execstart() {
+  local c="$1"
+  local probe="${c//\\%/}"
+  case "$probe" in
+    *%*) die "el comando usa '%' sin escapar (en cron es un salto de línea y lo que sigue va a stdin): migración no automática" ;;
+  esac
+  c="${c//\\%/%}"   # cron's escaped '%' is a literal '%'
+  c="${c//\\/\\\\}" # then escape for a systemd double-quoted word…
+  c="${c//\"/\\\"}"
+  c="${c//\$/\$\$}" # …where '$' starts a variable…
+  c="${c//%/%%}"    # …and '%' a specifier.
+  printf '%s' "$c"
+}
+
 # --- operaciones ---
 
 cmd_cron_set() { # cron-set <fichero> <línea> <schedule>
@@ -215,23 +252,32 @@ cmd_cron_to_timer() { # cron-to-timer <fichero> <línea> <nombre>
   [ ! -e "$SYSTEMD_DIR/easyzfs-${name}.service" ] || die "ya existe easyzfs-${name}.service"
 
   local line; line="$(sed -n "${n}p" "$f" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  local sched user cmd
+  local sched user cmd rest
+  # Fields are split on runs of blanks, as cron does. 'cut -d" "' counted
+  # single spaces, so a line with two spaces between fields yielded the
+  # wrong command.
   if [[ "$line" == @* ]]; then
-    sched="$(echo "$line" | awk '{print $1}')"
-    sched="$(special_to_oncalendar "$sched")"
-    cmd="$(echo "$line" | cut -d' ' -f2-)"
+    sched="$(special_to_oncalendar "$(awk '{print $1}' <<<"$line")")"
+    rest="$(sed -E 's/^[^[:space:]]+[[:space:]]+//' <<<"$line")"
   else
-    local fields; fields="$(echo "$line" | awk '{print $1" "$2" "$3" "$4" "$5}')"
-    sched="$(cron_to_oncalendar "$fields")"
-    cmd="$(echo "$line" | cut -d' ' -f6-)"
+    sched="$(cron_to_oncalendar "$(awk '{print $1" "$2" "$3" "$4" "$5}' <<<"$line")")"
+    rest="$(sed -E 's/^([^[:space:]]+[[:space:]]+){5}//' <<<"$line")"
   fi
   # los ficheros permitidos (/etc/crontab, /etc/cron.d/*) siempre llevan
   # campo de usuario entre schedule y comando
-  user="$(echo "$cmd" | awk '{print $1}')"
-  cmd="$(echo "$cmd" | cut -d' ' -f2-)"
-  [ "$user" = "root" ] && user=""
-  [ -n "$cmd" ] || die "comando vacío en la línea $n"
-  cmd="${cmd//%/%%}" # % es newline en cron y especificador en systemd
+  user="$(awk '{print $1}' <<<"$rest")"
+  cmd="$(sed -E 's/^[^[:space:]]+[[:space:]]+//' <<<"$rest")"
+  [ -n "$cmd" ] && [ "$cmd" != "$rest" ] || die "comando vacío en la línea $n"
+  valid_unix_user "$user"
+  cmd="$(cron_cmd_to_execstart "$cmd")"
+  # The environment cron gives the job: its SHELL runs the command, its PATH
+  # finds the programs, and User= (always written, root included) makes
+  # systemd set HOME, USER, LOGNAME and SHELL as cron does. Without it a
+  # root job saw an empty $HOME, found by running a migrated unit.
+  local shell path
+  shell="$(cron_env "$f" "$n" SHELL /bin/sh)"
+  path="$(cron_env "$f" "$n" PATH /usr/bin:/bin)"
+  [ -x "${ROOT}${shell}" ] || [ -n "$ROOT" ] || die "SHELL=$shell no existe o no es ejecutable"
 
   atomic_write "$SYSTEMD_DIR/easyzfs-${name}.service" <<EOF
 # Migrado desde cron por EasyZFS ($f línea $n; línea original comentada).
@@ -240,8 +286,9 @@ Description=$name (migrado de cron por EasyZFS)
 
 [Service]
 Type=oneshot
-${user:+User=$user}
-ExecStart=$cmd
+User=$user
+Environment="PATH=$path"
+ExecStart=$shell -c "$cmd"
 EOF
   atomic_write "$SYSTEMD_DIR/easyzfs-${name}.timer" <<EOF
 # Migrado desde cron por EasyZFS.
