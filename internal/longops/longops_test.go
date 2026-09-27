@@ -165,3 +165,29 @@ func TestPipelineCancelKillsAllStages(t *testing.T) {
 		}
 	}
 }
+
+// Cancel sends SIGTERM, which sudo relays to a command running as root (it
+// cannot relay SIGKILL, being killed by it); and an operation that still
+// exits cleanly is reported done, not canceled.
+func TestCancelSendsTermAndReportsObservedExit(t *testing.T) {
+	m := New(hub.NewHub())
+	op, err := m.Start("rewrite", "tank/docs", "sh", "-c", `trap 'echo got-term; exit 0' TERM; echo ready; sleep 30 & wait`)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		cur, _ := m.Get(op.ID)
+		if len(cur.Lines) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := m.Cancel(op.ID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	fin := waitStatus(t, m, op.ID, StatusDone)
+	if len(fin.Lines) < 2 || fin.Lines[1] != "got-term" {
+		t.Errorf("lines=%v, want the command to have received SIGTERM", fin.Lines)
+	}
+}

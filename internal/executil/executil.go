@@ -178,17 +178,32 @@ func NewCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 		args = append([]string{"-n", name}, args...)
 		name = "sudo"
 	}
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return cmd
+	return groupCommand(ctx, name, args...)
 }
 
 // NewCommandDirect — NewCommand without sudo, for a pipeline stage that must
 // run as the service user (ssh, which authenticates with the service's own
 // key and has no business running as root).
 func NewCommandDirect(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return groupCommand(ctx, name, args...)
+}
+
+// TermGrace — how long a long-lived command gets to exit after SIGTERM before
+// it is killed outright.
+const TermGrace = 10 * time.Second
+
+// groupCommand — a command leading its own process group, stopped with
+// SIGTERM to the group when ctx ends. exec.CommandContext's default is
+// SIGKILL to the leader, and when the leader is sudo that kills sudo alone:
+// the command it ran keeps root's uid, so the service may not signal it, and
+// it went on running orphaned (reproduced on Proxmox VE 8.4 with sudo
+// 1.9.13). sudo relays SIGTERM to its command and exits with it. After
+// TermGrace, Go kills the leader and stops waiting.
+func groupCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+	cmd.WaitDelay = TermGrace
 	return cmd
 }
 

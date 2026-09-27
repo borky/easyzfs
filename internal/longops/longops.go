@@ -163,7 +163,7 @@ func (m *Manager) StartPipeline(typ, target string, stages ...Stage) (*Op, error
 		if err := c.Start(); err != nil {
 			cancel()
 			for _, started := range cmds[:i] {
-				_ = syscall.Kill(-started.Process.Pid, syscall.SIGKILL)
+				_ = syscall.Kill(-started.Process.Pid, syscall.SIGTERM)
 				_ = started.Wait()
 			}
 			closeAll(append(links, outR, outW))
@@ -218,18 +218,29 @@ func (m *Manager) watch(op *Op, cmds []*exec.Cmd, stdout io.Reader, closeAfter i
 	}
 	// Every stage is waited for; the first failure is the operation's error.
 	var err error
+	allOK := true // every stage exited 0, whatever Wait said about the context
 	for _, c := range cmds {
 		if werr := c.Wait(); werr != nil && err == nil {
 			err = werr
+		}
+		if c.ProcessState == nil || !c.ProcessState.Success() {
+			allOK = false
 		}
 	}
 	ended := time.Now().UTC()
 	m.mu.Lock()
 	op.Ended = &ended
 	switch {
+	case op.canceledReq && allOK:
+		// Completed despite the request (the signal came too late, or never
+		// reached a command running as root): it is done, and says so. Wait
+		// returns the cancelled context's error even for a clean exit, so
+		// this reads the exit status itself. Reporting it as canceled made
+		// replication skip moving its bookmark after a finished transfer.
+		op.Status = StatusDone
 	case op.canceledReq:
-		// La cancelación mata con SIGKILL ("signal: killed"), no con un error
-		// de contexto: el estado lo decide la petición de cancelación.
+		// A cancelled command dies of a signal, not a context error, so the
+		// request decides the status.
 		op.Status = StatusCanceled
 	case err != nil:
 		op.Status = StatusError
@@ -332,14 +343,29 @@ func (m *Manager) Cancel(id string) error {
 	// cancel() solo mata el líder (bash/sudo); con Setpgid=true en
 	// executil.NewCommand, Kill(-pgid) alcanza a todos los hijos del
 	// pipeline (zfs send, ssh, etc.). Ignoramos ESRCH (ya murió solo).
+	// SIGTERM, not SIGKILL: a stage run through sudo has a child with root's
+	// uid that the service cannot signal; sudo relays SIGTERM to it, while
+	// SIGKILL killed sudo alone and left zfs send/recv running as root.
+	// SIGKILL follows after the grace period for whatever did not stop.
 	pids := op.pids
 	if len(pids) == 0 {
 		pids = []int{op.PID}
 	}
 	for _, pid := range pids {
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
 	}
 	cancel()
+	time.AfterFunc(executil.TermGrace, func() {
+		m.mu.Lock()
+		ended := op.Ended != nil
+		m.mu.Unlock()
+		if ended { // the group is gone and its id may already be reused
+			return
+		}
+		for _, pid := range pids {
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+		}
+	})
 	return nil
 }
 
