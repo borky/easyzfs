@@ -30,14 +30,14 @@ func (s *Server) requireReauth(next http.HandlerFunc) http.HandlerFunc {
 
 // requireReauthIf asks only when pred says the request is destructive (e.g. a
 // replication job with force_full, which can wipe its destination). pred gets
-// the request body decoded as a JSON object.
+// the raw request body.
 //
 // Answers are 403, never 401: the frontend treats any 401 as an expired
 // session and logs the user out. Wrong passwords and codes count toward the
 // login limiter, so the prompt cannot be used to guess the password from a
 // hijacked session. Recovery codes are not accepted here: each confirmation
 // would burn one.
-func (s *Server) requireReauthIf(pred func(map[string]any) bool, next http.HandlerFunc) http.HandlerFunc {
+func (s *Server) requireReauthIf(pred func([]byte) bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Demo { // every mutation is refused in demo mode anyway
 			next(w, r)
@@ -67,9 +67,7 @@ func (s *Server) requireReauthIf(pred func(map[string]any) bool, next http.Handl
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			r.ContentLength = int64(len(body))
 			if pred != nil {
-				var raw map[string]any
-				_ = json.Unmarshal(body, &raw)
-				if !pred(raw) {
+				if !pred(body) {
 					next(w, r)
 					return
 				}
@@ -121,8 +119,17 @@ func (s *Server) requireReauthIf(pred func(map[string]any) bool, next http.Handl
 }
 
 // forceFull — the replication predicate: only a job that may destroy its
-// destination to start over needs the password.
-func forceFull(raw map[string]any) bool {
-	v, _ := raw["force_full"].(bool)
-	return v
+// destination to start over needs the password. It decodes exactly as the
+// handler's decodeJSON does (json.Decoder: case-insensitive keys, first value
+// only). A map lookup did not: {"FORCE_FULL":true}, or a valid object with
+// trailing bytes, read as false here and as true in the handler. Anything it
+// cannot decode asks for the password.
+func forceFull(body []byte) bool {
+	var v struct {
+		ForceFull *bool `json:"force_full"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&v); err != nil {
+		return true
+	}
+	return v.ForceFull != nil && *v.ForceFull
 }

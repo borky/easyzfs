@@ -74,8 +74,17 @@ func TestReauthWithTwoFactor(t *testing.T) {
 }
 
 func TestForceFullPredicate(t *testing.T) {
-	if !forceFull(map[string]any{"force_full": true}) || forceFull(map[string]any{"force_full": false}) || forceFull(nil) {
-		t.Fatal("forceFull must be true only for force_full=true")
+	for body, want := range map[string]bool{
+		`{"force_full":true}`:       true,
+		`{"FORCE_FULL":true}`:       true, // json.Decoder matches keys case-insensitively, as the handler does
+		`{"force_full":true} x`:     true, // the handler reads only the first value
+		`not json`:                  true, // undecidable: ask
+		`{"force_full":false}`:      false,
+		`{"name":"job","raw":true}`: false,
+	} {
+		if got := forceFull([]byte(body)); got != want {
+			t.Errorf("forceFull(%s) = %v, want %v", body, got, want)
+		}
 	}
 }
 

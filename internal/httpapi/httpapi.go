@@ -153,7 +153,9 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("POST /api/me/2fa/recovery", s.my2FARecovery)
 	// usuarios (admin)
 	a.HandleFunc("GET /api/users", s.auth.RequireAdmin(s.listUsers))
-	a.HandleFunc("POST /api/users", s.auth.RequireAdmin(s.createUser))
+	// A new admin account is a way past every later confirmation: a hijacked
+	// session would answer them with a password it chose.
+	a.HandleFunc("POST /api/users", s.auth.RequireAdmin(s.requireReauth(s.createUser)))
 	// Irreversible operations below go through requireReauth (reauth.go):
 	// the password again, and the TOTP code when 2FA is on.
 	a.HandleFunc("DELETE /api/users/{name}", s.auth.RequireAdmin(s.requireReauth(s.deleteUser)))
@@ -162,7 +164,7 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("DELETE /api/users/{name}/2fa", s.auth.RequireAdmin(s.requireReauth(s.admin2FADisable)))
 	// API keys de solo lectura (admin, #87)
 	a.HandleFunc("GET /api/keys", s.auth.RequireAdmin(s.listAPIKeys))
-	a.HandleFunc("POST /api/keys", s.auth.RequireAdmin(s.createAPIKey))
+	a.HandleFunc("POST /api/keys", s.auth.RequireAdmin(s.requireReauth(s.createAPIKey)))
 	a.HandleFunc("DELETE /api/keys/{id}", s.auth.RequireAdmin(s.deleteAPIKey))
 	// sistema
 	a.HandleFunc("GET /api/version", s.getVersion)
