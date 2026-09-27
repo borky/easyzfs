@@ -327,14 +327,24 @@ func (r *Runner) stages(j *Job, fullSnap string, incremental bool) []longops.Sta
 
 // waitOp espera a que la op termine (sondeo ligero; longops no tiene wait).
 func (r *Runner) waitOp(ctx context.Context, id string) longops.Op {
+	// Once ctx is done its channel stays ready: cancelling on every pass
+	// spun this loop, each pass sending SIGTERM and arming another delayed
+	// SIGKILL. Cancel once, then keep polling at the normal pace.
+	done := ctx.Done()
+	t := time.NewTicker(300 * time.Millisecond)
+	defer t.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-done:
 			_ = r.ops.Cancel(id)
-		case <-time.After(300 * time.Millisecond):
+			done = nil
+		case <-t.C:
 		}
 		op, err := r.ops.Get(id)
-		if err == nil && op.Status != longops.StatusRunning {
+		if err != nil { // purged or never known: nothing left to wait for
+			return longops.Op{ID: id, Status: longops.StatusError, Error: err.Error()}
+		}
+		if op.Status != longops.StatusRunning {
 			return op
 		}
 	}

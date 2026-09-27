@@ -157,8 +157,18 @@ func (c *EventsCollector) follow(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
-		_ = cmd.Process.Kill()
-		<-done
+		// The context's end already sent SIGTERM to the process group
+		// (executil), which sudo relays to the root zpool. A SIGKILL here used
+		// to race it: sudo died first, the root child survived holding the
+		// pipe open, the scanner never saw EOF and shutdown hung until
+		// systemd's stop timeout. If the group has not gone after the grace
+		// period, close our end so the reader, and so Wait, can return.
+		select {
+		case <-done:
+		case <-time.After(executil.TermGrace):
+			_ = stdout.Close()
+			<-done
+		}
 		return ctx.Err()
 	case err := <-done:
 		return err
