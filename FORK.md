@@ -42,7 +42,7 @@ diff /tmp/ez-before /tmp/ez-after
 - `landing/` is the marketing site and is never embedded in the binary; its
   trackers do not reach the NAS.
 
-Then `go vet ./... && go test -race ./...`, `cd web && npx tsc --noEmit &&
+Then `go vet ./... && go test -race ./...`, `cd web && npx tsc -b --noEmit &&
 npm run build`, and only then push.
 
 ## Fork-only patches

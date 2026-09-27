@@ -46,5 +46,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - run: npx tsc --noEmit
+      # -b: tsconfig.json has "files": [] and only references the real
+      # configs, so a plain 'tsc --noEmit' type-checks nothing at all.
+      - run: npx tsc -b --noEmit
       - run: npm run build

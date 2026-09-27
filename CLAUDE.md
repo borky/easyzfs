@@ -35,7 +35,7 @@ staticcheck ./...              # CI uses honnef.co/go/tools @2026.1
 make build                     # web (npm ci + vite) → dist/ → static binary
 make web / make go             # the two halves separately
 make install / make update     # fork: install or update this machine from the checkout (see FORK.md)
-cd web && npx tsc --noEmit     # CI typecheck
+cd web && npx tsc -b --noEmit  # typecheck; plain 'tsc --noEmit' checks NOTHING (tsconfig.json has "files": [])
 cd web && npm run dev          # Vite dev server, proxies /api → localhost:8080
 ```
 
