@@ -354,8 +354,14 @@ func (s *Service) PowerOff(ctx context.Context, actor, dev string) error {
 	}
 	// Re-checked live: the handler's check reads the cached pool list, and a
 	// disk mounted, swapped on or given to a pool since then must stay up.
-	if err := requireFreeDisk(ctx, dev); err != nil {
+	// Only active use counts (DiskActiveUse): powering off an exported
+	// pool's disk is how it gets removed.
+	reason, err := DiskActiveUse(ctx, dev)
+	if err != nil {
 		return err
+	}
+	if reason != "" {
+		return fmt.Errorf("%w: %s", ErrDiskInUse, reason)
 	}
 	s.audit(ctx, actor, "disk.poweroff", dev, nil, false)
 	if _, err := executil.Run(ctx, 15*time.Second, "udisksctl", "power-off", "-b", "/dev/"+dev); err == nil {
@@ -462,12 +468,17 @@ func (s *Service) Replace(ctx context.Context, actor, pool, oldDev, newDev strin
 	if !reDev.MatchString(oldDev) || !validNewDev(newDev) {
 		return ErrInvalidDev
 	}
-	// The new disk must hold nothing, checked live. Replacing a disk with
-	// itself (after it was wiped or reseated) is ZFS's own business.
-	if kernelName(newDev) != kernelName(oldDev) {
-		if err := requireFreeDisk(ctx, newDev); err != nil {
-			return err
-		}
+	// The new disk must hold nothing, checked live. When both names resolve
+	// to the same device (a disk replaced by itself after being wiped or
+	// reseated, or a new disk in the failed one's bay) it may carry this
+	// pool's own label, nothing else: 'sdX' letters move across reboots
+	// (#65), so the same name can be a different disk holding data.
+	ownPool := ""
+	if kernelName(newDev) == kernelName(oldDev) {
+		ownPool = pool
+	}
+	if err := requireFreeDiskFor(ctx, newDev, ownPool); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "pool.replace", pool,
 		map[string]any{"old_dev": oldDev, "new_dev": newDev}, confirmed)
