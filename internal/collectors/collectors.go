@@ -54,6 +54,7 @@ type Providers struct {
 	SysTimers SysTimerProvider
 	Perf      PerfProvider
 	Caps      CapProvider
+	DiskUse   DiskUseProvider
 }
 
 // Build construye colectores reales o el mock (MOCK=1 / DEMO=1).
@@ -61,7 +62,7 @@ func Build(cfg *config.Config, d *sql.DB, h *hub.Hub, al *alerts.Alerter) (*Prov
 	mant := NewMantenimiento(d, cfg.RetentionDays)
 	if cfg.Mock {
 		m := NewMock(h, al)
-		return &Providers{Pools: m, Disks: m, SysTimers: m, Perf: m, Caps: m}, []Collector{m, mant}
+		return &Providers{Pools: m, Disks: m, SysTimers: m, Perf: m, Caps: m, DiskUse: noDiskUse{}}, []Collector{m, mant}
 	}
 	zc := NewZpoolCollector(d, h, al, cfg.ZpoolInterval, cfg.ZpoolAlertInterval, cfg.ZpoolIdleInterval, h.SubscriberCount)
 	sc := NewSensorsCollector(h)
@@ -72,8 +73,9 @@ func Build(cfg *config.Config, d *sql.DB, h *hub.Hub, al *alerts.Alerter) (*Prov
 	// Eventos ZFS en tiempo real ('zpool events -f'); si no está disponible se
 	// desactiva solo tras el log y el polling queda como red de seguridad.
 	ec := NewEventsCollector(al)
-	return &Providers{Pools: zc, Disks: smc, SysTimers: ssc, Perf: pc, Caps: cc},
-		[]Collector{zc, sc, smc, ssc, pc, cc, ec, mant}
+	du := NewDiskUseCollector()
+	return &Providers{Pools: zc, Disks: smc, SysTimers: ssc, Perf: pc, Caps: cc, DiskUse: du},
+		[]Collector{zc, sc, smc, ssc, pc, cc, ec, mant, du}
 }
 
 // baseName normaliza un dev de vdev ('/dev/sdb1', 'sdb1', 'ata-XXX-part1') a

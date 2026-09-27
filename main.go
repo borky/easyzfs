@@ -235,7 +235,7 @@ func main() {
 		Cfg: cfg, DB: database, Auth: authManager,
 		Users: userStore, APIKeys: keyStore, Alerter: alerter, Settings: stStore,
 		Pools: providers.Pools, Disks: providers.Disks, SysTimers: providers.SysTimers,
-		Perf: providers.Perf, Caps: providers.Caps,
+		Perf: providers.Perf, Caps: providers.Caps, DiskUse: providers.DiskUse,
 		Actions: act, Sched: sched, Jobs: jobStore, Hub: h, Push: pushSender,
 		Backup: backupStore, LongOps: longOps, Repl: replRunner, Updater: updaterSvc,
 		Channels: channelsClient, ChannelStore: channelStore, Mailer: emailNotifier,

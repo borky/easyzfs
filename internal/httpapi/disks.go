@@ -4,10 +4,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
-	"sync"
-	"time"
 
-	"easyzfs/internal/actions"
 	"easyzfs/internal/model"
 	"easyzfs/internal/recs"
 )
@@ -36,7 +33,10 @@ func (s *Server) disksEnriched(ctx context.Context) []model.Disk {
 			}
 		}
 	}
-	use := diskUse(ctx)
+	var use map[string]string
+	if s.diskUse != nil {
+		use = s.diskUse.DiskUse()
+	}
 	for i := range disks {
 		if disks[i].Pool == "" {
 			disks[i].Pool = poolForDisk(names, vdevs, disks[i].Dev, disks[i].ByID)
@@ -50,39 +50,6 @@ func (s *Server) disksEnriched(ctx context.Context) []model.Disk {
 		}
 	}
 	return disks
-}
-
-// --- disks "in use": the same classification the actions check live ---
-
-var diskUseCache = struct {
-	sync.Mutex
-	ts time.Time
-	m  map[string]string
-}{}
-
-// diskUse — kernel name → why the disk is not free (mounted, swap, LVM, ESP,
-// a ZFS label…), cached for 15 s for the view. It used to count only mounts
-// and swap, so an LVM physical volume or a disk with an EFI partition showed
-// as free; the actions do not trust this cache and re-check live.
-func diskUse(ctx context.Context) map[string]string {
-	diskUseCache.Lock()
-	defer diskUseCache.Unlock()
-	if time.Since(diskUseCache.ts) < 15*time.Second && diskUseCache.m != nil {
-		return diskUseCache.m
-	}
-	m, err := actions.AllDiskUse(ctx)
-	if err != nil {
-		m = map[string]string{}
-	}
-	diskUseCache.ts, diskUseCache.m = time.Now(), m
-	return m
-}
-
-// invalidateDiskUse — after a change, the next view reads disks afresh.
-func invalidateDiskUse() {
-	diskUseCache.Lock()
-	diskUseCache.m = nil
-	diskUseCache.Unlock()
 }
 
 // powerOff — POST /api/disks/{dev}/poweroff → 202.
