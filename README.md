@@ -225,15 +225,23 @@ command; as root it runs them directly. Override with `EASYZFS_SUDO=0|1`
 runs unprivileged and can only elevate those binaries. This is the bundled
 `easyzfs.service` setup (which is why it does **not** set
 `NoNewPrivileges=yes`: sudo needs the setuid bit). Install
-`deploy/easyzfs.sudoers`:
+`deploy/easyzfs.sudoers` (the installer writes the same rules):
 
 ```
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool, /usr/sbin/zfs, /usr/sbin/smartctl, /usr/bin/lsblk, /usr/bin/crontab -l, /usr/sbin/hdparm -y /dev/*, /usr/bin/udisksctl power-off -b /dev/*, /usr/local/libexec/easyzfs-sysd
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^destroy [A-Za-z0-9][A-Za-z0-9_.-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^snapshot (-r )?…@…$
+… one line per command shape the service runs (42 in all)
 ```
 
-`crontab`, `hdparm` and `udisksctl` are pinned to the exact arguments the
-code uses (read-only crontab listing; disk standby/power-off), so they
-cannot be abused as a root code-execution path.
+Every `zpool`, `zfs`, `smartctl`, `dd`, `hdparm` and `udisksctl` argument is
+pinned by a whole-argument regex (sudo ≥ 1.9.10) to the shapes the code
+sends. The shapes that turn a storage grant into root (`zfs program`,
+`zfs allow`, `zpool import -d`, file vdevs, `altroot`, `zpool status -c`) are
+not among them. What remains is what the app is for: a compromised service
+can still destroy pools and datasets, and `zfs recv` into a dataset whose
+mountpoint it controls is root-equivalent. With an older sudo the installer
+falls back to granting `zpool`/`zfs`/`smartctl` without argument
+restrictions, and says so.
 
 **Option B: conscious root.** Change `User=easyzfs`/`Group=easyzfs` to
 `User=root` in the unit (or set `EASYZFS_SUDO=0` with another sufficiently
