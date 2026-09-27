@@ -70,6 +70,7 @@ LISTEN_FROM_FLAG=0
 OPT_ROOT_MODE=0
 OPT_DEMO=0
 OPT_READONLY=0     # --read-only: monitoring only, see write_sudoers
+OPT_UNPINNED=0     # --allow-unpinned-sudo: accept unrestricted zpool/zfs on sudo < 1.9.10
 OPT_UNINSTALL=0
 OPT_YES=0
 DRY_RUN="${DRY_RUN:-0}"
@@ -168,6 +169,10 @@ Opciones:
   --read-only       Solo monitorización con datos reales: la API rechaza todo
                     cambio de almacenamiento y sudoers solo permite lecturas
                     (smartctl, zpool events/history, zfs diff). Sin helper root
+  --allow-unpinned-sudo
+                    Con sudo < 1.9.10 (sin regex en sudoers) concede zpool/zfs
+                    con cualquier argumento, equivalente a root. Sin esta opción
+                    la instalación se detiene (o usa --read-only).
   --uninstall       Desinstala unit, binario y sudoers (pregunta por los datos)
   --update          Actualiza una instalación existente con --binary o --source:
                     cambia binario y helper y reinicia; no toca la config ni
@@ -1050,9 +1055,16 @@ write_sudoers() {
   local dd_path; dd_path="$(command -v dd 2>/dev/null || echo /usr/bin/dd)"
   if sudo_has_regex; then
     content="$(pinned_sudoers "$zpool_path" "$zfs_path" "$smartctl_path" "$lsblk_path" "$crontab_path" "$hdparm_path" "$udisksctl_path" "$dd_path")"
+  elif [ "$OPT_READONLY" = "1" ]; then
+    : # require_sudo_regex below stops the install with its own message
+  elif [ "$OPT_UNPINNED" = "1" ]; then
+    # Only on explicit request: this grant is root-equivalent ('zfs program',
+    # 'zpool import -d', altroot…). It used to be a silent fallback, printed
+    # as a warning nobody sees under --yes.
+    warn "sudo < 1.9.10: se concede zpool/zfs/smartctl sin restringir argumentos (--allow-unpinned-sudo)."
+    content="${SVC_USER} ALL=(root) NOPASSWD: ${zpool_path}, ${zfs_path}, ${smartctl_path}, ${lsblk_path}, ${crontab_path} -l, ${hdparm_path} -y /dev/*, ${udisksctl_path} power-off -b /dev/*, ${dd_path} if=/dev/* of=/dev/null bs=1M count=2048, ${SYSD_HELPER}"
   else
-    warn "sudo < 1.9.10: no admite argumentos por regex; se concede zpool/zfs/smartctl sin restringir argumentos."
-    content="${SVC_USER} ALL=(root) NOPASSWD: ${zpool_path}, ${zfs_path}, ${smartctl_path}, ${lsblk_path}, ${crontab_path} -l, ${hdparm_path} -y /dev/*, ${udisksctl_path} power-off -b /dev/*, ${SYSD_HELPER}"
+    die "sudo < 1.9.10 no permite fijar los argumentos de zpool/zfs: el servicio sería equivalente a root. Actualiza sudo, instala con --read-only, o acepta el riesgo con --allow-unpinned-sudo."
   fi
   if [ "$OPT_READONLY" = "1" ]; then
     # Read-only: the reads that need root, each pinned to the exact arguments
@@ -1502,8 +1514,15 @@ setup_update_units() {
     run "${SUDO[@]}" mkdir -p "$(dirname "$APPLY_HELPER")"
     run "${SUDO[@]}" install -m 0755 -o root -g root "$apply_src" "$APPLY_HELPER" \
       || die "No se pudo instalar ${APPLY_HELPER}"
+    # upd_dir sits in DATA_DIR, which the service account owns, so it may
+    # have been replaced by a symlink: a plain chown would then hand the
+    # link's target (say /etc/systemd/system) to that account. Drop anything
+    # that is not a real directory, and never follow a link when chowning.
+    if [ -L "$upd_dir" ] || { [ -e "$upd_dir" ] && [ ! -d "$upd_dir" ]; }; then
+      "${SUDO[@]}" rm -f "$upd_dir"
+    fi
     "${SUDO[@]}" mkdir -p "$upd_dir"
-    "${SUDO[@]}" chown "${user}:${group}" "$upd_dir"
+    "${SUDO[@]}" chown -h "${user}:${group}" "$upd_dir"
     write_root_file "$upd_path" 0644 <<EOF
 [Unit]
 Description=Reinicia EasyZFS cuando el updater prepara una versión nueva
@@ -1828,6 +1847,7 @@ parse_args() {
       --listen=*)  LISTEN_HOST="${1#*=}"; LISTEN_FROM_FLAG=1; shift ;;
       --demo)      OPT_DEMO=1; shift ;;
       --read-only) OPT_READONLY=1; shift ;;
+      --allow-unpinned-sudo) OPT_UNPINNED=1; shift ;;
       --root-mode) OPT_ROOT_MODE=1; shift ;;
       --uninstall) OPT_UNINSTALL=1; shift ;;
       --update)    OPT_UPDATE=1; shift ;;
