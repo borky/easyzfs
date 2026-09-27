@@ -374,8 +374,30 @@ func (s *Server) demoGuard(next http.Handler) http.Handler {
 				return
 			}
 		}
+		if s.cfg.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead && storageRoute(r.URL.Path) {
+			writeErr(w, http.StatusForbidden, "read_only", "modo solo lectura: EasyZFS no modifica el almacenamiento")
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// storageRoute — the routes whose mutations reach pools, datasets, disks or
+// the host (jobs and replication run zfs commands later, system timers edit
+// cron and systemd). In read-only mode their mutations are refused; the app's
+// own settings (alerts, users, channels, push, backups of its database) stay
+// editable, since they change nothing on the host's storage.
+func storageRoute(p string) bool {
+	for _, prefix := range []string{
+		"/api/pools", "/api/datasets", "/api/snapshots", "/api/jobs",
+		"/api/replication", "/api/disks", "/api/system-timers", "/api/longops",
+		"/api/update",
+	} {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") || strings.HasPrefix(p, prefix+"s/") {
+			return true
+		}
+	}
+	return false
 }
 
 // --- helpers ---

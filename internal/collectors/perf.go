@@ -78,7 +78,7 @@ func (c *PerfCollector) collect(ctx context.Context) {
 // iostat — 'zpool iostat -Hpy 1 1': una muestra de 1 segundo (ya es tasa,
 // con -y se descarta la muestra acumulada desde el arranque).
 func (c *PerfCollector) iostat(ctx context.Context) []model.PoolPerf {
-	out, err := executil.Run(ctx, 15*time.Second, "zpool", "iostat", "-Hpy", "1", "1")
+	out, err := executil.RunRead(ctx, 15*time.Second, "zpool", "iostat", "-Hpy", "1", "1")
 	if err != nil {
 		log.Printf("perf iostat: %v", err)
 		return nil // conservar la caché anterior
@@ -117,7 +117,7 @@ func readARC(ctx context.Context) *model.ArcStats {
 	}
 	// Fallback CLI: zarcsummary (≥2.4) o arc_summary (versiones viejas).
 	for _, name := range []string{"zarcsummary", "arc_summary"} {
-		if out, err := executil.Run(ctx, 10*time.Second, name); err == nil {
+		if out, err := executil.RunRead(ctx, 10*time.Second, name); err == nil {
 			if st, ok := parseArcSummary(string(out)); ok {
 				return st
 			}

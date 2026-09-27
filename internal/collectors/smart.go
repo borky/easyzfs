@@ -209,7 +209,7 @@ type smartJSON struct {
 // collectOnce — inventario lsblk y SMART por disco (un fallo de un disco no
 // falla la pasada; solo falla si el inventario no se puede leer).
 func (c *SmartCollector) collectOnce(ctx context.Context) error {
-	out, err := executil.Run(ctx, 10*time.Second, "lsblk", "-J", "-b",
+	out, err := executil.RunRead(ctx, 10*time.Second, "lsblk", "-J", "-b",
 		"-o", "NAME,MODEL,SERIAL,SIZE,TYPE")
 	if err != nil {
 		return err

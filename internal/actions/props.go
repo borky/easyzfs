@@ -381,7 +381,7 @@ func (s *Service) DatasetPropsGet(ctx context.Context, name string) ([]model.Dat
 	if !reDataset.MatchString(name) {
 		return nil, ErrInvalidName
 	}
-	out, err := executil.Run(ctx, 10*time.Second, "zfs",
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs",
 		"get", "-H", "-o", "name,property,value,source", "all", name)
 	if err != nil {
 		return nil, fmt.Errorf("zfs get properties: %w", err)

@@ -64,7 +64,7 @@ func mountedDisks(ctx context.Context) map[string]bool {
 		return mountedCache.m
 	}
 	m := map[string]bool{}
-	out, err := executil.Run(ctx, 5*time.Second, "lsblk", "-rno", "NAME,MOUNTPOINTS")
+	out, err := executil.RunRead(ctx, 5*time.Second, "lsblk", "-rno", "NAME,MOUNTPOINTS")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			f := strings.Fields(line)

@@ -68,6 +68,7 @@ LISTEN_HOST=""       # 127.0.0.1 | a local IPv4 | all — see choose_listen_host
 LISTEN_FROM_FLAG=0
 OPT_ROOT_MODE=0
 OPT_DEMO=0
+OPT_READONLY=0     # --read-only: monitoring only, see write_sudoers
 OPT_UNINSTALL=0
 OPT_YES=0
 DRY_RUN="${DRY_RUN:-0}"
@@ -163,6 +164,9 @@ Opciones:
   --port <n>        Puerto de escucha (defecto: 8080)
   --demo            Arranca en modo demo (DEMO=1: datos de muestra, mutaciones 403)
   --root-mode       El servicio corre como root (sin usuario easyzfs ni sudoers)
+  --read-only       Solo monitorización con datos reales: la API rechaza todo
+                    cambio de almacenamiento y sudoers solo permite lecturas
+                    (smartctl, zpool events/history, zfs diff). Sin helper root
   --uninstall       Desinstala unit, binario y sudoers (pregunta por los datos)
   --update          Actualiza una instalación existente con --binary o --source:
                     cambia binario y helper y reinicia; no toca la config ni
@@ -872,6 +876,16 @@ local_deploy_file() {
 
 install_sysd_helper() {
   step "Helper de tareas del sistema (easyzfs-sysd)"
+  # Read-only installs get no root helper at all (it edits cron and systemd);
+  # one left by an earlier full install is removed.
+  if [ "$OPT_READONLY" = "1" ]; then
+    if [ -e "$SYSD_HELPER" ]; then
+      run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper eliminado (modo solo lectura): ${SYSD_HELPER}"
+    else
+      info "Modo solo lectura: no se instala el helper root."
+    fi
+    return 0
+  fi
   run "${SUDO[@]}" mkdir -p "$(dirname "$SYSD_HELPER")" \
     || die "No se pudo crear $(dirname "$SYSD_HELPER")"
   local src; src="$(local_deploy_file easyzfs-sysd)"
@@ -933,6 +947,16 @@ setup_user_and_sudoers() {
 # argumentos restringidos al uso real del código: crontab -l (lectura del
 # crontab de root en la vista Tareas), hdparm -y /dev/* (standby de disco),
 # udisksctl power-off -b /dev/* (apagado de disco). Valida con visudo -cf.
+# require_sudo_regex — whole-argument regular expressions in sudoers arrived
+# in sudo 1.9.10; an older sudo would reject the read-only file.
+require_sudo_regex() {
+  [ "$DRY_RUN" = "1" ] && return 0
+  local v; v="$(sudo -V 2>/dev/null | awk 'NR==1 {print $3}')"
+  if [ -z "$v" ] || [ "$(printf '%s\n1.9.10\n' "${v%%p*}" | sort -V | head -1)" != "1.9.10" ]; then
+    die "El modo solo lectura necesita sudo ≥ 1.9.10 (hay: ${v:-desconocido})."
+  fi
+}
+
 write_sudoers() {
   local zpool_path zfs_path smartctl_path lsblk_path crontab_path udisksctl_path hdparm_path content
   zpool_path="$(command -v zpool 2>/dev/null || echo /usr/sbin/zpool)"
@@ -943,6 +967,17 @@ write_sudoers() {
   udisksctl_path="$(command -v udisksctl 2>/dev/null || echo /usr/bin/udisksctl)"
   hdparm_path="$(command -v hdparm 2>/dev/null || echo /usr/sbin/hdparm)"
   content="${SVC_USER} ALL=(root) NOPASSWD: ${zpool_path}, ${zfs_path}, ${smartctl_path}, ${lsblk_path}, ${crontab_path} -l, ${hdparm_path} -y /dev/*, ${udisksctl_path} power-off -b /dev/*, ${SYSD_HELPER}"
+  if [ "$OPT_READONLY" = "1" ]; then
+    # Read-only: the reads that need root, each pinned to the exact arguments
+    # the service uses, and nothing else. No zpool or zfs subcommand that can
+    # change a pool, no root helper, no disk power commands: even a
+    # compromised service cannot change storage. Everything else it reads
+    # (zpool list/status/get/iostat, zfs list/get, lsblk) works without root.
+    # A whole-argument regex (^…$) needs sudo 1.9.10; ':' is escaped because
+    # sudoers treats it as a separator.
+    require_sudo_regex
+    content="${SVC_USER} ALL=(root) NOPASSWD: ${smartctl_path} ^-j -a /dev/[A-Za-z0-9._-]+\$, ${zpool_path} events -f, ${zpool_path} ^history -i [A-Za-z0-9._-]+\$, ${zfs_path} ^diff -FHt [A-Za-z0-9._/@\\:-]+ [A-Za-z0-9._/@\\:-]+\$, ${crontab_path} -l"
+  fi
   if [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] escribiría ${SUDOERS_PATH} (0440) y validaría con visudo -cf:"
     printf '    %s\n' "$content"
@@ -1050,6 +1085,9 @@ configure_env() {
     # without --demo silently switched a demo install to production.
     if [ "$OPT_DEMO" = "0" ] && [ "$(sed -n 's/^DEMO=//p' "$ENV_FILE" | head -1)" = "1" ]; then
       OPT_DEMO=1; info "Se conserva DEMO=1 de ${ENV_FILE}."
+    fi
+    if [ "$OPT_READONLY" = "0" ] && [ "$(sed -n 's/^EASYZFS_READONLY=//p' "$ENV_FILE" | head -1)" = "1" ]; then
+      OPT_READONLY=1; info "Se conserva el modo solo lectura (EASYZFS_READONLY=1)."
     fi
   fi
   # Prioridad del puerto: --port > puerto del env existente > defecto (8080)
@@ -1178,6 +1216,10 @@ VAPID_SUBJECT=${vapid_sub}"
     env_content+="
 DEMO=1"
   fi
+  if [ "$OPT_READONLY" = "1" ]; then
+    env_content+="
+EASYZFS_READONLY=1"
+  fi
 
   if [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] escribiría ${ENV_FILE} (modo 0600):"
@@ -1193,7 +1235,7 @@ DEMO=1"
     local kept="" kept_hdr="# Conservado de la configuración anterior:"
     if [ -r "$ENV_FILE" ]; then
       kept="$(awk -v hdr="$kept_hdr" '
-        BEGIN { n = split("LISTEN_ADDR DB_PATH SESSION_SECRET ADMIN_PASSWORD WEBHOOK_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT DEMO", k, " ")
+        BEGIN { n = split("LISTEN_ADDR DB_PATH SESSION_SECRET ADMIN_PASSWORD WEBHOOK_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT DEMO EASYZFS_READONLY", k, " ")
                 for (i = 1; i <= n; i++) managed[k[i]] = 1 }
         $0 == hdr { next }
         /^[ \t]*(export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*[ \t]*=/ { key = $0; sub(/^[ \t]*(export[ \t]+)?/, "", key); sub(/[ \t]*=.*/, "", key); if (key in managed) next }
@@ -1571,6 +1613,7 @@ do_update() {
   # only a fresh install's default, so probing it reported updates on another
   # port as unreachable, or as healthy if something else answered there.
   if [ -r "$ENV_FILE" ]; then
+    [ "$(sed -n 's/^EASYZFS_READONLY=//p' "$ENV_FILE" | head -1)" = "1" ] && OPT_READONLY=1
     local la; la="$(sed -n 's/^LISTEN_ADDR=//p' "$ENV_FILE" | head -1 | tr -d '\r')"
     if [ -n "$la" ]; then
       OPT_PORT="${la##*:}"
@@ -1670,6 +1713,7 @@ parse_args() {
       --listen)   [ $# -ge 2 ] || die "--listen requiere un valor"; LISTEN_HOST="$2"; LISTEN_FROM_FLAG=1; shift 2 ;;
       --listen=*)  LISTEN_HOST="${1#*=}"; LISTEN_FROM_FLAG=1; shift ;;
       --demo)      OPT_DEMO=1; shift ;;
+      --read-only) OPT_READONLY=1; shift ;;
       --root-mode) OPT_ROOT_MODE=1; shift ;;
       --uninstall) OPT_UNINSTALL=1; shift ;;
       --update)    OPT_UPDATE=1; shift ;;

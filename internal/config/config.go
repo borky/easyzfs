@@ -18,6 +18,10 @@ type Config struct {
 	DBPath        string // DB_PATH (def "/var/lib/easyzfs/app.db")
 	SessionSecret []byte // SESSION_SECRET (sha256 del valor; si falta, efímero + aviso)
 	Demo          bool   // DEMO=1 → datos mock + mutaciones 403 demo_mode
+	// ReadOnly — EASYZFS_READONLY=1: real data, but every request that would
+	// change storage is refused and no scheduled job or replication runs.
+	// The installer pairs it with a sudoers file that grants nothing else.
+	ReadOnly bool
 	Mock          bool   // MOCK=1 → colectores mock (datos reales mutan y fallarán)
 	AdminPassword string // ADMIN_PASSWORD para bootstrap del primer admin
 	CookieSecure  bool   // COOKIE_SECURE=1 → atributo Secure (tras proxy TLS)
@@ -94,6 +98,7 @@ func Load() *Config {
 		ListenAddr:    env("LISTEN_ADDR", ":8080"),
 		DBPath:        env("DB_PATH", "/var/lib/easyzfs/app.db"),
 		Demo:          envBool("DEMO"),
+		ReadOnly:      envBool("EASYZFS_READONLY"),
 		Mock:          envBool("MOCK"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		CookieSecure:  envBool("COOKIE_SECURE"),

@@ -194,7 +194,9 @@ func main() {
 	// Replicación ZFS send/recv (lote C): store propio + ejecución vía longops.
 	longOps := longops.New(h)
 	replRunner := replication.NewRunner(replication.NewStore(database), longOps, h, jobStore, cfg.DataDir(), cfg.Mock)
-	go replRunner.Run(ctx)
+	if !cfg.ReadOnly {
+		go replRunner.Run(ctx)
+	}
 
 	// Copia de seguridad de la BD: colector por frecuencia horaria + handlers.
 	backupStore := backup.New(database, cfg.DBPath, stStore)
@@ -262,7 +264,13 @@ func main() {
 	for _, c := range cols {
 		go c.Run(ctx)
 	}
-	go sched.Run(ctx)
+	// Read-only: no scheduled job (snapshots, scrubs, SMART tests) and no
+	// replication runs; nothing changes storage unless a person does it.
+	if cfg.ReadOnly {
+		log.Println("modo solo lectura: tareas programadas y replicación desactivadas")
+	} else {
+		go sched.Run(ctx)
+	}
 
 	go func() {
 		log.Printf("EasyZFS %s escuchando en %s (mock=%v demo=%v)", version, cfg.ListenAddr, cfg.Mock, cfg.Demo)

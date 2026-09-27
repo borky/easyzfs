@@ -51,6 +51,7 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 		"zfs_version":   caps.Version,
 		"capabilities":  caps,
 		"demo":          s.cfg.Demo,
+		"read_only":     s.cfg.ReadOnly,
 		"pendingUpdate": pendingUpdateJSON(s.updater),
 
 		"update_channel": s.updateChannel,

@@ -75,6 +75,8 @@ export interface VersionInfo {
   db_path: string;
   zfs_version: string;
   demo: boolean;
+  // EASYZFS_READONLY: real data, storage changes refused (403 read_only).
+  read_only?: boolean;
   capabilities?: Capabilities; // ausente en respuestas viejas del server
   pendingUpdate?: { from: string; to: string } | null;
   // Métricas del host (best effort; ausentes si el server no puede leerlas,

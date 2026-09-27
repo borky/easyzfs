@@ -105,10 +105,10 @@ func (c *CapsCollector) Run(ctx context.Context) {
 
 // Refresh ejecuta el sondeo ahora (también tras arranque del proceso).
 func (c *CapsCollector) Refresh(ctx context.Context) {
-	out, err := executil.Run(ctx, 5*time.Second, "zfs", "version")
+	out, err := executil.RunRead(ctx, 5*time.Second, "zfs", "version")
 	if err != nil {
 		// Algunas distros solo responden a 'zpool --version'.
-		out, err = executil.Run(ctx, 5*time.Second, "zpool", "--version")
+		out, err = executil.RunRead(ctx, 5*time.Second, "zpool", "--version")
 		if err != nil {
 			log.Printf("caps: %v", err)
 			return
@@ -129,7 +129,7 @@ func (c *CapsCollector) Capabilities() model.Capabilities {
 
 // DetectZFSVersion — versión de OpenZFS del host para /api/version.
 func DetectZFSVersion(ctx context.Context) string {
-	out, err := executil.Run(ctx, 5*time.Second, "zpool", "--version")
+	out, err := executil.RunRead(ctx, 5*time.Second, "zpool", "--version")
 	if err != nil {
 		return "desconocida"
 	}

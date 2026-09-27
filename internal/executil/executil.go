@@ -43,6 +43,19 @@ func SudoEnabled() bool { return useSudo }
 // sin privilegios, p.ej. el runner longops con sleep/printf).
 func SetSudoForTest(v bool) { useSudo = v }
 
+// RunRead runs a read-only command without sudo, and falls back to sudo only
+// if the kernel refuses it ("permission denied"). zpool list/get/status/
+// iostat, zfs list/get and lsblk all work unprivileged on Linux (/dev/zfs is
+// world-accessible for reads), so the service can monitor with a sudoers file
+// that grants no zpool or zfs subcommand that changes anything.
+func RunRead(ctx context.Context, timeout time.Duration, name string, args ...string) ([]byte, error) {
+	out, err := RunDirect(ctx, timeout, name, args...)
+	if err != nil && useSudo && strings.Contains(strings.ToLower(err.Error()), "permission denied") {
+		return Run(ctx, timeout, name, args...)
+	}
+	return out, err
+}
+
 // RunDirect ejecuta name sin anteponer sudo NUNCA (para comandos que no
 // necesitan root aunque el proceso corra sin privilegios, p. ej.
 // `systemctl list-timers` o `crontab -l` del propio usuario).

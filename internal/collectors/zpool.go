@@ -316,7 +316,7 @@ func (c *ZpoolCollector) lightCollect(ctx context.Context) error {
 
 // listPools — 'zpool list -Hp' con columnas explícitas por nombre.
 func (c *ZpoolCollector) listPools(ctx context.Context) ([]model.Pool, error) {
-	out, err := executil.Run(ctx, 10*time.Second, "zpool", "list", "-Hp",
+	out, err := executil.RunRead(ctx, 10*time.Second, "zpool", "list", "-Hp",
 		"-o", "name,size,alloc,fragmentation,health")
 	if err != nil {
 		return nil, err
@@ -354,7 +354,7 @@ func (c *ZpoolCollector) fillPoolProps(ctx context.Context, p *model.Pool, now t
 	if time.Since(c.lastPropsAt[key]) < propTTL {
 		return
 	}
-	out, err := executil.Run(ctx, 5*time.Second, "zpool", "get", "-Hp",
+	out, err := executil.RunRead(ctx, 5*time.Second, "zpool", "get", "-Hp",
 		"-o", "property,value", "autotrim,checkpoint", p.Name)
 	if err != nil {
 		return
@@ -417,7 +417,7 @@ func (c *ZpoolCollector) fillCompressRatio(ctx context.Context, p *model.Pool, n
 	if time.Since(c.lastPropsAt[key]) < propTTL {
 		return
 	}
-	out, err := executil.Run(ctx, 5*time.Second, "zfs", "get", "-Hp", "-o", "value",
+	out, err := executil.RunRead(ctx, 5*time.Second, "zfs", "get", "-Hp", "-o", "value",
 		"compressratio", p.Name)
 	if err != nil {
 		return
@@ -474,13 +474,13 @@ func (f *flexInt) UnmarshalJSON(b []byte) error {
 
 // fillStatus rellena vdevs y scrub; intenta --json y cae a texto plano.
 func (c *ZpoolCollector) fillStatus(ctx context.Context, p *model.Pool) {
-	out, err := executil.Run(ctx, 15*time.Second, "zpool", "status", "--json", p.Name)
+	out, err := executil.RunRead(ctx, 15*time.Second, "zpool", "status", "--json", p.Name)
 	if err == nil {
 		if c.parseStatusJSON(out, p) {
 			return
 		}
 	}
-	out, err = executil.Run(ctx, 15*time.Second, "zpool", "status", p.Name)
+	out, err = executil.RunRead(ctx, 15*time.Second, "zpool", "status", p.Name)
 	if err != nil {
 		return
 	}
@@ -768,7 +768,7 @@ func (c *ZpoolCollector) fillTrim(ctx context.Context, p *model.Pool, now time.T
 	if time.Since(c.lastPropsAt[key]) < trimTTL {
 		return
 	}
-	out, err := executil.Run(ctx, 15*time.Second, "zpool", "status", "-t", p.Name)
+	out, err := executil.RunRead(ctx, 15*time.Second, "zpool", "status", "-t", p.Name)
 	if err != nil {
 		return
 	}
@@ -919,7 +919,7 @@ func resolveDevPath(dev string) string {
 // encryption es el valor EFECTIVO (heredado resuelto por zfs list); keystatus
 // es available/unavailable/"-" (lote D: cifrado nativo por dataset).
 func (c *ZpoolCollector) listDatasets(ctx context.Context) ([]model.Dataset, error) {
-	out, err := executil.Run(ctx, 10*time.Second, "zfs", "list", "-Hp",
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "list", "-Hp",
 		"-t", "filesystem,volume",
 		"-o", "name,type,compression,used,avail,quota,mountpoint,encryption,keystatus")
 	if err != nil {
@@ -956,7 +956,7 @@ func (c *ZpoolCollector) listDatasets(ctx context.Context) ([]model.Dataset, err
 
 // listSnapshots — 'zfs list -Hp -t snapshot' (creation en epoch con -p).
 func (c *ZpoolCollector) listSnapshots(ctx context.Context) ([]model.Snapshot, error) {
-	out, err := executil.Run(ctx, 10*time.Second, "zfs", "list", "-Hp",
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "list", "-Hp",
 		"-t", "snapshot", "-o", "name,creation,used")
 	if err != nil {
 		return nil, err
