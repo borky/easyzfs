@@ -122,8 +122,12 @@ func (m *Manager) watch(op *Op, cmd *exec.Cmd, stdout io.Reader) {
 			m.appendLine(op, sc.Text())
 		}
 	}()
-	err := cmd.Wait()
+	// Read to EOF before Wait: Wait closes the pipe as soon as the process
+	// exits, so waiting first could discard lines still in the pipe and mark
+	// the operation done with its last output missing (os/exec documents
+	// this ordering; it reproduced under load, 4 failures in 40 runs).
 	<-scanDone
+	err := cmd.Wait()
 	ended := time.Now().UTC()
 	m.mu.Lock()
 	op.Ended = &ended
