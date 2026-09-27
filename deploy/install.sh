@@ -40,6 +40,7 @@ readonly APP="easyzfs"
 readonly SCRIPT_VERSION="1.0.0"
 readonly INSTALL_BIN="/usr/local/bin/easyzfs"
 readonly SYSD_HELPER="/usr/local/libexec/easyzfs-sysd"
+readonly APPLY_HELPER="/usr/local/libexec/easyzfs-apply-update"
 readonly UNIT_PATH="/etc/systemd/system/easyzfs.service"
 readonly SUDOERS_PATH="/etc/sudoers.d/easyzfs"
 readonly ENV_DIR="/etc/easyzfs"
@@ -1358,6 +1359,9 @@ remove_update_units() {
   if [ -d /opt/easyzfs ]; then
     run "${SUDO[@]}" rm -rf /opt/easyzfs; ok "Eliminado: /opt/easyzfs"; removed=1
   fi
+  if [ -e "$APPLY_HELPER" ]; then
+    run "${SUDO[@]}" rm -f "$APPLY_HELPER"; ok "Eliminado: ${APPLY_HELPER}"
+  fi
   # Whatever the old in-app updater staged for easyzfs-update.path to apply.
   if [ -d "${DATA_DIR}/update" ]; then
     run "${SUDO[@]}" rm -rf "${DATA_DIR}/update"; ok "Eliminado: ${DATA_DIR}/update"
@@ -1386,9 +1390,27 @@ setup_update_units() {
   local upd_path="/etc/systemd/system/easyzfs-update.path"
   local upd_svc="/etc/systemd/system/easyzfs-update.service"
   local upd_dir="${DATA_DIR}/update"
-  if [ "$DRY_RUN" = "1" ]; then
+  # The unit used to 'install' whatever the service account left in upd_dir,
+  # as root. easyzfs-apply-update re-verifies it against the release's
+  # checksums.txt first. It exists only in this fork, never in an upstream
+  # release tag, so it comes from the checkout or not at all; without it the
+  # .path unit is not installed and an update is applied by hand.
+  local apply_src; apply_src="$(local_deploy_file easyzfs-apply-update)"
+  if [ -z "$apply_src" ]; then
+    info "Sin easyzfs-apply-update junto al instalador: no se instala easyzfs-update.path (las versiones descargadas se aplican a mano)."
+    local u
+    for u in easyzfs-update.path easyzfs-update.service; do
+      if [ -e "/etc/systemd/system/${u}" ]; then
+        [ "$u" = easyzfs-update.path ] && { run "${SUDO[@]}" systemctl disable --now "$u" || true; }
+        run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"
+      fi
+    done
+  elif [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] escribiría ${upd_path} y ${upd_svc} (auto-update: ${upd_dir}/.restart-me)"
   else
+    run "${SUDO[@]}" mkdir -p "$(dirname "$APPLY_HELPER")"
+    run "${SUDO[@]}" install -m 0755 -o root -g root "$apply_src" "$APPLY_HELPER" \
+      || die "No se pudo instalar ${APPLY_HELPER}"
     "${SUDO[@]}" mkdir -p "$upd_dir"
     "${SUDO[@]}" chown "${user}:${group}" "$upd_dir"
     write_root_file "$upd_path" 0644 <<EOF
@@ -1408,7 +1430,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'rm -f ${upd_dir}/.restart-me; install -m 0755 ${upd_dir}/easyzfs.new ${INSTALL_BIN}; systemctl restart easyzfs.service'
+ExecStart=${APPLY_HELPER} ${upd_dir} ${INSTALL_BIN}
 EOF
     run "${SUDO[@]}" systemctl daemon-reload
     run "${SUDO[@]}" systemctl enable --now easyzfs-update.path
@@ -1675,6 +1697,7 @@ do_uninstall() {
   [ -e "$INSTALL_BIN" ] && { run "${SUDO[@]}" rm -f "$INSTALL_BIN"; ok "Binario eliminado: ${INSTALL_BIN}"; }
   [ -e "${INSTALL_BIN}.prev" ] && { run "${SUDO[@]}" rm -f "${INSTALL_BIN}.prev"; ok "Eliminado: ${INSTALL_BIN}.prev"; }
   [ -e "$SYSD_HELPER" ] && { run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper eliminado: ${SYSD_HELPER}"; }
+  [ -e "$APPLY_HELPER" ] && { run "${SUDO[@]}" rm -f "$APPLY_HELPER"; ok "Helper eliminado: ${APPLY_HELPER}"; }
   [ -e "$SUDOERS_PATH" ] && { run "${SUDO[@]}" rm -f "$SUDOERS_PATH"; ok "Sudoers eliminado: ${SUDOERS_PATH}"; }
 
   if [ -d "$DATA_DIR" ] || [ -d "$ENV_DIR" ]; then

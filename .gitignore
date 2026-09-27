@@ -1,6 +1,8 @@
 # Binario y artefactos de build
 easyzfs
 easyzfs-*
+# ...but not the deploy scripts, which share the prefix.
+!/deploy/easyzfs-*
 easyzfs-local
 bin/
 *.test

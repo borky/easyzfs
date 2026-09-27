@@ -204,6 +204,17 @@ func (u *Updater) ClearPendingApply() {
 // NewBinary — ruta donde el updater deja el binario nuevo descargado y validado.
 func (u *Updater) NewBinary() string { return filepath.Join(u.updateDir(), "easyzfs.new") }
 
+// NewTag — the release tag of the staged binary. The root helper that installs
+// it (deploy/easyzfs-apply-update) trusts nothing else from this directory,
+// which the service account controls: it fetches that tag's checksums.txt from
+// GitHub itself and installs only bytes that match. The tag follows its
+// binary: the library renames easyzfs.new to easyzfs.new.old on every apply,
+// and rollback renames it back.
+func (u *Updater) NewTag() string { return u.NewBinary() + ".tag" }
+
+// oldTag — the tag of easyzfs.new.old.
+func (u *Updater) oldTag() string { return u.NewBinary() + ".old.tag" }
+
 // IsRestartConfigured indica si las units systemd que reinician el servicio
 // tras un update están instaladas. Sin ellas el updater puede descargar el
 // binario nuevo pero no aplicarlo.
@@ -414,8 +425,16 @@ func (u *Updater) Apply(ctx context.Context) error {
 	// Progreso: descargando + validando (go-selfupdate hace todo en UpdateTo)
 	u.setProgress("downloading", 30)
 
+	// UpdateTo turns easyzfs.new into easyzfs.new.old; move its tag along. With
+	// no tag (the first apply's empty placeholder) .old gets none, so the root
+	// helper refuses to roll back to it.
+	_ = os.Remove(u.oldTag())
+	_ = os.Rename(u.NewTag(), u.oldTag())
 	if err := up.UpdateTo(ctx, latest, u.NewBinary()); err != nil {
 		return fmt.Errorf("updater: apply: %w", err)
+	}
+	if err := os.WriteFile(u.NewTag(), []byte("v"+stripV(latest.Version())+"\n"), 0o644); err != nil {
+		return fmt.Errorf("updater: tag: %w", err)
 	}
 	if err := os.Chmod(u.NewBinary(), 0o755); err != nil {
 		return fmt.Errorf("updater: chmod: %w", err)
@@ -523,6 +542,11 @@ func (u *Updater) Rollback() error {
 	}
 	if err := os.Rename(backup, u.NewBinary()); err != nil {
 		return fmt.Errorf("rollback: rename: %w", err)
+	}
+	// The tag must describe the binary now staged, or the root helper would
+	// check it against the wrong release; without one it refuses to install.
+	if err := os.Rename(u.oldTag(), u.NewTag()); err != nil {
+		_ = os.Remove(u.NewTag())
 	}
 	if err := os.Chmod(u.NewBinary(), 0o755); err != nil {
 		return fmt.Errorf("rollback: chmod: %w", err)

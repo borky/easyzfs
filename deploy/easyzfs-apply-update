@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# easyzfs-apply-update — installs a binary staged by EasyZFS's in-app updater.
+# Run as root by easyzfs-update.service when the updater touches .restart-me.
+#
+# The staging directory belongs to the unprivileged service account. The
+# daemon verifies the download before staging it, but anything able to write
+# there as that account could swap the file afterwards, and root used to
+# install whatever it found. So this helper trusts that directory for one
+# thing only, which release is staged, and checks the rest itself:
+#   1. the tag must look like a release tag;
+#   2. the staged binary is copied into a root-owned temp dir first, opened
+#      with O_NOFOLLOW, so the bytes checked are the bytes installed;
+#   3. that tag's checksums.txt is fetched by root from the official releases;
+#   4. only a matching binary is installed, by atomic rename.
+# What it cannot prevent: staging a genuine but older release, which rollback
+# needs. It no longer installs anything that is not an official release.
+#
+# Usage: easyzfs-apply-update <update dir> [<installed binary>]
+set -euo pipefail
+
+UPD="${1:?falta el directorio de actualización}"
+BIN="${2:-/usr/local/bin/easyzfs}"
+# Test seams; the unit sets neither.
+RELEASES="${EASYZFS_RELEASES_BASE:-https://github.com/gnacho/easyzfs/releases/download}"
+ARCH="${EASYZFS_APPLY_ARCH:-$(uname -m)}"
+
+die() { echo "easyzfs-apply-update: $*" >&2; exit 1; }
+
+rm -f "${UPD}/.restart-me"
+staged="${UPD}/easyzfs.new"
+tagf="${UPD}/easyzfs.new.tag"
+[ -f "$tagf" ] && [ ! -L "$tagf" ] || die "falta la etiqueta de la release preparada: no se puede verificar, no se instala"
+tag="$(head -c 64 "$tagf" | tr -d '\r\n')"
+[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]] || die "etiqueta de release no válida"
+
+case "$ARCH" in
+  x86_64)  asset="easyzfs_linux_amd64" ;;
+  aarch64) asset="easyzfs_linux_arm64" ;;
+  *) die "arquitectura no soportada: ${ARCH}" ;;
+esac
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+# iflag=nofollow: a symlink planted in place of the binary is refused, not
+# followed to some file only root can read.
+dd if="$staged" of="$tmp/bin" bs=1M iflag=nofollow status=none 2>/dev/null \
+  || die "no se pudo leer el binario preparado (¿falta o es un enlace simbólico?)"
+[ -s "$tmp/bin" ] || die "el binario preparado está vacío"
+
+curl -fsSL --proto '=https' --max-time 60 "${RELEASES}/${tag}/checksums.txt" -o "$tmp/sums" \
+  || die "no se pudo descargar checksums.txt de ${tag}"
+want="$(awk -v a="$asset" '$2 == a || $2 == "*"a {print $1; exit}' "$tmp/sums")"
+[[ "$want" =~ ^[0-9a-f]{64}$ ]] || die "checksums.txt de ${tag} no lista ${asset}"
+got="$(sha256sum "$tmp/bin" | awk '{print $1}')"
+[ "$want" = "$got" ] || die "el binario preparado no coincide con la release oficial ${tag}: no se instala"
+
+own=(); [ "$(id -u)" = 0 ] && own=(-o root -g root)   # tests run unprivileged
+install -m 0755 "${own[@]}" "$tmp/bin" "${BIN}.new-$$"
+mv -f "${BIN}.new-$$" "$BIN"
+echo "easyzfs-apply-update: instalada la release ${tag} (sha256 verificado)"
+if [ -z "${EASYZFS_APPLY_NO_RESTART:-}" ]; then
+  systemctl restart easyzfs.service
+fi
