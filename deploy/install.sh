@@ -428,17 +428,112 @@ next_free_port() {
 # Dependencias: ZFS + herramientas, con mapeo de paquetes por familia
 # =============================================================================
 
+# is_pve — Proxmox VE, where ZFS, the kernel and their packages belong to
+# Proxmox's own release cycle and must not be touched by this installer.
+is_pve() { [ -d /etc/pve ] || command -v pveversion >/dev/null 2>&1; }
+
+# deps_debian — installs only what is missing, and never upgrades what is
+# already there. Checked on a Proxmox VE 8.4 VM: the previous unconditional
+# 'apt-get install -y zfsutils-linux …' upgraded ZFS 2.2.7 → 2.2.10 (with
+# zfs-initramfs, which rebuilds the boot image) as a partial upgrade while the
+# kernel module stayed at 2.2.7, and 'apt-get update' exiting 100 on the
+# subscription-only enterprise repositories aborted the installer outright.
 deps_debian() {
-  info "Instalando paquetes con apt…"
-  run "${SUDO[@]}" apt-get update -qq
-  run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      zfsutils-linux smartmontools util-linux curl ca-certificates \
-    || die "apt-get falló instalando zfsutils-linux / smartmontools."
-  # Headers del kernel para DKMS (puede no aplicar en LXC/contenedores: solo aviso)
-  if ! run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      "linux-headers-$(uname -r)"; then
-    warn "No se pudieron instalar los headers del kernel ($(uname -r)); normal en LXC/contenedores."
-    warn "Si el módulo ZFS no carga, instala los headers correctos y ejecuta: dkms autoinstall"
+  local missing=() pkg
+  if ! zpool version >/dev/null 2>&1; then
+    if is_pve; then
+      die "ZFS no responde en este Proxmox ('zpool version' falló). Proxmox trae ZFS de serie y este instalador no toca sus paquetes: revisa el sistema antes de instalar EasyZFS."
+    fi
+    missing+=(zfsutils-linux)
+  fi
+  command -v smartctl >/dev/null 2>&1 || missing+=(smartmontools)
+  command -v lsblk    >/dev/null 2>&1 || missing+=(util-linux)
+  command -v curl     >/dev/null 2>&1 || missing+=(curl)
+  [ -e /etc/ssl/certs/ca-certificates.crt ] || missing+=(ca-certificates)
+  if [ "${#missing[@]}" -eq 0 ]; then
+    ok "Dependencias ya presentes: no se instala ni se actualiza ningún paquete."
+    return 0
+  fi
+  info "Faltan: ${missing[*]}. Se instalan solo esos, sin actualizar nada de lo ya instalado."
+  apt_refresh
+  run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade "${missing[@]}" \
+    || die "apt-get no pudo instalar: ${missing[*]}."
+  # Kernel headers are only for building ZFS with DKMS, i.e. only when ZFS
+  # itself had to be installed here; never on Proxmox, whose kernels ship ZFS.
+  for pkg in "${missing[@]}"; do
+    [ "$pkg" = "zfsutils-linux" ] || continue
+    if ! run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
+        "linux-headers-$(uname -r)"; then
+      warn "No se pudieron instalar los headers del kernel ($(uname -r)); normal en LXC/contenedores."
+      warn "Si el módulo ZFS no carga, instala los headers correctos y ejecuta: dkms autoinstall"
+    fi
+  done
+}
+
+# apt_refresh — 'apt-get update', tolerating a failing repository: a Proxmox
+# host without a subscription gets 401 from the enterprise repositories on
+# every refresh, which is its normal state, not a reason to stop.
+apt_refresh() {
+  if ! run "${SUDO[@]}" apt-get update -qq; then
+    warn "apt-get update devolvió error (¿repositorio enterprise sin suscripción?): se usan las listas de paquetes actuales."
+  fi
+}
+
+# ensure_sudo — the service account elevates through sudo, which Proxmox VE
+# does not ship. Installed only when missing and only for that mode; without
+# it the sudoers file would be written and silently unusable.
+ensure_sudo() {
+  if command -v sudo >/dev/null 2>&1 && command -v visudo >/dev/null 2>&1; then
+    return 0
+  fi
+  info "Falta 'sudo' (el servicio lo necesita para los comandos permitidos en sudoers): se instala solo ese paquete."
+  case "$DISTRO_FAMILY" in
+    debian) apt_refresh
+            run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade sudo ;;
+    arch)   run "${SUDO[@]}" pacman -S --needed --noconfirm sudo ;;
+    rhel)   run "${SUDO[@]}" dnf install -y sudo || run "${SUDO[@]}" yum install -y sudo ;;
+    suse)   run "${SUDO[@]}" zypper --non-interactive install sudo ;;
+    alpine) run "${SUDO[@]}" apk add --no-cache sudo ;;
+    *)      false ;;
+  esac || die "No se pudo instalar 'sudo'. Instálalo a mano, o usa --root-mode."
+  if [ "$DRY_RUN" != "1" ] && ! command -v visudo >/dev/null 2>&1; then
+    die "'sudo' instalado pero falta 'visudo': no se puede validar el fichero sudoers."
+  fi
+}
+
+# preflight_report — what this host is, printed before anything changes, so
+# the operator sees what the installer is about to run on. Read-only.
+preflight_report() {
+  step "Inventario del host (solo lectura)"
+  if is_pve; then
+    info "Proxmox VE: $(pveversion 2>/dev/null || echo 'detectado')"
+  fi
+  info "Kernel: $(uname -r)"
+  info "ZFS: $(zfs version 2>/dev/null | tr '\n' ' ' || echo 'no disponible')"
+  info "Arranque: $([ -d /sys/firmware/efi ] && echo UEFI || echo BIOS)$(secure_boot_state)"
+  info "Sistema de ficheros raíz: $(findmnt -no SOURCE,FSTYPE / 2>/dev/null || echo '?')"
+  info "Pools: $(zpool list -H -o name,health 2>/dev/null | tr '\t\n' ': ' || echo 'ninguno')"
+  local esp
+  esp="$(lsblk -no NAME,PARTTYPENAME 2>/dev/null | awk '/EFI System/ {print $1}' | tr -d '└├─│ ' | tr '\n' ' ')"
+  [ -n "$esp" ] && info "Particiones ESP: ${esp}"
+  if [ -e /etc/pve/corosync.conf ]; then
+    info "Clúster Proxmox: sí (este nodo forma parte de un clúster)"
+  elif is_pve; then
+    info "Clúster Proxmox: no"
+  fi
+  if is_pve; then
+    info "En Proxmox el instalador no instala, actualiza ni quita paquetes de ZFS o del kernel."
+  fi
+}
+
+secure_boot_state() {
+  local f
+  f="$(ls /sys/firmware/efi/efivars/SecureBoot-* 2>/dev/null | head -1)"
+  [ -n "$f" ] || return 0
+  if [ "$(od -An -t u1 -j4 -N1 "$f" 2>/dev/null | tr -d ' ')" = "1" ]; then
+    printf ', Secure Boot activo'
+  else
+    printf ', Secure Boot inactivo'
   fi
 }
 
@@ -825,6 +920,7 @@ setup_user_and_sudoers() {
       || die "No se pudo crear el usuario de sistema '${SVC_USER}'."
     ok "Usuario de sistema '${SVC_USER}' creado."
   fi
+  ensure_sudo
   write_sudoers
 }
 
@@ -850,11 +946,11 @@ write_sudoers() {
   local tmp=""
   tmp="$(mktemp)"
   printf '%s\n' "$content" > "$tmp"
-  if command -v visudo >/dev/null 2>&1; then
-    if ! visudo -cf "$tmp" >/dev/null; then
-      rm -f "$tmp"
-      die "visudo rechazó el fichero sudoers generado (no se instala)."
-    fi
+  # Validation is not optional: ensure_sudo guarantees visudo exists, and a
+  # file that cannot be checked is not installed.
+  if ! visudo -cf "$tmp" >/dev/null; then
+    rm -f "$tmp"
+    die "visudo rechazó el fichero sudoers generado (no se instala)."
   fi
   "${SUDO[@]}" install -m 0440 "$tmp" "$SUDOERS_PATH"
   rm -f "$tmp"
@@ -1556,6 +1652,7 @@ main() {
   check_root
   check_systemd
   check_resources
+  preflight_report
   install_dependencies
   select_binary_source
   install_binary
