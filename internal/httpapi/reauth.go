@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -42,25 +43,39 @@ func (s *Server) requireReauthIf(pred func(map[string]any) bool, next http.Handl
 			next(w, r)
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "bad_json", "body demasiado grande o ilegible")
+		var re reauthFields
+		switch {
+		case r.Header.Get("X-Reauth-Password") != "":
+			// Routes whose body is not JSON (a backup upload of up to 4 GiB)
+			// carry the answer in headers, URI-encoded because a header must
+			// be Latin-1. The body is then left unread for the handler.
+			re.Password, _ = url.QueryUnescape(r.Header.Get("X-Reauth-Password"))
+			re.Code, _ = url.QueryUnescape(r.Header.Get("X-Reauth-Code"))
+		case pred == nil && r.ContentLength != 0 &&
+			!strings.HasPrefix(r.Header.Get("Content-Type"), "application/json"):
+			// Not JSON and no headers: ask, without reading the body.
+			writeErr(w, http.StatusForbidden, "reauth_required",
+				"esta acción no se puede deshacer: confírmala con tu contraseña")
 			return
-		}
-		// The handler reads the same body afterwards.
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		r.ContentLength = int64(len(body))
-
-		if pred != nil {
-			var raw map[string]any
-			_ = json.Unmarshal(body, &raw)
-			if !pred(raw) {
-				next(w, r)
+		default:
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, "bad_json", "body demasiado grande o ilegible")
 				return
 			}
+			// The handler reads the same body afterwards.
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.ContentLength = int64(len(body))
+			if pred != nil {
+				var raw map[string]any
+				_ = json.Unmarshal(body, &raw)
+				if !pred(raw) {
+					next(w, r)
+					return
+				}
+			}
+			_ = json.Unmarshal(body, &re)
 		}
-		var re reauthFields
-		_ = json.Unmarshal(body, &re)
 		if re.Password == "" {
 			writeErr(w, http.StatusForbidden, "reauth_required",
 				"esta acción no se puede deshacer: confírmala con tu contraseña")

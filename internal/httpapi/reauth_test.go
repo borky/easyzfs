@@ -97,3 +97,30 @@ func TestReauthSuccessesAreNotRateLimited(t *testing.T) {
 		t.Fatalf("after %d wrong passwords got %d, want 429", loginMaxPerMinute+1, last)
 	}
 }
+
+// The backup upload is not JSON: the answer travels in headers, and without
+// them the server asks before reading the (possibly huge) body.
+func TestReauthHeadersOnBackupImport(t *testing.T) {
+	_, h, c := setupReauth(t)
+	post := func(hdr map[string]string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/backup/import", strings.NewReader("not a database"))
+		r.Header.Set("Content-Type", "application/octet-stream")
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		r.AddCookie(c)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := post(nil); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reauth_required") {
+		t.Fatalf("no headers: %d %s, want 403 reauth_required", w.Code, w.Body.String())
+	}
+	if w := post(map[string]string{"X-Reauth-Password": "wrong-one"}); !strings.Contains(w.Body.String(), "reauth_failed") {
+		t.Fatalf("wrong password: %d %s, want reauth_failed", w.Code, w.Body.String())
+	}
+	// Right password: the handler runs and rejects the junk body itself.
+	if w := post(map[string]string{"X-Reauth-Password": "password123"}); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid_backup") {
+		t.Fatalf("right password: %d %s, want the handler's 400 invalid_backup", w.Code, w.Body.String())
+	}
+}

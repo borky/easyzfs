@@ -113,13 +113,30 @@ export class HttpProvider implements DataProvider {
   importBackup = async (file: File): Promise<void> => {
     // Body crudo (no JSON): el server verifica magic + quick_check y, si es
     // válido, hace swap y reinicia el proceso (202).
-    const res = await fetch(`${BASE}/backup/import`, {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: file,
-    });
-    if (!res.ok) {
+    // Replacing the database can lock everyone out, so the server asks for
+    // the password again. The body is a file of up to 4 GiB, so the answer
+    // goes in headers, and is asked for before the upload rather than after
+    // a refused one; the TOTP code is asked for only if the server wants it.
+    let creds = reauthPrompter ? await reauthPrompter(false) : null;
+    if (reauthPrompter && !creds) throw new ApiError(403, 'reauth_required', 'cancelled');
+    for (;;) {
+      const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' };
+      if (creds) {
+        headers['X-Reauth-Password'] = encodeURIComponent(creds.password);
+        if (creds.code) headers['X-Reauth-Code'] = encodeURIComponent(creds.code);
+      }
+      const res = await fetch(`${BASE}/backup/import`, {
+        method: 'POST', credentials: 'same-origin', headers, body: file,
+      });
+      if (res.ok) return;
       const j = await res.json().catch(() => undefined);
+      if (res.status === 401) notifyAuthExpired();
+      if (res.status === 403 && j?.error === 'reauth_code_required' && reauthPrompter && creds && !creds.code) {
+        const withCode = await reauthPrompter(true);
+        if (!withCode) throw new ApiError(403, 'reauth_required', 'cancelled');
+        creds = withCode;
+        continue;
+      }
       throw new ApiError(res.status, j?.error ?? 'http_error', j?.message ?? `HTTP ${res.status}`);
     }
   };

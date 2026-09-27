@@ -261,7 +261,7 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("GET /api/backup/status", s.auth.RequireAdmin(s.backupStatus))
 	a.HandleFunc("POST /api/backup/run", s.auth.RequireAdmin(s.backupRun))
 	a.HandleFunc("GET /api/backup/download", s.auth.RequireAdmin(s.backupDownload))
-	a.HandleFunc("POST /api/backup/import", s.auth.RequireAdmin(s.backupImport))
+	a.HandleFunc("POST /api/backup/import", s.auth.RequireAdmin(s.requireReauth(s.backupImport)))
 	// Actualizaciones (solo admin; wireUpdater registra las rutas si hay updater)
 	s.wireUpdater(a)
 	// SSE (con el usuario de la sesión para la regla no-duplicar push/SSE)
