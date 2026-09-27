@@ -316,13 +316,16 @@ func (s *Server) rateGuard(next http.Handler) http.Handler {
 	})
 }
 
-// csrfGuard — si CSRF_CHECK=1, valida Origin/Referer contra Host en mutaciones
-// (POST/PUT/PATCH/DELETE). Por defecto DESACTIVADO (SameSite=Lax es suficiente en
-// LAN); activar solo si se expone a internet con COOKIE_SECURE=1 y TLS.
+// csrfGuard — validates Origin/Referer against Host on mutations
+// (POST/PUT/PATCH/DELETE). On by default: this API can destroy pools, and
+// SameSite=Lax alone was the only defence. CSRF_CHECK=0 turns it off, for a
+// reverse proxy that rewrites the Host header instead of passing it through.
+// A request with neither header is let through: browsers send Origin on every
+// cross-site mutation, so its absence means a non-browser client.
 func (s *Server) csrfGuard(next http.Handler) http.Handler {
-	check := os.Getenv("CSRF_CHECK")
-	if check != "1" && check != "true" {
-		return next // desactivado por defecto → sin sobrecarga
+	switch strings.ToLower(os.Getenv("CSRF_CHECK")) {
+	case "0", "false", "no", "off":
+		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
