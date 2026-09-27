@@ -20,6 +20,7 @@
 #                     las releases oficiales de github.com/gnacho/easyzfs.
 #   --source <dir>    Compila desde el repo fuente (requiere go y make;
 #                     node/npm solo si existe web/ en el fuente)
+#   --listen <addr>   Where the web UI listens: 127.0.0.1 (default with --yes), a local IPv4, or all
 #   --port <n>        Puerto de escucha (defecto: 8080)
 #   --root-mode       El servicio corre como root (sin usuario easyzfs/sudoers)
 #   --uninstall       Desinstala unit, binario y sudoers (pregunta por datos)
@@ -63,6 +64,8 @@ OPT_UPDATE=0        # --update: replace binary and helper of an existing install
 readonly UPDATE_UNITS="easyzfs-update-weekly.timer easyzfs-update-weekly.service easyzfs-update.path easyzfs-update.service"
 OPT_PORT="8080"
 PORT_FROM_FLAG=0
+LISTEN_HOST=""       # 127.0.0.1 | a local IPv4 | all — see choose_listen_host
+LISTEN_FROM_FLAG=0
 OPT_ROOT_MODE=0
 OPT_DEMO=0
 OPT_UNINSTALL=0
@@ -155,6 +158,8 @@ Opciones:
   --source <dir>    Compila desde el repo fuente (go + make; node/npm si hay web/)
                     Bajo sudo se rechaza (compilaría como root en el checkout):
                     usa 'make install' / 'make update'.
+  --listen <dir>    Dónde escucha la web: 127.0.0.1 (defecto con --yes), una IPv4
+                    de este equipo, o all (todas las interfaces)
   --port <n>        Puerto de escucha (defecto: 8080)
   --demo            Arranca en modo demo (DEMO=1: datos de muestra, mutaciones 403)
   --root-mode       El servicio corre como root (sin usuario easyzfs ni sudoers)
@@ -979,6 +984,45 @@ random_password() {
 # configure_env — /etc/easyzfs/env (0600) con las vars exactas que acepta el
 # binario (internal/config): LISTEN_ADDR, DB_PATH, SESSION_SECRET, ADMIN_PASSWORD.
 # Idempotente: en reinstalaciones reutiliza los secretos y el puerto ya existentes.
+# choose_listen_host — where the web interface listens. It can change pools,
+# so it is not exposed on every interface unless that is asked for: --yes
+# means localhost (reach it with a reverse proxy or 'ssh -L'); interactively
+# the choice is localhost, one of this host's addresses, or all interfaces.
+choose_listen_host() {
+  if [ -z "$LISTEN_HOST" ]; then
+    if [ "$OPT_YES" = "1" ]; then
+      LISTEN_HOST="127.0.0.1"
+    else
+      local opts=(127.0.0.1 "Solo este equipo (proxy inverso o túnel 'ssh -L'). Recomendado") ip iface
+      while read -r iface ip; do
+        opts+=("$ip" "Solo la red de ${iface} (${ip})")
+      done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $2, $4}')
+      opts+=(all "Todas las interfaces (cualquiera que alcance este equipo; cortafuegos a tu cargo)")
+      menu LISTEN_HOST "EasyZFS — dirección de escucha" "¿Desde dónde se podrá abrir la interfaz web?" "${opts[@]}"
+    fi
+  fi
+  case "$LISTEN_HOST" in
+    all|127.0.0.1) ;;
+    *)
+      [[ "$LISTEN_HOST" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "Dirección de escucha inválida: ${LISTEN_HOST} (127.0.0.1, una IPv4 de este equipo o all)."
+      if [ "$DRY_RUN" != "1" ] && ! ip -4 -o addr show 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}' | grep -qx "$LISTEN_HOST"; then
+        die "La dirección ${LISTEN_HOST} no pertenece a este equipo."
+      fi
+      ;;
+  esac
+  if [ "$LISTEN_HOST" = "all" ]; then
+    warn "La interfaz web escuchará en todas las interfaces: limita el puerto con el cortafuegos."
+    PROBE_HOST="127.0.0.1"
+  else
+    PROBE_HOST="$LISTEN_HOST"
+  fi
+}
+
+# listen_addr — the LISTEN_ADDR value: ":port" for every interface.
+listen_addr() {
+  if [ "$LISTEN_HOST" = "all" ]; then printf ':%s' "$OPT_PORT"; else printf '%s:%s' "$LISTEN_HOST" "$OPT_PORT"; fi
+}
+
 configure_env() {
   step "Configuración (${ENV_FILE})"
 
@@ -988,7 +1032,16 @@ configure_env() {
   if [ "$DRY_RUN" != "1" ] && [ -r "$ENV_FILE" ]; then
     existing_secret="$(sed -n 's/^SESSION_SECRET=//p' "$ENV_FILE" | head -1)"
     existing_admin="$(sed -n 's/^ADMIN_PASSWORD=//p' "$ENV_FILE" | head -1)"
-    existing_port="$(sed -n 's/^LISTEN_ADDR=://p' "$ENV_FILE" | head -1)"
+    # The whole address, not just the port: reading only 'LISTEN_ADDR=:port'
+    # turned an existing 127.0.0.1:8080 into :8080 (every interface) on reinstall.
+    local existing_listen
+    existing_listen="$(sed -n 's/^LISTEN_ADDR=//p' "$ENV_FILE" | head -1 | tr -d '\r')"
+    if [ -n "$existing_listen" ]; then
+      existing_port="${existing_listen##*:}"
+      if [ "$LISTEN_FROM_FLAG" = "0" ]; then
+        case "${existing_listen%:*}" in ""|0.0.0.0|"[::]") LISTEN_HOST="all" ;; *) LISTEN_HOST="${existing_listen%:*}" ;; esac
+      fi
+    fi
     existing_vapid_pub="$(sed -n 's/^VAPID_PUBLIC_KEY=//p' "$ENV_FILE" | head -1)"
     existing_vapid_priv="$(sed -n 's/^VAPID_PRIVATE_KEY=//p' "$ENV_FILE" | head -1)"
     existing_vapid_sub="$(sed -n 's/^VAPID_SUBJECT=//p' "$ENV_FILE" | head -1)"
@@ -1004,6 +1057,7 @@ configure_env() {
     OPT_PORT="$existing_port"
   fi
 
+  choose_listen_host
   if [ "$OPT_YES" = "0" ] && [ "$PORT_FROM_FLAG" = "0" ]; then
     prompt OPT_PORT "Puerto de escucha de la interfaz web" "$OPT_PORT"
   fi
@@ -1109,7 +1163,7 @@ configure_env() {
 
   # OJO: $(...) elimina los \n finales; por eso el contenido se compone con
   # saltos de línea literales y se escribe con un único printf '%s\n'.
-  local env_content="LISTEN_ADDR=:${OPT_PORT}
+  local env_content="LISTEN_ADDR=$(listen_addr)
 DB_PATH=${DATA_DIR}/app.db
 SESSION_SECRET=${secret}
 ADMIN_PASSWORD=${admin}
@@ -1127,7 +1181,7 @@ DEMO=1"
 
   if [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] escribiría ${ENV_FILE} (modo 0600):"
-    printf '    %s\n' "LISTEN_ADDR=:${OPT_PORT}" "DB_PATH=${DATA_DIR}/app.db" \
+    printf '    %s\n' "LISTEN_ADDR=$(listen_addr)" "DB_PATH=${DATA_DIR}/app.db" \
       "SESSION_SECRET=***" "ADMIN_PASSWORD=***" \
       "WEBHOOK_SECRET=***" \
       "VAPID_PUBLIC_KEY=***" "VAPID_PRIVATE_KEY=***" "VAPID_SUBJECT=${vapid_sub}" \
@@ -1446,6 +1500,8 @@ summary() {
   # set -eo pipefail that ended the installer here, after a good install.
   ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
   ip="${ip:-127.0.0.1}"
+  # The URL is only reachable where the service listens.
+  case "$LISTEN_HOST" in all|"") ;; *) ip="$LISTEN_HOST" ;; esac
   step "Instalación completada"
   cat <<EOF
   URL:      http://${ip}:${OPT_PORT}
@@ -1611,6 +1667,8 @@ parse_args() {
       --source=*)  OPT_SOURCE="${1#*=}"; shift ;;
       --port)     [ $# -ge 2 ] || die "--port requiere un valor"; OPT_PORT="$2"; PORT_FROM_FLAG=1; shift 2 ;;
       --port=*)    OPT_PORT="${1#*=}"; PORT_FROM_FLAG=1; shift ;;
+      --listen)   [ $# -ge 2 ] || die "--listen requiere un valor"; LISTEN_HOST="$2"; LISTEN_FROM_FLAG=1; shift 2 ;;
+      --listen=*)  LISTEN_HOST="${1#*=}"; LISTEN_FROM_FLAG=1; shift ;;
       --demo)      OPT_DEMO=1; shift ;;
       --root-mode) OPT_ROOT_MODE=1; shift ;;
       --uninstall) OPT_UNINSTALL=1; shift ;;
