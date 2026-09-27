@@ -144,8 +144,8 @@ func TestPowerOffRules(t *testing.T) {
 // util-linux < 2.37 rejects the MOUNTPOINTS column; the check retries with
 // MOUNTPOINT instead of refusing every disk.
 func TestDiskUseFallsBackToMountpointColumn(t *testing.T) {
-	savedL, savedS, savedB, savedP := lsblkJSON, sysBlockDir, devByIDDir, importedPools
-	t.Cleanup(func() { lsblkJSON, sysBlockDir, devByIDDir, importedPools = savedL, savedS, savedB, savedP })
+	savedL, savedS, savedB, savedP := lsblkJSON, sysBlockDir, devByIDDir, zpoolListVHP
+	t.Cleanup(func() { lsblkJSON, sysBlockDir, devByIDDir, zpoolListVHP = savedL, savedS, savedB, savedP })
 	sysBlockDir, devByIDDir = t.TempDir(), t.TempDir()
 	lsblkJSON = func(_ context.Context, args ...string) ([]byte, error) {
 		if strings.Contains(strings.Join(args, " "), "MOUNTPOINTS") {
@@ -154,11 +154,50 @@ func TestDiskUseFallsBackToMountpointColumn(t *testing.T) {
 		return []byte(`{"blockdevices":[{"name":"sdx","type":"disk","fstype":null,"label":null,"parttype":null,"mountpoint":null,
 			"children":[{"name":"sdx1","type":"part","fstype":"ext4","label":null,"parttype":null,"mountpoint":"/srv/data"}]}]}`), nil
 	}
-	importedPools = func(context.Context) (map[string]bool, error) { return map[string]bool{}, nil }
+	zpoolListVHP = func(context.Context) ([]byte, error) { return nil, nil }
 	for _, f := range []func(context.Context, string) (string, error){DiskUse, DiskActiveUse} {
 		got, err := f(context.Background(), "sdx")
 		if err != nil || !strings.Contains(got, "/srv/data") {
 			t.Errorf("got %q, %v; want the mount found through MOUNTPOINT", got, err)
 		}
+	}
+}
+
+// Membership comes from ZFS, not from udev's labels: a disk whose partition
+// is a vdev of an imported pool is refused even when lsblk shows no ZFS
+// signature on it. Output format as captured on Proxmox VE 8.4.
+func TestPowerOffAsksZFSForMembers(t *testing.T) {
+	savedL, savedS, savedB, savedP, savedC := lsblkJSON, sysBlockDir, devByIDDir, zpoolListVHP, sysClassBlock
+	t.Cleanup(func() {
+		lsblkJSON, sysBlockDir, devByIDDir, zpoolListVHP, sysClassBlock = savedL, savedS, savedB, savedP, savedC
+	})
+	sysBlockDir, devByIDDir = t.TempDir(), t.TempDir()
+	// sysfs: sdb1 is a partition of sdb.
+	sysClassBlock = t.TempDir()
+	devs := t.TempDir()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(devs, "block", "sdb", "sdb1"), 0o755))
+	must(os.WriteFile(filepath.Join(devs, "block", "sdb", "sdb1", "partition"), []byte("1\n"), 0o644))
+	must(os.Symlink(filepath.Join(devs, "block", "sdb", "sdb1"), filepath.Join(sysClassBlock, "sdb1")))
+	must(os.WriteFile(filepath.Join(devByIDDir, "ata-X-part1"), nil, 0o644))
+	vdev := filepath.Join(t.TempDir(), "sdb1")
+	must(os.WriteFile(vdev, nil, 0o644))
+	must(os.Symlink(vdev, filepath.Join(devByIDDir, "link-part1")))
+	zpoolListVHP = func(context.Context) ([]byte, error) {
+		return []byte("tank\t31G\t1.59G\t29.4G\t-\t-\t0%\t5%\t1.00x\tONLINE\t-\n" +
+			"\t" + filepath.Join(devByIDDir, "link-part1") + "\t31.5G\t1.59G\t29.4G\t-\t-\t0%\t5.12%\t-\tONLINE\n"), nil
+	}
+	lsblkJSON = func(context.Context, ...string) ([]byte, error) {
+		// udev never re-probed: no signature at all
+		return []byte(`{"blockdevices":[{"name":"sdb","type":"disk","fstype":null,"label":null,"parttype":null,"mountpoints":[null],
+			"children":[{"name":"sdb1","type":"part","fstype":null,"label":null,"parttype":null,"mountpoints":[null]}]}]}`), nil
+	}
+	got, err := DiskActiveUse(context.Background(), "sdb")
+	if err != nil || !strings.Contains(got, "tank") {
+		t.Fatalf("got %q, %v; want sdb refused as a member of tank", got, err)
 	}
 }

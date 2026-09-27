@@ -31,19 +31,61 @@ var (
 	lsblkJSON   = func(ctx context.Context, args ...string) ([]byte, error) {
 		return executil.RunRead(ctx, 10*time.Second, "lsblk", args...)
 	}
-	// importedPools — the pools imported right now, read live.
-	importedPools = func(ctx context.Context) (map[string]bool, error) {
-		out, err := executil.RunRead(ctx, 10*time.Second, "zpool", "list", "-H", "-o", "name")
-		if err != nil {
-			return nil, err
-		}
-		m := map[string]bool{}
-		for _, l := range strings.Fields(string(out)) {
-			m[l] = true
-		}
-		return m, nil
+	sysClassBlock = "/sys/class/block"
+	// zpoolListVHP — the imported pools and every vdev path, read live.
+	zpoolListVHP = func(ctx context.Context) ([]byte, error) {
+		return executil.RunRead(ctx, 10*time.Second, "zpool", "list", "-vHP")
 	}
 )
+
+// poolMembers — imported pool names, and kernel disk name → pool for every
+// disk holding one of their vdevs, from ZFS itself. Power-off used to decide
+// membership from lsblk's FSTYPE/LABEL, which come from the udev database:
+// a partition turned into a vdev is not re-probed, so a live member could
+// show no ZFS label at all.
+func poolMembers(ctx context.Context) (pools map[string]bool, disks map[string]string, err error) {
+	out, err := zpoolListVHP(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	pools, disks = map[string]bool{}, map[string]string{}
+	cur := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Split(line, "\t")
+		if f[0] != "" { // a pool line, or a class header (cache, logs…)
+			switch f[0] {
+			case "cache", "logs", "spares", "special", "dedup":
+			default:
+				cur = f[0]
+				pools[cur] = true
+			}
+			continue
+		}
+		for _, v := range f {
+			if strings.HasPrefix(v, "/") && cur != "" {
+				disks[diskOf(v)] = cur
+				break
+			}
+		}
+	}
+	return pools, disks, nil
+}
+
+// diskOf — the whole disk a vdev path lives on: /dev/disk/by-id/x-part3 →
+// sda3 → sda.
+func diskOf(path string) string {
+	name := path
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		name = real
+	}
+	name = filepath.Base(name)
+	if _, err := os.Stat(filepath.Join(sysClassBlock, name, "partition")); err == nil {
+		if real, err := filepath.EvalSymlinks(filepath.Join(sysClassBlock, name)); err == nil {
+			return filepath.Base(filepath.Dir(real))
+		}
+	}
+	return name
+}
 
 // Partition type GUIDs that mean "this disk boots something".
 const (
@@ -195,10 +237,14 @@ func DiskUse(ctx context.Context, dev string) (string, error) {
 // DiskActiveUse — why the disk cannot be powered off right now, read live
 // (see classify); "" when nothing on it is in use.
 func DiskActiveUse(ctx context.Context, dev string) (string, error) {
-	imported, err := importedPools(ctx)
+	imported, members, err := poolMembers(ctx)
 	if err != nil {
 		return "", fmt.Errorf("leer los pools importados: %w", err)
 	}
+	if pool, ok := members[kernelName(dev)]; ok {
+		return fmt.Sprintf("%s es miembro del pool importado '%s'", kernelName(dev), pool), nil
+	}
+	// The LABEL check in classify stays as a second opinion.
 	return diskUse(ctx, dev, imported, "")
 }
 
@@ -261,7 +307,13 @@ func AllDiskUse(ctx context.Context) (map[string]string, error) {
 	}
 	res := map[string]string{}
 	for _, d := range top.Devices {
-		if r, err := DiskUse(ctx, d.Name); err == nil && r != "" {
+		r, err := DiskUse(ctx, d.Name)
+		if err != nil {
+			// Unknown is not free: a disk that could not be read used to be
+			// left out of the map, and so shown as available.
+			r = fmt.Sprintf("no se pudo leer el estado de %s", d.Name)
+		}
+		if r != "" {
 			res[d.Name] = r
 		}
 	}
