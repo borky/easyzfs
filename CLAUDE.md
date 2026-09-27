@@ -34,6 +34,7 @@ go test -race ./...            # what CI runs; full suite ~30s, all green
 staticcheck ./...              # CI uses honnef.co/go/tools @2026.1
 make build                     # web (npm ci + vite) → dist/ → static binary
 make web / make go             # the two halves separately
+make install / make update     # fork: install or update this machine from the checkout (see FORK.md)
 cd web && npx tsc --noEmit     # CI typecheck
 cd web && npm run dev          # Vite dev server, proxies /api → localhost:8080
 ```
@@ -228,6 +229,10 @@ arguments pinned as narrowly as the call site allows.
 Self-update: the daemon only detects and downloads (checksum-validated) to
 `$DATA_DIR/update/`, then touches a flag; a root `easyzfs-update.path` unit
 does the swap and restart. The daemon never writes to `/usr/local/bin`.
+
+In this fork, `make build` links `-X main.updateChannel=local`: that binary
+has no updater at all and is updated with `make update` from the checkout.
+The self-update path above applies only to a plain `go build`.
 
 Config is entirely environment variables read at startup (`/etc/easyzfs/env`) —
 see the table in [README.md](README.md#configuration). Alert channel settings

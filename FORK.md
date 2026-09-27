@@ -62,6 +62,7 @@ here rather than offered upstream by the owner's decision, which also means
 | `fix(encryption)`: verify the current passphrase before change-key | `current_key` was checked for being non-empty and then ignored, so any admin session could re-wrap a dataset to a key its owner does not know. Now verified with a dry-run `zfs load-key -n`. Datasets with `keyformat=raw` (the UI never creates them) can no longer change key through the API. The "incorrect key" detection relies on OpenZFS's English error wording and has not been checked against a real host; if it differs, the change is still refused, with a generic error. |
 | `fix(install)`: make the installer's prompts answer what they show | `confirm()` returned its default as an exit status, where 0 means yes, so every text prompt was inverted: Enter at `[s/N]` answered yes. At the uninstall prompt that deleted `/var/lib/easyzfs` and `/etc/easyzfs` (never the pools). Text prompts are what the documented `curl … \| bash` install always uses, since stdin is the pipe. `--yes` now takes the displayed default, so the "ZFS not detected, continue?" prompts abort under `--yes` instead of continuing. **Upstream installs still have this.** |
 | `fix(install)`: helper source, weekly updater, dry run, uninstall | Under `curl … \| bash` the script's own directory resolved to the **current directory**, so an `easyzfs-sysd` left there by someone else was installed as the root helper; otherwise it was fetched unverified from the moving `main` branch. It now comes from the checkout, `--source` or next to `--binary`, else from the exact release tag the binary was downloaded from. The weekly-updater step aborted the installer (undefined `NEW_VERSION`, relative `cp`, no `sudo`); it now installs only for a release binary, since for a local or source build it would replace that build with upstream's release every week. Also: `DRY_RUN=1` crashed, uninstall left the root update units and `/opt/easyzfs` behind, and `hostname -I` killed the installer on Arch after a good install. **Upstream installs still have all of these.** |
+| `feat(update)`, `feat(install)`: install and update from this checkout only | See "Installing this fork". Also fixed on the way: `--source` was ignored in favour of downloading upstream's release (the default `--url` was checked first); a reinstall dropped hand-added env lines; the CSP still let the browser reach `api.github.com`, which nothing uses. |
 | `feat(updater)`: `EASYZFS_NO_UPDATE_CHECK` | Upstream checks `api.github.com` at boot and every 24 h with no opt-out. Not a defect — it sends nothing — but a recurring outbound call nobody agreed to. Does not affect the separate weekly auto-update timer `install.sh` can install. Also stops the Settings icon claiming "up to date" when no check ever succeeded. |
 | `CLAUDE.md`, this file | Working notes for this clone. Upstream keeps AI tooling out of its history. |
 
@@ -71,15 +72,61 @@ added with each patch are the quickest way to find out.
 
 ## Installing this fork
 
-- **Install from this checkout**, never with the `curl … | bash` one-liner. The
-  one-liner fetches upstream's installer, and even this fork's installer, when
-  it has no local copy, fetches the root helper from upstream's release tag:
-  that helper lacks the `fix(sysd)` patch above.
-- **Never accept an in-app update, and don't install the weekly timer by hand.**
-  Both install upstream's release binary over this build, which puts back every
-  bug fixed here. The installer already skips the weekly timer for a local
-  build. `EASYZFS_NO_UPDATE_CHECK=1` stops the automatic check, but a manual
-  check from Settings can still offer one: don't click Update.
+Everything comes from this checkout; nothing is fetched from upstream.
+
+```sh
+make install                       # first time: builds as you, then runs the installer as root
+git pull && make update            # later: pull (from your fork), rebuild, swap binary + helper
+sudo bash deploy/install.sh --uninstall
+```
+
+Needs Go 1.25+, Node/npm and make on the machine. `make install` is
+interactive; `make install INSTALL_ARGS="--yes"` takes every default, and
+`INSTALL_ARGS="--port 9090"` passes flags through.
+
+Why it cannot drift back to upstream:
+
+- `make build` links the binary with `updateChannel=local`. Such a binary has
+  **no in-app updater**: it never contacts GitHub, has no `/api/update/*`
+  routes, and the UI shows how to update instead of an Update button. A plain
+  `go build` (upstream's release pipeline) keeps upstream's updater.
+- The installer asks the binary for its channel (`easyzfs -update-channel`).
+  For `local` it installs **none** of the root update units
+  (`easyzfs-update.path`, the weekly timer) and **removes** any left by an
+  earlier install of an upstream release, with `/opt/easyzfs`.
+- The root helper comes from `deploy/` in this checkout, never from the network.
+- Run from the checkout, the installer **never downloads a binary**. Without
+  `--binary`/`--source` it takes the checkout's own build (`./easyzfs`, as
+  `make build` leaves it), or stops and points at `make install`. Only an
+  explicit `--url` downloads. (Upstream's default download is kept solely for
+  its `curl | bash` one-liner, which has no checkout.)
+- `make update` (`install.sh --update`) replaces only the binary (keeping the
+  previous one as `/usr/local/bin/easyzfs.prev`) and the helper, refreshes
+  sudoers, and restarts. It never downloads, and leaves `/etc/easyzfs/env`,
+  the data, the service account and the unit alone. A full reinstall now keeps
+  lines you added to the env file (`CSRF_CHECK`, `SMTP_*`…); it used to drop
+  them.
+- Build as your user, install as root: `make install`/`make update` run only
+  the installer under sudo, so no root-owned files end up in the checkout.
+  `sudo make install` and `sudo bash deploy/install.sh --source …` are refused
+  for the same reason.
+- `make update` checks the service answers HTTP on the address in
+  `LISTEN_ADDR`, and stops with the rollback command if it does not.
+- `make update` does not rewrite the systemd unit, on purpose. If a pull
+  changes `write_unit` in `deploy/install.sh`, run `make install` instead: it
+  keeps your secrets and your own env lines.
+
+Rollback after a bad update:
+`sudo install -m 0755 /usr/local/bin/easyzfs.prev /usr/local/bin/easyzfs && sudo systemctl restart easyzfs`.
+
+**Do not** use the `curl … | bash` one-liner for this install: it installs
+upstream's release, which lacks every fix above. `UPDATE_CHANNEL=github`
+builds this fork with the in-app updater enabled, which can then replace it
+with upstream's release.
+
+After migrating from an earlier upstream install, the first `.prev` is
+upstream's binary; rolling back to it brings back its updater (inert without
+the units, but it contacts GitHub daily). Run `make update` again once fixed.
 
 ## Upstream behaviour this fork accepts as-is
 
