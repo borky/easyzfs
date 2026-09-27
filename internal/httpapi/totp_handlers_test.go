@@ -410,8 +410,15 @@ func TestLoginConRecoveryCode(t *testing.T) {
 func TestAdminReset2FA(t *testing.T) {
 	h := setup2FAServer(t)
 	cookie := loginOK(t, h)
-	enable2FA(t, h, cookie)
-	rec := do2FAReq(t, h, cookie, "DELETE", "/api/users/admin/2fa", "")
+	secret := enable2FA(t, h, cookie)
+	// Resetting 2FA is irreversible: it takes the password again, and a code
+	// since this admin has 2FA on (reauth.go).
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := do2FAReq(t, h, cookie, "DELETE", "/api/users/admin/2fa",
+		`{"reauth_password":"password123","reauth_code":"`+code+`"}`)
 	if rec.Code != 204 {
 		t.Fatalf("status %d, want 204 (%s)", rec.Code, rec.Body.String())
 	}

@@ -287,6 +287,8 @@ export function errorMessage(e: unknown, t: AppCtx['t']): string {
     // Before the generic 403 below: a wrong passphrase is not a permission problem.
     if (e.code === 'wrong_key') return t('err_wrong_key');
     if (e.code === 'read_only') return t('err_read_only');
+    if (e.code === 'reauth_failed') return t('err_reauth_failed');
+    if (e.code === 'reauth_required' || e.code === 'reauth_code_required') return t('err_reauth_cancelled');
     if (e.status === 401) return t('login_error');
     if (e.status === 403) return t('no_permission');
     return e.message;

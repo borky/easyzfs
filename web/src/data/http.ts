@@ -38,12 +38,24 @@ export function fetchPublicDemo(): Promise<PublicDemo> {
   return publicDemoPromise;
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+// Re-authentication for irreversible operations. The server answers 403
+// reauth_required (or reauth_code_required with 2FA); a prompter registered
+// by the app shell asks for the password (and code), and the same request is
+// retried with them added to its body. They are held only for that retry.
+export interface ReauthCreds { password: string; code?: string }
+type ReauthPrompter = (needCode: boolean) => Promise<ReauthCreds | null>;
+let reauthPrompter: ReauthPrompter | null = null;
+export function setReauthPrompter(p: ReauthPrompter | null): void { reauthPrompter = p; }
+
+async function req<T>(method: string, path: string, body?: unknown, reauth?: ReauthCreds): Promise<T> {
+  const payload = reauth
+    ? { ...((body as Record<string, unknown>) ?? {}), reauth_password: reauth.password, reauth_code: reauth.code ?? '' }
+    : body;
   const res = await fetch(BASE + path, {
     method,
     credentials: 'same-origin',
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: payload !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: payload !== undefined ? JSON.stringify(payload) : undefined,
   });
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -56,6 +68,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     // (evita bucles al cerrar una sesión ya caducada).
     if (res.status === 401 && path !== '/login' && path !== '/logout') notifyAuthExpired();
     const e = json as { error?: string; message?: string } | undefined;
+    if (res.status === 403 && reauthPrompter &&
+        (e?.error === 'reauth_required' || e?.error === 'reauth_code_required')) {
+      const creds = await reauthPrompter(e.error === 'reauth_code_required');
+      if (creds) return req<T>(method, path, body, creds);
+    }
     throw new ApiError(res.status, e?.error ?? 'http_error', e?.message ?? `HTTP ${res.status}`);
   }
   return json as T;

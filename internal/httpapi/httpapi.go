@@ -69,7 +69,8 @@ type Server struct {
 	// and has no updater; the UI then hides the update check.
 	updateChannel string
 
-	loginLimiter *loginLimiter // rate limit de /api/login (IP+usuario)
+	loginLimiter *loginLimiter    // rate limit de /api/login (IP+usuario)
+	rateBucket   *rateGuardBucket // rateGuard: mutations per IP per minute
 }
 
 // Deps — parámetros del constructor.
@@ -153,10 +154,12 @@ func (s *Server) Handler() http.Handler {
 	// usuarios (admin)
 	a.HandleFunc("GET /api/users", s.auth.RequireAdmin(s.listUsers))
 	a.HandleFunc("POST /api/users", s.auth.RequireAdmin(s.createUser))
-	a.HandleFunc("DELETE /api/users/{name}", s.auth.RequireAdmin(s.deleteUser))
-	a.HandleFunc("POST /api/users/{name}/password", s.auth.RequireAdmin(s.setUserPassword))
+	// Irreversible operations below go through requireReauth (reauth.go):
+	// the password again, and the TOTP code when 2FA is on.
+	a.HandleFunc("DELETE /api/users/{name}", s.auth.RequireAdmin(s.requireReauth(s.deleteUser)))
+	a.HandleFunc("POST /api/users/{name}/password", s.auth.RequireAdmin(s.requireReauth(s.setUserPassword)))
 	a.HandleFunc("PUT /api/users/{name}/language", s.auth.RequireAdmin(s.setUserLanguage))
-	a.HandleFunc("DELETE /api/users/{name}/2fa", s.auth.RequireAdmin(s.admin2FADisable))
+	a.HandleFunc("DELETE /api/users/{name}/2fa", s.auth.RequireAdmin(s.requireReauth(s.admin2FADisable)))
 	// API keys de solo lectura (admin, #87)
 	a.HandleFunc("GET /api/keys", s.auth.RequireAdmin(s.listAPIKeys))
 	a.HandleFunc("POST /api/keys", s.auth.RequireAdmin(s.createAPIKey))
@@ -180,16 +183,16 @@ func (s *Server) Handler() http.Handler {
 	// pools (mutaciones: admin — son potencialmente destructivas)
 	a.HandleFunc("GET /api/pools", s.listPools)
 	a.HandleFunc("GET /api/pools/missing", s.missingPools)
-	a.HandleFunc("POST /api/pools", s.auth.RequireAdmin(s.createPool))
+	a.HandleFunc("POST /api/pools", s.auth.RequireAdmin(s.requireReauth(s.createPool)))
 	a.HandleFunc("POST /api/pools/import", s.auth.RequireAdmin(s.importPool))
 	a.HandleFunc("POST /api/pools/{name}/scrub", s.auth.RequireAdmin(s.scrubPool))
-	a.HandleFunc("POST /api/pools/{name}/export", s.auth.RequireAdmin(s.exportPool))
-	a.HandleFunc("POST /api/pools/{name}/vdev", s.auth.RequireAdmin(s.addVdev))
-	a.HandleFunc("POST /api/pools/{name}/vdev/action", s.auth.RequireAdmin(s.vdevAction))
-	a.HandleFunc("POST /api/pools/{name}/replace", s.auth.RequireAdmin(s.replaceDisk))
+	a.HandleFunc("POST /api/pools/{name}/export", s.auth.RequireAdmin(s.requireReauth(s.exportPool)))
+	a.HandleFunc("POST /api/pools/{name}/vdev", s.auth.RequireAdmin(s.requireReauth(s.addVdev)))
+	a.HandleFunc("POST /api/pools/{name}/vdev/action", s.auth.RequireAdmin(s.requireReauth(s.vdevAction)))
+	a.HandleFunc("POST /api/pools/{name}/replace", s.auth.RequireAdmin(s.requireReauth(s.replaceDisk)))
 	a.HandleFunc("POST /api/pools/{name}/autotrim", s.auth.RequireAdmin(s.setAutotrim))
-	a.HandleFunc("POST /api/pools/{name}/checkpoint", s.auth.RequireAdmin(s.poolCheckpoint))
-	a.HandleFunc("POST /api/pools/{name}/expand", s.auth.RequireAdmin(s.expandPool))
+	a.HandleFunc("POST /api/pools/{name}/checkpoint", s.auth.RequireAdmin(s.requireReauth(s.poolCheckpoint)))
+	a.HandleFunc("POST /api/pools/{name}/expand", s.auth.RequireAdmin(s.requireReauth(s.expandPool)))
 	a.HandleFunc("POST /api/pools/{name}/clear", s.auth.RequireAdmin(s.clearPool))
 	a.HandleFunc("GET /api/pools/{name}/history", s.poolHistory)
 	a.HandleFunc("GET /api/performance", s.getPerformance)
@@ -202,14 +205,14 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("PATCH /api/datasets/{name}/properties", s.auth.RequireAdmin(s.patchDatasetProps))
 	a.HandleFunc("GET /api/datasets/{name}/properties", s.listDatasetProps)
 	a.HandleFunc("PATCH /api/datasets/{name}/rename", s.auth.RequireAdmin(s.renameDataset))
-	a.HandleFunc("DELETE /api/datasets/{name}", s.auth.RequireAdmin(s.deleteDataset))
+	a.HandleFunc("DELETE /api/datasets/{name}", s.auth.RequireAdmin(s.requireReauth(s.deleteDataset)))
 	a.HandleFunc("POST /api/datasets/{name}/promote", s.auth.RequireAdmin(s.promoteDataset))
 	a.HandleFunc("POST /api/datasets/{name}/mount", s.auth.RequireAdmin(s.mountDataset))
 	a.HandleFunc("POST /api/datasets/{name}/unmount", s.auth.RequireAdmin(s.unmountDataset))
 	a.HandleFunc("POST /api/datasets/{name}/rewrite", s.auth.RequireAdmin(s.rewriteDataset))
 	a.HandleFunc("POST /api/datasets/{name}/unlock", s.auth.RequireAdmin(s.unlockDataset))
 	a.HandleFunc("POST /api/datasets/{name}/lock", s.auth.RequireAdmin(s.lockDataset))
-	a.HandleFunc("POST /api/datasets/{name}/change-key", s.auth.RequireAdmin(s.changeKeyDataset))
+	a.HandleFunc("POST /api/datasets/{name}/change-key", s.auth.RequireAdmin(s.requireReauth(s.changeKeyDataset)))
 	a.HandleFunc("POST /api/datasets/{name}/properties/{prop}/inherit", s.auth.RequireAdmin(s.inheritDatasetProp))
 	// operaciones largas (runner longops: rewrite, futura replicación)
 	a.HandleFunc("GET /api/longops", s.listLongOps)
@@ -219,8 +222,8 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("GET /api/snapshots/diff", s.diffSnapshots)
 	a.HandleFunc("POST /api/snapshots", s.auth.RequireAdmin(s.createSnapshot))
 	a.HandleFunc("POST /api/snapshots/{full}/clone", s.auth.RequireAdmin(s.cloneSnapshot))
-	a.HandleFunc("DELETE /api/snapshots/{full}", s.auth.RequireAdmin(s.deleteSnapshot))
-	a.HandleFunc("POST /api/snapshots/{full}/rollback", s.auth.RequireAdmin(s.rollbackSnapshot))
+	a.HandleFunc("DELETE /api/snapshots/{full}", s.auth.RequireAdmin(s.requireReauth(s.deleteSnapshot)))
+	a.HandleFunc("POST /api/snapshots/{full}/rollback", s.auth.RequireAdmin(s.requireReauth(s.rollbackSnapshot)))
 	// jobs
 	a.HandleFunc("GET /api/jobs", s.listJobs)
 	a.HandleFunc("POST /api/jobs", s.auth.RequireAdmin(s.createJob))
@@ -230,8 +233,8 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("POST /api/jobs/{id}/run", s.auth.RequireAdmin(s.runJob))
 	// replicación ZFS send/recv (mutaciones: admin)
 	a.HandleFunc("GET /api/replication", s.listReplication)
-	a.HandleFunc("POST /api/replication", s.auth.RequireAdmin(s.createReplication))
-	a.HandleFunc("PATCH /api/replication/{id}", s.auth.RequireAdmin(s.patchReplication))
+	a.HandleFunc("POST /api/replication", s.auth.RequireAdmin(s.requireReauthIf(forceFull, s.createReplication)))
+	a.HandleFunc("PATCH /api/replication/{id}", s.auth.RequireAdmin(s.requireReauthIf(forceFull, s.patchReplication)))
 	a.HandleFunc("DELETE /api/replication/{id}", s.auth.RequireAdmin(s.deleteReplication))
 	a.HandleFunc("POST /api/replication/{id}/run", s.auth.RequireAdmin(s.runReplication))
 	a.HandleFunc("GET /api/replication/sshkey", s.getReplicationSSHKey)
@@ -295,9 +298,15 @@ func (b *rateGuardBucket) allow(ip string, now time.Time, max int, window time.D
 	return true
 }
 
-var rateGuardGlobal = &rateGuardBucket{hits: map[string][]time.Time{}}
+// Each Server has its own bucket (s.rateBucket). It used to be a package
+// global, shared by every Server in the process, so tests had to empty it by
+// hand to avoid 429s leaking from one test into the next.
 
 func (s *Server) rateGuard(next http.Handler) http.Handler {
+	if s.rateBucket == nil {
+		s.rateBucket = &rateGuardBucket{hits: map[string][]time.Time{}}
+	}
+	bucket := s.rateBucket
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			next.ServeHTTP(w, r)
@@ -307,7 +316,7 @@ func (s *Server) rateGuard(next http.Handler) http.Handler {
 		if idx := strings.LastIndex(ip, ":"); idx != -1 {
 			ip = ip[:idx]
 		}
-		if !rateGuardGlobal.allow(ip, time.Now(), 30, time.Minute) {
+		if !bucket.allow(ip, time.Now(), 30, time.Minute) {
 			writeErr(w, http.StatusTooManyRequests, "rate_limited",
 				"demasiadas peticiones; inténtalo de nuevo en unos segundos")
 			return

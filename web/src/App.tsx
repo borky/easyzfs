@@ -21,6 +21,7 @@ import { useUpdateAvailable } from './ui/updatecheck';
 import { useReleaseCheck, getReleaseDismissed, dismissRelease } from './ui/releasecheck';
 import type { Alert } from './data/types';
 import Login from './views/Login';
+import ReauthPrompt from './components/ReauthPrompt';
 
 // Code-splitting por vista (lazyRetry: si el chunk ya no existe tras un
 // despliegue, recarga una vez en vez de quedarse en pantalla negra)
@@ -444,6 +445,7 @@ function Shell() {
       </nav>
 
       <ModalHost />
+      <ReauthPrompt />
       <ToastHost />
     </>
   );

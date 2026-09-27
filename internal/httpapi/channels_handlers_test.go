@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"easyzfs/internal/auth"
 	"easyzfs/internal/channels"
@@ -19,14 +18,8 @@ import (
 	"easyzfs/internal/users"
 )
 
-// resetRateGuard — vacía el cupo global de mutaciones por IP: los tests
-// comparten 127.0.0.1 y el cupo es por IP y minuto, así que sin esto un test
-// con muchas mutaciones deja a los siguientes con 429.
-func resetRateGuard() {
-	rateGuardGlobal.mu.Lock()
-	rateGuardGlobal.hits = map[string][]time.Time{}
-	rateGuardGlobal.mu.Unlock()
-}
+// resetRateGuard — a no-op now: each test server has its own rate bucket.
+func resetRateGuard() {}
 
 // serverChannelsPrueba — servidor con BD migrada, admin, canales y su store.
 func serverChannelsPrueba(t *testing.T, ch *channels.Client) (http.Handler, *http.Cookie) {
