@@ -12,15 +12,18 @@
 #   DRY_RUN=1 bash install.sh --binary ./easyzfs --yes   # ensayo sin cambios
 #
 # Opciones:
-#   --binary <ruta>   Binario local (defecto: ./easyzfs si existe)
+#   --binary <ruta>   Binario local (defecto, desde un checkout: el ./easyzfs
+#                     que deja 'make build'; sin él, se para y pide make install)
 #   --url <url>       URL de release; acepta {arch} (x86_64|aarch64).
-#                     También vía EASYZFS_RELEASE_URL. Defecto: releases
-#                     oficiales de github.com/gnacho/easyzfs.
+#                     También vía EASYZFS_RELEASE_URL. Solo se descarga si se
+#                     indica, salvo con 'curl | bash' (sin checkout), que usa
+#                     las releases oficiales de github.com/gnacho/easyzfs.
 #   --source <dir>    Compila desde el repo fuente (requiere go y make;
 #                     node/npm solo si existe web/ en el fuente)
 #   --port <n>        Puerto de escucha (defecto: 8080)
 #   --root-mode       El servicio corre como root (sin usuario easyzfs/sudoers)
 #   --uninstall       Desinstala unit, binario y sudoers (pregunta por datos)
+#   --update          Updates binary and helper from --binary/--source (make update)
 #   --yes, -y         No interactivo: acepta todos los valores por defecto
 #   --help, -h        Muestra la ayuda
 #
@@ -48,9 +51,16 @@ readonly DEFAULT_RELEASE_URL="https://github.com/gnacho/easyzfs/releases/latest/
 
 # ---- Opciones (flags / variables de entorno) ----
 OPT_BINARY=""
-OPT_URL="${EASYZFS_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
+# Empty unless given: a download is only ever the default for the
+# curl | bash one-liner, never for a run from a checkout (select_binary_source).
+OPT_URL="${EASYZFS_RELEASE_URL:-}"
 OPT_SOURCE=""
 DOWNLOADED_TAG=""   # release tag the binary was downloaded from (release_tag_of)
+BIN_CHANNEL=""      # update channel of the installed binary: local | github
+PROBE_HOST="127.0.0.1"   # where verify_service expects the HTTP API
+OPT_UPDATE=0        # --update: replace binary and helper of an existing install
+# Root-run units that apply upstream releases; never wanted for a local build.
+readonly UPDATE_UNITS="easyzfs-update-weekly.timer easyzfs-update-weekly.service easyzfs-update.path easyzfs-update.service"
 OPT_PORT="8080"
 PORT_FROM_FLAG=0
 OPT_ROOT_MODE=0
@@ -136,15 +146,22 @@ Uso:
   DRY_RUN=1 bash install.sh --binary ./easyzfs --yes   # ensayo sin cambios
 
 Opciones:
-  --binary <ruta>   Binario local (defecto: ./easyzfs si existe)
-  --url <url>       URL de release; acepta {arch} (x86_64|aarch64). Si la URL
+  --binary <ruta>   Binario local (defecto, desde un checkout: el ./easyzfs que
+                    deja 'make build'; sin él, se para y pide 'make install')
+  --url <url>       Solo se descarga si se indica (o con 'curl | bash', sin
+                    checkout). URL de release; acepta {arch}. Si la URL
                     no apunta a un fichero, se asume <base>/easyzfs-linux-<arch>.
                     También vía EASYZFS_RELEASE_URL. Defecto: releases gnacho/easyzfs.
   --source <dir>    Compila desde el repo fuente (go + make; node/npm si hay web/)
+                    Bajo sudo se rechaza (compilaría como root en el checkout):
+                    usa 'make install' / 'make update'.
   --port <n>        Puerto de escucha (defecto: 8080)
   --demo            Arranca en modo demo (DEMO=1: datos de muestra, mutaciones 403)
   --root-mode       El servicio corre como root (sin usuario easyzfs ni sudoers)
   --uninstall       Desinstala unit, binario y sudoers (pregunta por los datos)
+  --update          Actualiza una instalación existente con --binary o --source:
+                    cambia binario y helper y reinicia; no toca la config ni
+                    los datos, y nunca descarga (lo usa 'make update')
   --yes, -y         No interactivo: todo por defecto
   --help, -h        Muestra esta ayuda
 
@@ -554,55 +571,42 @@ resolve_asset_url() {
   printf '%s\n' "$url"
 }
 
-# select_binary_source — prioridad: --binary > --url > --source > ./easyzfs;
-# en interactivo ofrece menú (compilar solo si hay go + make + Makefile).
+# script_real_dir — the directory of this script when it runs from a real
+# file (a checkout); nothing under 'curl ... | bash', where BASH_SOURCE is
+# empty and $0 is "bash", so dirname would give the current directory.
+script_real_dir() {
+  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    (cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || true
+  fi
+}
+
+# select_binary_source — where the binary comes from, in this order:
+# --binary, --source, an explicit --url (or EASYZFS_RELEASE_URL); then, run
+# from a checkout, that checkout's own build (./easyzfs next to deploy/, as
+# 'make build' leaves it). A checkout with nothing built stops and points at
+# 'make install' instead of downloading: this fork installs from its checkout
+# only. The download of upstream's latest release remains the default solely
+# for the 'curl | bash' one-liner, which has no checkout.
+#
+# There used to be a menu and a ./easyzfs lookup in the current directory, but
+# OPT_URL always carried a default and was checked first, so a run from the
+# checkout without --binary downloaded upstream's release and re-enabled its
+# auto-update. The current-directory lookup would also have installed any file
+# called easyzfs found there, as root.
 select_binary_source() {
   if [ -n "$OPT_BINARY" ]; then BIN_MODE="local"; return 0; fi
-  if [ -n "$OPT_URL" ];    then BIN_MODE="download"; return 0; fi
   if [ -n "$OPT_SOURCE" ]; then BIN_MODE="build"; return 0; fi
-
-  local src_dir="${EASYZFS_SOURCE_DIR:-.}"
-  local can_build=0
-  if command -v go >/dev/null 2>&1 && command -v make >/dev/null 2>&1 \
-     && [ -f "${src_dir}/Makefile" ]; then
-    can_build=1
+  if [ -n "$OPT_URL" ];    then BIN_MODE="download"; return 0; fi
+  local dir; dir="$(script_real_dir)"
+  if [ -n "$dir" ]; then
+    if [ -x "${dir}/../easyzfs" ]; then
+      OPT_BINARY="$(cd "${dir}/.." && pwd)/easyzfs"; BIN_MODE="local"
+      info "Binario del checkout: ${OPT_BINARY}"
+      return 0
+    fi
+    die "No hay binario compilado en el checkout ($(cd "${dir}/.." && pwd)/easyzfs). Usa 'make install': compila como tu usuario e instala."
   fi
-
-  if [ "$OPT_YES" = "1" ]; then
-    if [ -f "./easyzfs" ]; then OPT_BINARY="./easyzfs"; BIN_MODE="local"; return 0; fi
-    if [ "$can_build" = "1" ]; then OPT_SOURCE="$src_dir"; BIN_MODE="build"; return 0; fi
-    die "No hay origen para el binario: usa --binary, --url o coloca ./easyzfs junto al script."
-  fi
-
-  local choice=""
-  if [ "$can_build" = "1" ]; then
-    menu choice "EasyZFS — origen del binario" "¿Cómo quieres obtener el binario?" \
-      local "Usar un binario local (p. ej. ./easyzfs)" \
-      download "Descargar desde una URL de release" \
-      build "Compilar desde el código fuente (go + make)"
-  else
-    menu choice "EasyZFS — origen del binario" "¿Cómo quieres obtener el binario?" \
-      local "Usar un binario local (p. ej. ./easyzfs)" \
-      download "Descargar desde una URL de release"
-  fi
-  case "$choice" in
-    local)
-      BIN_MODE="local"
-      prompt OPT_BINARY "Ruta del binario easyzfs" "./easyzfs"
-      ;;
-    download)
-      BIN_MODE="download"
-      prompt OPT_URL "URL de release (acepta {arch})" \
-        "https://github.com/gnacho/easyzfs/releases/latest/download/easyzfs-linux-{arch}"
-      ;;
-    build)
-      BIN_MODE="build"
-      prompt OPT_SOURCE "Directorio del repo fuente" "$src_dir"
-      ;;
-    *)
-      die "No se eligió origen del binario; instalación cancelada."
-      ;;
-  esac
+  OPT_URL="$DEFAULT_RELEASE_URL"; BIN_MODE="download"
 }
 
 install_binary() {
@@ -687,6 +691,13 @@ install_binary() {
       fi
       ;;
     build)
+      # Under sudo this would run npm ci and go build as root inside the user's
+      # checkout, leaving root-owned node_modules/, dist/ and easyzfs behind that
+      # break the next build as the user. 'make install' / 'make update' build as
+      # the user and only install as root.
+      if [ "$(id -u)" = "0" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        die "--source bajo sudo compilaría como root en tu checkout. Usa 'make install' o 'make update' (sin sudo), o ejecuta el instalador sin sudo."
+      fi
       [ -d "$OPT_SOURCE" ] || die "No existe el directorio fuente: ${OPT_SOURCE}"
       if [ "$DRY_RUN" != "1" ]; then
         command -v go   >/dev/null 2>&1 || die "Falta 'go' para compilar (instálalo o usa --binary/--url)."
@@ -748,10 +759,8 @@ release_tag_of() {
 # when the script is a real file, see install_sysd_helper), in the --source
 # tree, or next to --binary; nothing if none has it.
 local_deploy_file() {
-  local name="$1" script_dir=""
-  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || script_dir=""
-  fi
+  local name="$1" script_dir
+  script_dir="$(script_real_dir)"
   if [ -n "$script_dir" ] && [ -f "${script_dir}/${name}" ]; then
     printf '%s\n' "${script_dir}/${name}"
   elif [ -n "$OPT_SOURCE" ] && [ -f "${OPT_SOURCE}/deploy/${name}" ]; then
@@ -888,6 +897,11 @@ configure_env() {
     existing_vapid_priv="$(sed -n 's/^VAPID_PRIVATE_KEY=//p' "$ENV_FILE" | head -1)"
     existing_vapid_sub="$(sed -n 's/^VAPID_SUBJECT=//p' "$ENV_FILE" | head -1)"
     existing_webhook="$(sed -n 's/^WEBHOOK_SECRET=//p' "$ENV_FILE" | head -1)"
+    # DEMO is written by the installer but was never read back, so a reinstall
+    # without --demo silently switched a demo install to production.
+    if [ "$OPT_DEMO" = "0" ] && [ "$(sed -n 's/^DEMO=//p' "$ENV_FILE" | head -1)" = "1" ]; then
+      OPT_DEMO=1; info "Se conserva DEMO=1 de ${ENV_FILE}."
+    fi
   fi
   # Prioridad del puerto: --port > puerto del env existente > defecto (8080)
   if [ "$PORT_FROM_FLAG" = "0" ] && [ -n "$existing_port" ]; then
@@ -1023,6 +1037,25 @@ DEMO=1"
       "VAPID_PUBLIC_KEY=***" "VAPID_PRIVATE_KEY=***" "VAPID_SUBJECT=${vapid_sub}" \
       "$(if [ "$OPT_DEMO" = "1" ]; then echo 'DEMO=1'; fi)"
   else
+    # Keep every line of the previous file whose key the installer does not
+    # manage (CSRF_CHECK, COOKIE_SECURE, SMTP_*, comments…). A reinstall used
+    # to rewrite the file from scratch and silently drop them.
+    local kept="" kept_hdr="# Conservado de la configuración anterior:"
+    if [ -r "$ENV_FILE" ]; then
+      kept="$(awk -v hdr="$kept_hdr" '
+        BEGIN { n = split("LISTEN_ADDR DB_PATH SESSION_SECRET ADMIN_PASSWORD WEBHOOK_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT DEMO", k, " ")
+                for (i = 1; i <= n; i++) managed[k[i]] = 1 }
+        $0 == hdr { next }
+        /^[ \t]*(export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*[ \t]*=/ { key = $0; sub(/^[ \t]*(export[ \t]+)?/, "", key); sub(/[ \t]*=.*/, "", key); if (key in managed) next }
+        { print }' "$ENV_FILE" | sed '/[^[:space:]]/,$!d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
+    fi
+    if [ -n "$(printf '%s' "$kept" | tr -d '[:space:]')" ]; then
+      env_content+="
+
+${kept_hdr}
+${kept}"
+      info "Se conservan las líneas añadidas a mano en ${ENV_FILE}."
+    fi
     printf '%s\n' "$env_content" | write_root_file "$ENV_FILE" 0600
   fi
   ok "Configuración escrita en ${ENV_FILE} (modo 600)."
@@ -1093,6 +1126,68 @@ EOF
   run "${SUDO[@]}" systemctl restart easyzfs.service
   ok "Servicio habilitado y (re)iniciado."
 
+  setup_update_units
+}
+
+
+# detect_bin_channel — asks the installed binary where it is updated from
+# (easyzfs -update-channel). A binary that predates the flag fails on it and
+# is taken as upstream's ("github"). In a dry run nothing is installed, so the
+# answer comes from --binary, or from how the binary would be obtained.
+detect_bin_channel() {
+  local bin="$INSTALL_BIN"
+  if [ "$DRY_RUN" = "1" ]; then
+    case "$BIN_MODE" in
+      local) bin="$OPT_BINARY" ;;
+      build) BIN_CHANNEL="local"; return 0 ;;   # this fork's Makefile default
+      *)     BIN_CHANNEL="github"; return 0 ;;
+    esac
+  fi
+  BIN_CHANNEL="$("$bin" -update-channel 2>/dev/null)" || BIN_CHANNEL=""
+  [ "$BIN_CHANNEL" = "local" ] || BIN_CHANNEL="github"
+  info "Canal de actualización del binario: ${BIN_CHANNEL}"
+}
+
+# remove_update_units — stops and deletes every unit that applies upstream
+# releases, and /opt/easyzfs. Idempotent: absent units are skipped.
+remove_update_units() {
+  local u removed=0
+  # Stop the two triggers first, so neither fires while the units go.
+  if command -v systemctl >/dev/null 2>&1; then
+    for u in easyzfs-update-weekly.timer easyzfs-update.path; do
+      [ -e "/etc/systemd/system/${u}" ] && { run "${SUDO[@]}" systemctl disable --now "$u" || true; }
+    done
+  fi
+  for u in $UPDATE_UNITS; do
+    if [ -e "/etc/systemd/system/${u}" ]; then
+      run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"; removed=1
+    fi
+  done
+  if [ -d /opt/easyzfs ]; then
+    run "${SUDO[@]}" rm -rf /opt/easyzfs; ok "Eliminado: /opt/easyzfs"; removed=1
+  fi
+  # Whatever the old in-app updater staged for easyzfs-update.path to apply.
+  if [ -d "${DATA_DIR}/update" ]; then
+    run "${SUDO[@]}" rm -rf "${DATA_DIR}/update"; ok "Eliminado: ${DATA_DIR}/update"
+  fi
+  if [ "$removed" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+    run "${SUDO[@]}" systemctl daemon-reload || true
+  fi
+}
+
+# setup_update_units — the root units through which a binary gets replaced:
+# easyzfs-update.path (applies what the in-app updater stages) and the weekly
+# timer. A binary on the "local" channel is updated from its checkout only
+# (make update), so it gets neither, and any left by an earlier install of an
+# upstream release are removed: nothing can then replace it from GitHub.
+setup_update_units() {
+  if [ "$BIN_CHANNEL" = "local" ]; then
+    info "Binario del checkout local: sin auto-update desde GitHub (se actualiza con 'make update')."
+    remove_update_units
+    return 0
+  fi
+  local user="$SVC_USER" group="$SVC_USER"
+  if [ "$(service_user)" = "root" ]; then user="root"; group="root"; fi
   # Unit de auto-update (patrón app-auto-update): easyzfs-update.path vigila
   # $DATA_DIR/update/.restart-me; cuando el updater lo toca, el oneshot instala
   # el binario nuevo (easyzfs.new) sobre INSTALL_BIN y reinicia el servicio.
@@ -1195,14 +1290,28 @@ EOF
   fi
 }
 
+# service_user — the User= the service runs as: from --root-mode on a fresh
+# install, from the installed unit on an update.
+service_user() {
+  if [ "$OPT_ROOT_MODE" = "1" ]; then echo root; return 0; fi
+  if [ "$OPT_UPDATE" = "1" ] && [ -r "$UNIT_PATH" ]; then
+    local u; u="$(sed -n 's/^User=//p' "$UNIT_PATH" | head -1)"
+    echo "${u:-root}"; return 0
+  fi
+  echo "$SVC_USER"
+}
+
 # =============================================================================
 # Verificación final y resumen
 # =============================================================================
 
 verify_service() {
+  # strict: no HTTP answer is a failure, not a warning (used by --update, where
+  # "updated" must mean "the new binary is serving").
+  local strict="${1:-}"
   step "Verificación"
   if [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] comprobaría: systemctl is-active easyzfs y HTTP en 127.0.0.1:${OPT_PORT}"
+    info "[DRY-RUN] comprobaría: systemctl is-active easyzfs y HTTP en ${PROBE_HOST}:${OPT_PORT}"
     return 0
   fi
   local i
@@ -1222,15 +1331,16 @@ verify_service() {
   local code="000" i
   for i in $(seq 1 10); do
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-        "http://127.0.0.1:${OPT_PORT}/api/version" 2>/dev/null)" || true
+        "http://${PROBE_HOST}:${OPT_PORT}/api/version" 2>/dev/null)" || true
     [ "$code" != "000" ] && break
     sleep 1
   done
   if [ "$code" = "000" ]; then
-    warn "Sin respuesta HTTP en 127.0.0.1:${OPT_PORT} (¿firewall o arranque lento?)."
+    warn "Sin respuesta HTTP en ${PROBE_HOST}:${OPT_PORT} (¿firewall o arranque lento?)."
     warn "Comprueba: systemctl status easyzfs && journalctl -u easyzfs -n 50"
+    if [ "$strict" = "strict" ]; then return 1; fi
   else
-    ok "HTTP escuchando en 127.0.0.1:${OPT_PORT} (/api/version → código ${code})."
+    ok "HTTP escuchando en ${PROBE_HOST}:${OPT_PORT} (/api/version → código ${code})."
   fi
 }
 
@@ -1269,14 +1379,74 @@ EOF
   Para explorar primero con datos de muestra: añade DEMO=1 a ${ENV_FILE} y reinicia.
 EOF
   fi
-  cat <<EOF
+  # A checkout install is updated and removed from that checkout; pointing it
+  # at upstream's script would undo the point of installing from here.
+  if [ "$BIN_CHANNEL" = "local" ]; then
+    cat <<EOF
+  Actualizar:  desde el checkout, git pull y después make update
+  Desinstalar: desde el checkout, sudo bash deploy/install.sh --uninstall
+EOF
+  else
+    cat <<EOF
   Desinstalar: curl -fsSL https://raw.githubusercontent.com/gnacho/easyzfs/main/deploy/install.sh | bash -s -- --uninstall
 EOF
+  fi
 }
 
 # =============================================================================
 # Desinstalación
 # =============================================================================
+
+# =============================================================================
+# Update from a checkout
+# =============================================================================
+
+# do_update — updates an install made from a checkout: replaces the binary
+# (keeping the previous one as easyzfs.prev) and the root helper, refreshes
+# the sudoers file, and restarts. Deliberately does not touch the env file,
+# the data, the service account or the unit, and never downloads a binary:
+# it takes --binary or --source only.
+do_update() {
+  step "Actualización de ${APP}"
+  [ -e "$INSTALL_BIN" ] && [ -e "$UNIT_PATH" ] \
+    || die "No hay una instalación que actualizar (${INSTALL_BIN}, ${UNIT_PATH}). Usa 'make install'."
+  if [ -n "$OPT_BINARY" ]; then BIN_MODE="local"
+  elif [ -n "$OPT_SOURCE" ]; then BIN_MODE="build"
+  else die "--update necesita --binary o --source: nunca descarga."
+  fi
+  check_root
+  # Verify against the address the service really listens on: OPT_PORT is
+  # only a fresh install's default, so probing it reported updates on another
+  # port as unreachable, or as healthy if something else answered there.
+  if [ -r "$ENV_FILE" ]; then
+    local la; la="$(sed -n 's/^LISTEN_ADDR=//p' "$ENV_FILE" | head -1 | tr -d '\r')"
+    if [ -n "$la" ]; then
+      OPT_PORT="${la##*:}"
+      case "${la%:*}" in ""|0.0.0.0|"[::]") PROBE_HOST="127.0.0.1" ;; *) PROBE_HOST="${la%:*}" ;; esac
+    fi
+  else
+    warn "No se puede leer ${ENV_FILE}: se comprobará ${PROBE_HOST}:${OPT_PORT}."
+  fi
+  # A local build gets no update units. Remove them before the swap: the old
+  # daemon's updater and easyzfs-update.path are live until then, and a
+  # release staged in that window would be installed over the new binary.
+  local new_ch="local"
+  if [ "$BIN_MODE" = "local" ]; then
+    new_ch="$("$OPT_BINARY" -update-channel 2>/dev/null)" || new_ch=""
+  fi
+  if [ "$new_ch" = "local" ]; then remove_update_units; fi
+  run "${SUDO[@]}" cp -p "$INSTALL_BIN" "${INSTALL_BIN}.prev" \
+    || die "No se pudo guardar el binario actual en ${INSTALL_BIN}.prev; no se actualiza sin copia."
+  ok "Binario anterior guardado en ${INSTALL_BIN}.prev"
+  install_binary
+  install_sysd_helper
+  if [ "$(service_user)" != "root" ]; then write_sudoers; fi
+  detect_bin_channel
+  setup_update_units
+  run "${SUDO[@]}" systemctl restart easyzfs.service
+  verify_service strict || die "El servicio no responde con el binario nuevo. Para volver al anterior: sudo install -m 0755 ${INSTALL_BIN}.prev ${INSTALL_BIN} && sudo systemctl restart easyzfs"
+  ok "Actualizado. Config, datos y ${ENV_FILE} sin tocar."
+}
 
 do_uninstall() {
   step "Desinstalación de ${APP}"
@@ -1288,8 +1458,8 @@ do_uninstall() {
   [ -d "$DATA_DIR" ] && found=1
   # The update units run as root on their own schedule; a box where only they
   # are left still has something installed.
-  local u upd_units="easyzfs-update-weekly.timer easyzfs-update-weekly.service easyzfs-update.path easyzfs-update.service"
-  for u in $upd_units; do [ -e "/etc/systemd/system/${u}" ] && found=1; done
+  local u
+  for u in $UPDATE_UNITS; do [ -e "/etc/systemd/system/${u}" ] && found=1; done
   [ -d /opt/easyzfs ] && found=1
   if [ "$found" = "0" ]; then
     ok "No hay nada instalado de ${APP}; nada que hacer."
@@ -1299,20 +1469,16 @@ do_uninstall() {
   if command -v systemctl >/dev/null 2>&1; then
     run "${SUDO[@]}" systemctl stop easyzfs.service || true
     run "${SUDO[@]}" systemctl disable easyzfs.service || true
-    # Stop the triggers first, so neither can fire mid-uninstall and reinstall
-    # the binary being removed. Uninstall used to leave all four behind, and
-    # the weekly timer kept running as root afterwards.
-    run "${SUDO[@]}" systemctl disable --now easyzfs-update-weekly.timer easyzfs-update.path 2>/dev/null || true
   fi
-  for u in $upd_units; do
-    [ -e "/etc/systemd/system/${u}" ] && { run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"; }
-  done
-  [ -d /opt/easyzfs ] && { run "${SUDO[@]}" rm -rf /opt/easyzfs; ok "Eliminado: /opt/easyzfs"; }
+  # Uninstall used to leave these behind, and the weekly timer kept running as
+  # root afterwards. Removed first, so neither can fire mid-uninstall.
+  remove_update_units
   [ -e "$UNIT_PATH" ] && { run "${SUDO[@]}" rm -f "$UNIT_PATH"; ok "Unit eliminada: ${UNIT_PATH}"; }
   if command -v systemctl >/dev/null 2>&1; then
     run "${SUDO[@]}" systemctl daemon-reload || true
   fi
   [ -e "$INSTALL_BIN" ] && { run "${SUDO[@]}" rm -f "$INSTALL_BIN"; ok "Binario eliminado: ${INSTALL_BIN}"; }
+  [ -e "${INSTALL_BIN}.prev" ] && { run "${SUDO[@]}" rm -f "${INSTALL_BIN}.prev"; ok "Eliminado: ${INSTALL_BIN}.prev"; }
   [ -e "$SYSD_HELPER" ] && { run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper eliminado: ${SYSD_HELPER}"; }
   [ -e "$SUDOERS_PATH" ] && { run "${SUDO[@]}" rm -f "$SUDOERS_PATH"; ok "Sudoers eliminado: ${SUDOERS_PATH}"; }
 
@@ -1352,6 +1518,7 @@ parse_args() {
       --demo)      OPT_DEMO=1; shift ;;
       --root-mode) OPT_ROOT_MODE=1; shift ;;
       --uninstall) OPT_UNINSTALL=1; shift ;;
+      --update)    OPT_UPDATE=1; shift ;;
       --yes|-y)    OPT_YES=1; shift ;;
       --help|-h)   usage; exit 0 ;;
       *) die "Opción desconocida: $1 (usa --help)" ;;
@@ -1371,6 +1538,10 @@ main() {
     do_uninstall
     exit 0
   fi
+  if [ "$OPT_UPDATE" = "1" ]; then
+    do_update
+    exit 0
+  fi
 
   detect_arch
   if [ "$ARCH" = "unknown" ]; then
@@ -1388,6 +1559,7 @@ main() {
   install_dependencies
   select_binary_source
   install_binary
+  detect_bin_channel
   install_sysd_helper
   setup_user_and_sudoers
   setup_dirs
