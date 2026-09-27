@@ -203,7 +203,11 @@ _read_line() {
 # confirm "pregunta" [defecto: 0=no, 1=sí] → devuelve 0 (sí) o 1 (no)
 confirm() {
   local text="$1" def="${2:-0}" reply="" hint="s/N"
-  if [ "$OPT_YES" = "1" ]; then return "$def"; fi
+  # def is 1 for "yes" but a shell status of 0 means yes, so returning "$def"
+  # directly inverted every answer: Enter at [s/N] said yes (and at the
+  # uninstall prompt deleted DATA_DIR and ENV_DIR), and --yes did the same.
+  # Only the text path had this; whiptail's own exit status is right.
+  if [ "$OPT_YES" = "1" ]; then [ "$def" = "1" ]; return; fi
   if [ "$USE_WHIPTAIL" = "1" ]; then
     if [ "$def" = "1" ]; then
       whiptail --title "$APP" --yesno "$text" 10 68 --defaultyes
@@ -217,7 +221,7 @@ confirm() {
     _prompt_out "${text} [${hint}] "
     _read_line reply
     case "${reply,,}" in
-      "") return "$def" ;;
+      "") [ "$def" = "1" ]; return ;;
       s|si|sí|y|yes) return 0 ;;
       n|no) return 1 ;;
       *) _prompt_out "Responde 's' o 'n'.\n" ;;
@@ -662,7 +666,10 @@ install_binary() {
           ok "sha256 verificado contra $(basename "$want_sums")."
         else
           warn "La release no publica checksums: descarga SIN verificar."
-          confirm "¿Continuar sin verificación de integridad?" 1 || die "Instalación cancelada por seguridad."
+          # Default no. Under the old inverted confirm() a default of 1 already
+          # meant no; now that it means yes, it would let Enter and --yes skip
+          # the checksum.
+          confirm "¿Continuar sin verificación de integridad?" 0 || die "Instalación cancelada por seguridad."
         fi
         bin="${tmp}/asset"
         # Si el asset es un .tar.gz (releases antiguas comprimidas), se extrae.
