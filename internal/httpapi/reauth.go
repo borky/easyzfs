@@ -133,3 +133,17 @@ func forceFull(body []byte) bool {
 	}
 	return v.ForceFull != nil && *v.ForceFull
 }
+
+// volsizeChange — the properties predicate: changing a volume's size can
+// shrink it, which destroys the data past the new end, so it needs the
+// password on top of the risk acknowledgement. Decoded as the handler does
+// (see forceFull); undecodable asks.
+func volsizeChange(body []byte) bool {
+	var v struct {
+		Property string `json:"property"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&v); err != nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(v.Property), "volsize")
+}

@@ -157,3 +157,16 @@ func TestMyPasswordWrongCurrentIsLimited(t *testing.T) {
 		t.Fatalf("after %d wrong answers: %d, want 429", loginMaxPerMinute+1, last)
 	}
 }
+
+func TestVolsizePredicate(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"property":"volsize","value":"10G"}`:     true,
+		`{"PROPERTY":"VOLSIZE","value":"10G"}`:     true,
+		`garbage`:                                  true,
+		`{"property":"compression","value":"lz4"}`: false,
+	} {
+		if got := volsizeChange([]byte(body)); got != want {
+			t.Errorf("volsizeChange(%s) = %v, want %v", body, got, want)
+		}
+	}
+}

@@ -206,7 +206,7 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("GET /api/datasets", s.listDatasets)
 	a.HandleFunc("POST /api/datasets", s.auth.RequireAdmin(s.createDataset))
 	a.HandleFunc("PATCH /api/datasets/{name}", s.auth.RequireAdmin(s.patchDataset))
-	a.HandleFunc("PATCH /api/datasets/{name}/properties", s.auth.RequireAdmin(s.patchDatasetProps))
+	a.HandleFunc("PATCH /api/datasets/{name}/properties", s.auth.RequireAdmin(s.requireReauthIf(volsizeChange, s.patchDatasetProps)))
 	a.HandleFunc("GET /api/datasets/{name}/properties", s.listDatasetProps)
 	a.HandleFunc("PATCH /api/datasets/{name}/rename", s.auth.RequireAdmin(s.renameDataset))
 	a.HandleFunc("DELETE /api/datasets/{name}", s.auth.RequireAdmin(s.requireReauth(s.deleteDataset)))

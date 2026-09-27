@@ -24,8 +24,14 @@ export default function ReauthPrompt() {
       // password is typed only once.
       const has2FA = needCode || await getProvider().get2FAStatus().then((s) => s.enabled).catch(() => false);
       return new Promise<ReauthCreds | null>((resolve) => {
+        // A second prompt while one is open (two requests refused at once)
+        // replaced it and left the first request waiting forever: settle
+        // the earlier one as cancelled first.
+        pendingRef.current?.resolve(null);
+        const next = { needCode: has2FA, resolve };
+        pendingRef.current = next;
         setPassword(''); setCode('');
-        setPending({ needCode: has2FA, resolve });
+        setPending(next);
       });
     });
     return () => {
