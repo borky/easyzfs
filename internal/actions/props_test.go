@@ -145,7 +145,7 @@ func TestPropAppliesTo(t *testing.T) {
 func TestPropSetValido(t *testing.T) {
 	svc, logFile := newPropsTestService(t)
 
-	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "recordsize", "64K", "fs"); err != nil {
+	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "recordsize", "64K", "fs", false); err != nil {
 		t.Fatalf("DatasetPropSet: %v", err)
 	}
 	out, err := os.ReadFile(logFile)
@@ -161,15 +161,15 @@ func TestPropSetInvalido(t *testing.T) {
 	svc, logFile := newPropsTestService(t)
 
 	// Valor no válido → no debe llegar a zfs.
-	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "recordsize", "100K", "fs"); err == nil {
+	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "recordsize", "100K", "fs", false); err == nil {
 		t.Fatal("set de recordsize=100K debería fallar")
 	}
 	// Propiedad fuera de whitelist.
-	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "dedup", "on", "fs"); err == nil {
+	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "dedup", "on", "fs", false); err == nil {
 		t.Fatal("set de dedup debería fallar (fuera de whitelist)")
 	}
 	// Propiedad no aplicable al tipo.
-	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "mountpoint", "/x", "volume"); err == nil {
+	if err := svc.DatasetPropSet(context.Background(), "tester", "tank/docs", "mountpoint", "/x", "volume", false); err == nil {
 		t.Fatal("set de mountpoint en volume debería fallar")
 	}
 	if b, _ := os.ReadFile(logFile); len(b) != 0 {
@@ -180,7 +180,7 @@ func TestPropSetInvalido(t *testing.T) {
 func TestPropInherit(t *testing.T) {
 	svc, logFile := newPropsTestService(t)
 
-	if err := svc.DatasetPropInherit(context.Background(), "tester", "tank/docs", "recordsize"); err != nil {
+	if err := svc.DatasetPropInherit(context.Background(), "tester", "tank/docs", "recordsize", false); err != nil {
 		t.Fatalf("DatasetPropInherit: %v", err)
 	}
 	out, err := os.ReadFile(logFile)
@@ -194,10 +194,73 @@ func TestPropInherit(t *testing.T) {
 
 func TestPropInheritInvalida(t *testing.T) {
 	svc, logFile := newPropsTestService(t)
-	if err := svc.DatasetPropInherit(context.Background(), "tester", "tank/docs", "dedup"); err == nil {
+	if err := svc.DatasetPropInherit(context.Background(), "tester", "tank/docs", "dedup", false); err == nil {
 		t.Fatal("inherit de dedup debería fallar (fuera de whitelist)")
 	}
 	if b, _ := os.ReadFile(logFile); len(b) != 0 {
 		t.Fatalf("zfs no debería haberse llamado: %q", b)
+	}
+}
+
+// §6: values that disable corruption detection are not offered at all.
+func TestChecksumOffAndFletcher2Refused(t *testing.T) {
+	spec := propValidators["checksum"]
+	for _, v := range []string{"off", "fletcher2"} {
+		if spec.valid(v) {
+			t.Errorf("checksum=%s accepted", v)
+		}
+	}
+	for _, v := range []string{"on", "fletcher4", "sha256"} {
+		if !spec.valid(v) {
+			t.Errorf("checksum=%s refused", v)
+		}
+	}
+}
+
+// newRiskService — a fake zfs that reports a 10 GiB volume for
+// 'get -Hp -o value volsize' and logs every other call.
+func newRiskService(t *testing.T) (*Service, string) {
+	t.Helper()
+	svc, logFile := newTestService(t)
+	dir := t.TempDir()
+	zfs := "#!/bin/sh\n" +
+		"if [ \"$1\" = get ] && [ \"$5\" = volsize ]; then echo 10737418240; exit 0; fi\n" +
+		"echo \"$@\" >> " + logFile + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "zfs"), []byte(zfs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return svc, logFile
+}
+
+func TestHighImpactPropsNeedAcknowledgement(t *testing.T) {
+	ctx := context.Background()
+	svc, logFile := newRiskService(t)
+	if err := svc.DatasetPropSet(ctx, "tester", "tank/docs", "sync", "disabled", "fs", false); !errors.Is(err, ErrRiskAck) {
+		t.Fatalf("sync=disabled without acknowledgement: %v, want ErrRiskAck", err)
+	}
+	if out, _ := os.ReadFile(logFile); len(out) != 0 {
+		t.Fatalf("zfs ran without acknowledgement: %s", out)
+	}
+	if err := svc.DatasetPropSet(ctx, "tester", "tank/docs", "sync", "disabled", "fs", true); err != nil {
+		t.Fatalf("sync=disabled with acknowledgement: %v", err)
+	}
+	if err := svc.DatasetPropSet(ctx, "tester", "tank/docs", "sync", "standard", "fs", false); err != nil {
+		t.Fatalf("sync=standard needs no acknowledgement: %v", err)
+	}
+	if err := svc.DatasetPropInherit(ctx, "tester", "tank/docs", "sync", false); !errors.Is(err, ErrRiskAck) {
+		t.Fatalf("inheriting sync without acknowledgement: %v, want ErrRiskAck", err)
+	}
+}
+
+// Shrinking a volume destroys data past the new end; growing it does not.
+func TestVolsizeShrinkNeedsAcknowledgement(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newRiskService(t)
+	if err := svc.DatasetPropSet(ctx, "tester", "tank/vol", "volsize", "5G", "volume", false); !errors.Is(err, ErrRiskAck) {
+		t.Fatalf("shrink 10G->5G without acknowledgement: %v, want ErrRiskAck", err)
+	}
+	if err := svc.DatasetPropSet(ctx, "tester", "tank/vol", "volsize", "20G", "volume", false); err != nil {
+		t.Fatalf("grow 10G->20G needs no acknowledgement: %v", err)
 	}
 }

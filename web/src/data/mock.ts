@@ -685,14 +685,14 @@ export class MockProvider implements DataProvider {
     }
     return { name, properties: props.map((p) => ({ ...p })) };
   };
-  setDatasetProp = async (name: string, property: string, value: string) => {
+  setDatasetProp = async (name: string, property: string, value: string, _acknowledgeRisk?: boolean) => {
     await delay();
     const props = this.datasetProps[name] ?? (await this.getDatasetProps(name)).properties;
     const p = props.find((x) => x.name === property);
     if (p) p.value = value;
     emitEvent({ type: 'overview' });
   };
-  inheritDatasetProp = async (name: string, property: string) => {
+  inheritDatasetProp = async (name: string, property: string, _acknowledgeRisk?: boolean) => {
     await delay();
     const props = this.datasetProps[name] ?? (await this.getDatasetProps(name)).properties;
     const p = props.find((x) => x.name === property);

@@ -57,7 +57,9 @@ var propValidators = map[string]propSpec{
 	"atime":           {kind: propBool},
 	"relatime":        {kind: propBool},
 	"sync":            {kind: propEnum, enum: []string{"standard", "always", "disabled"}},
-	"checksum":        {kind: propEnum, enum: []string{"on", "off", "fletcher2", "fletcher4", "sha256"}},
+	// No "off" (it disables corruption detection) and no "fletcher2"
+	// (deprecated by OpenZFS as too weak): neither has a use worth the risk.
+	"checksum":        {kind: propEnum, enum: []string{"on", "fletcher4", "sha256"}},
 	"copies":          {kind: propEnum, enum: []string{"1", "2", "3"}},
 	"xattr":           {kind: propEnum, enum: []string{"on", "off", "sa"}},
 	"acltype":         {kind: propEnum, enum: []string{"off", "posix", "nfsv4"}},
@@ -402,7 +404,7 @@ func (s *Service) DatasetPropsGet(ctx context.Context, name string) ([]model.Dat
 
 // DatasetPropSet — 'zfs set <property>=<value> <ds>' (admin). Whitelist
 // estricta de propiedad y valor; la propiedad debe aplicar al tipo.
-func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, value, dsType string) error {
+func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, value, dsType string, ackRisk bool) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
 	}
@@ -421,6 +423,13 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 			return err
 		}
 	}
+	risk := PropRisk(property, value)
+	if property == "volsize" && s.volsizeShrinks(ctx, name, value) {
+		risk = "volsize_shrink"
+	}
+	if risk != "" && !ackRisk {
+		return fmt.Errorf("%w: %s", ErrRiskAck, riskText[risk])
+	}
 	s.audit(ctx, actor, "dataset.setprop", name,
 		map[string]any{"property": property, "value": value}, false)
 	if _, err := executil.Run(ctx, 15*time.Second, "zfs", "set", property+"="+value, name); err != nil {
@@ -432,12 +441,15 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 // DatasetPropInherit — 'zfs inherit <property> <ds>' (admin). Solo para
 // propiedades de la whitelist con source == "local" (el handler comprueba
 // el source contra la última lectura; si está obsoleta, zfs hace un no-op).
-func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property string) error {
+func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property string, ackRisk bool) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
 	}
 	if _, ok := propValidators[property]; !ok {
 		return fmt.Errorf("%w: propiedad no editable (%s)", ErrInvalidInput, property)
+	}
+	if risk := inheritRisk[property]; risk != "" && !ackRisk {
+		return fmt.Errorf("%w: %s", ErrRiskAck, riskText[risk])
 	}
 	s.audit(ctx, actor, "dataset.inherit", name, map[string]any{"property": property}, false)
 	if _, err := executil.Run(ctx, 15*time.Second, "zfs", "inherit", property, name); err != nil {
@@ -445,3 +457,70 @@ func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property 
 	}
 	return nil
 }
+
+// ErrRiskAck — the change is allowed but can lose data or break things; the
+// caller must repeat it with acknowledge_risk. Mapped to 409 risk_ack_required.
+// The UI asks first with its own translated text; this makes API clients ask too.
+var ErrRiskAck = errors.New("cambio de alto impacto: repite la petición con acknowledge_risk=true si es lo que quieres")
+
+// riskText — what each high-impact change does, in plain words.
+var riskText = map[string]string{
+	"sync_disabled":  "sync=disabled pierde los últimos segundos de escrituras si se corta la luz; máquinas virtuales y bases de datos pueden quedar corruptas",
+	"copies":         "copies solo afecta a lo que se escriba a partir de ahora y no sustituye a la redundancia del pool",
+	"readonly_on":    "readonly=on hace fallar a todo lo que escriba en este dataset",
+	"canmount_off":   "con canmount=off/noauto el dataset deja de montarse, también al arrancar",
+	"mountpoint":     "cambiar el punto de montaje mueve los datos de sitio: lo que los busque en la ruta anterior (aplicaciones, almacenamiento de Proxmox) deja de encontrarlos",
+	"acl_semantics":  "acltype/xattr cambian cómo se interpretan los permisos de los ficheros existentes",
+	"volsize_shrink": "reducir volsize destruye los datos que queden más allá del nuevo tamaño",
+}
+
+// PropRisk — the risk key of setting property=value, or "" when it is
+// harmless. volsize is judged against the current size by DatasetPropSet.
+func PropRisk(property, value string) string {
+	switch property {
+	case "sync":
+		if value == "disabled" {
+			return "sync_disabled"
+		}
+	case "copies":
+		return "copies"
+	case "readonly":
+		if value == "on" {
+			return "readonly_on"
+		}
+	case "canmount":
+		if value == "off" || value == "noauto" {
+			return "canmount_off"
+		}
+	case "mountpoint":
+		return "mountpoint"
+	case "acltype", "xattr":
+		return "acl_semantics"
+	}
+	return ""
+}
+
+// inheritRisk — inheriting these takes the parent's value, whatever it is,
+// so it carries the same risk as setting it.
+var inheritRisk = map[string]string{
+	"sync": "sync_disabled", "copies": "copies", "readonly": "readonly_on",
+	"canmount": "canmount_off", "mountpoint": "mountpoint",
+	"acltype": "acl_semantics", "xattr": "acl_semantics",
+}
+
+// volsizeShrinks reports whether value is smaller than the volume's current
+// size, read live. If the size cannot be read it answers true: shrinking is
+// the one change here that destroys data, so an unknown means ask.
+func (s *Service) volsizeShrinks(ctx context.Context, name, value string) bool {
+	want, ok := parseSize(value)
+	if !ok {
+		return true
+	}
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-Hp", "-o", "value", "volsize", name)
+	if err != nil {
+		return true
+	}
+	cur, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	return err != nil || want < cur
+}
+

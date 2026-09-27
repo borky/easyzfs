@@ -89,8 +89,9 @@ func (s *Server) listDatasetProps(w http.ResponseWriter, r *http.Request) {
 func (s *Server) patchDatasetProps(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var body struct {
-		Property string `json:"property"`
-		Value    string `json:"value"`
+		Property        string `json:"property"`
+		Value           string `json:"value"`
+		AcknowledgeRisk bool   `json:"acknowledge_risk"` // required for high-impact values (actions.PropRisk)
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -113,7 +114,7 @@ func (s *Server) patchDatasetProps(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "dataset no encontrado")
 		return
 	}
-	if err := s.act.DatasetPropSet(r.Context(), actor(r), name, body.Property, body.Value, ds.Type); err != nil {
+	if err := s.act.DatasetPropSet(r.Context(), actor(r), name, body.Property, body.Value, ds.Type, body.AcknowledgeRisk); err != nil {
 		actionErr(w, err)
 		return
 	}
@@ -128,6 +129,14 @@ func (s *Server) patchDatasetProps(w http.ResponseWriter, r *http.Request) {
 func (s *Server) inheritDatasetProp(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	prop := r.PathValue("prop")
+	// Optional body: {"acknowledge_risk": true} for properties whose inherited
+	// value can lose data or break things (actions.inheritRisk).
+	var body struct {
+		AcknowledgeRisk bool `json:"acknowledge_risk"`
+	}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &body) {
+		return
+	}
 	if s.cfg.Mock {
 		if m, ok := s.pools.(propMutator); ok {
 			m.InheritDatasetProp(name, prop)
@@ -164,7 +173,7 @@ func (s *Server) inheritDatasetProp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_property", "propiedad no encontrada")
 		return
 	}
-	if err := s.act.DatasetPropInherit(r.Context(), actor(r), name, prop); err != nil {
+	if err := s.act.DatasetPropInherit(r.Context(), actor(r), name, prop, body.AcknowledgeRisk); err != nil {
 		actionErr(w, err)
 		return
 	}

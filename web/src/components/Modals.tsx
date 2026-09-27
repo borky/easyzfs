@@ -11,8 +11,31 @@ import { Badge, Seg, InfoBubble, Spinner } from './ui';
 import { SYS_SCHED_DEFAULT, buildSysSchedule, parseSysSchedule } from '../ui/syssched';
 import type { SysSchedState } from '../ui/syssched';
 import type { Dataset, DatasetProp, Disk, DiskSmartLogResp, DiskSmartResp, Job, Pool, PropGroup, ReplicationJob, SystemTimer, Topo } from '../data/types';
+import type { I18nKey } from '../ui/i18n';
 
 // ---------- utilidades comunes ----------
+// propRisk — mirrors actions.PropRisk: the high-impact values that need a
+// confirmed warning. Any volsize change warns (only shrinking loses data, and
+// the backend checks that against the live size).
+function propRisk(name: string, value: string): string {
+  switch (name) {
+    case 'sync': return value === 'disabled' ? 'sync_disabled' : '';
+    case 'copies': return 'copies';
+    case 'readonly': return value === 'on' ? 'readonly_on' : '';
+    case 'canmount': return value === 'off' || value === 'noauto' ? 'canmount_off' : '';
+    case 'mountpoint': return 'mountpoint';
+    case 'acltype': case 'xattr': return 'acl_semantics';
+    case 'volsize': return 'volsize_shrink';
+  }
+  return '';
+}
+
+// INHERIT_RISK — inheriting takes the parent's value, whatever it is.
+const INHERIT_RISK: Record<string, string> = {
+  sync: 'sync_disabled', copies: 'copies', readonly: 'readonly_on', canmount: 'canmount_off',
+  mountpoint: 'mountpoint', acltype: 'acl_semantics', xattr: 'acl_semantics',
+};
+
 function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {  const [data, setData] = useState<T | null>(null);
   useEffect(() => {
     let alive = true;
@@ -609,9 +632,14 @@ function DatasetPropsModal({ ds, onClose }: { ds: Dataset; onClose: () => void }
   };
 
   const save = async (p: DatasetProp) => {
+    const value = draft.trim();
+    // High-impact values are allowed only after a plain-language warning; the
+    // backend refuses them without acknowledge_risk as well.
+    const risk = propRisk(p.name, value);
+    if (risk && !window.confirm(t(`risk_${risk}` as I18nKey))) return;
     setBusy(true); setErr('');
     try {
-      await getProvider().setDatasetProp(ds.name, p.name, draft.trim());
+      await getProvider().setDatasetProp(ds.name, p.name, value, !!risk);
       await load();
       setEditing(null);
       refresh();
@@ -620,9 +648,11 @@ function DatasetPropsModal({ ds, onClose }: { ds: Dataset; onClose: () => void }
   };
 
   const inherit = async (p: DatasetProp) => {
+    const risk = INHERIT_RISK[p.name];
+    if (risk && !window.confirm(t(`risk_${risk}` as I18nKey))) return;
     setBusy(true); setErr('');
     try {
-      await getProvider().inheritDatasetProp(ds.name, p.name);
+      await getProvider().inheritDatasetProp(ds.name, p.name, !!risk);
       await load();
       refresh();
       notify(t('toast_prop_inherited'), 'ok');
@@ -633,7 +663,7 @@ function DatasetPropsModal({ ds, onClose }: { ds: Dataset; onClose: () => void }
     switch (name) {
       case 'compression': return ['lz4', 'zstd', 'zlib', 'gzip', 'gzip-1', 'gzip-2', 'gzip-3', 'gzip-4', 'gzip-5', 'gzip-6', 'gzip-7', 'gzip-8', 'gzip-9', 'lzjb', 'off'];
       case 'sync': return ['standard', 'always', 'disabled'];
-      case 'checksum': return ['on', 'off', 'fletcher2', 'fletcher4', 'sha256'];
+      case 'checksum': return ['on', 'fletcher4', 'sha256'];
       case 'copies': return ['1', '2', '3'];
       case 'xattr': return ['on', 'off', 'sa'];
       case 'acltype': return ['off', 'posix', 'nfsv4'];

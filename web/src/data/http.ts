@@ -196,10 +196,10 @@ export class HttpProvider implements DataProvider {
   changeDatasetKey = (name: string, currentKey: string, newKey: string) =>
     post<void>(`/datasets/${enc(name)}/change-key`, { current_key: currentKey, new_key: newKey });
   getDatasetProps = (name: string) => get<DatasetPropsResp>(`/datasets/${enc(name)}/properties`);
-  setDatasetProp = (name: string, property: string, value: string) =>
-    patch<void>(`/datasets/${enc(name)}/properties`, { property, value });
-  inheritDatasetProp = (name: string, property: string) =>
-    post<void>(`/datasets/${enc(name)}/properties/${enc(property)}/inherit`);
+  setDatasetProp = (name: string, property: string, value: string, acknowledgeRisk = false) =>
+    patch<void>(`/datasets/${enc(name)}/properties`, { property, value, acknowledge_risk: acknowledgeRisk });
+  inheritDatasetProp = (name: string, property: string, acknowledgeRisk = false) =>
+    post<void>(`/datasets/${enc(name)}/properties/${enc(property)}/inherit`, { acknowledge_risk: acknowledgeRisk });
   getDiskSmart = (dev: string) => get<DiskSmartResp>(`/disks/${enc(dev)}/smart`);
   getDiskSmartLog = (dev: string) => get<DiskSmartLogResp>(`/disks/${enc(dev)}/smart-log`);
   expandPool = (pool: string, vdev: string, disk: string, confirm: string) =>

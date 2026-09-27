@@ -98,8 +98,9 @@ export interface DataProvider {
   unmountDataset(name: string): Promise<void>;
   promoteDataset(name: string): Promise<void>;
   getDatasetProps(name: string): Promise<DatasetPropsResp>;
-  setDatasetProp(name: string, property: string, value: string): Promise<void>;
-  inheritDatasetProp(name: string, property: string): Promise<void>;
+  // acknowledgeRisk: the user confirmed a high-impact change (propRisk).
+  setDatasetProp(name: string, property: string, value: string, acknowledgeRisk?: boolean): Promise<void>;
+  inheritDatasetProp(name: string, property: string, acknowledgeRisk?: boolean): Promise<void>;
   getDiskSmart(dev: string): Promise<DiskSmartResp>;
   getDiskSmartLog(dev: string): Promise<DiskSmartLogResp>;
 

@@ -484,6 +484,8 @@ func actionErr(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, actions.ErrSnapshotNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, actions.ErrRiskAck):
+		writeErr(w, http.StatusConflict, "risk_ack_required", err.Error())
 	case errors.Is(err, actions.ErrDiskInUse):
 		writeErr(w, http.StatusConflict, "dev_in_use", err.Error())
 	case errors.Is(err, actions.ErrWrongKey):
