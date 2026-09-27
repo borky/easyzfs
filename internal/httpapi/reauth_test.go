@@ -78,3 +78,22 @@ func TestForceFullPredicate(t *testing.T) {
 		t.Fatal("forceFull must be true only for force_full=true")
 	}
 }
+
+// Confirming with the right password must not spend login attempts: an admin
+// cleaning up several snapshots in a row was refused with 429 on the sixth.
+func TestReauthSuccessesAreNotRateLimited(t *testing.T) {
+	_, h, c := setupReauth(t)
+	for i := 0; i < 2*loginMaxPerMinute; i++ {
+		if w := reauthDelete(t, h, c, `{"confirm":"victim","reauth_password":"password123"}`); w.Code == http.StatusTooManyRequests {
+			t.Fatalf("confirmation %d refused as rate limited", i+1)
+		}
+	}
+	// Wrong answers still count: the limiter refuses after the fifth.
+	var last int
+	for i := 0; i < loginMaxPerMinute+1; i++ {
+		last = reauthDelete(t, h, c, `{"confirm":"victim","reauth_password":"wrong-one"}`).Code
+	}
+	if last != http.StatusTooManyRequests {
+		t.Fatalf("after %d wrong passwords got %d, want 429", loginMaxPerMinute+1, last)
+	}
+}

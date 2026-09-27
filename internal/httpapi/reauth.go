@@ -100,6 +100,7 @@ func (s *Server) requireReauthIf(pred func(map[string]any) bool, next http.Handl
 			}
 		}
 		s.loginLimiter.success(key)
+		s.loginLimiter.refund(key, now)
 		next(w, r)
 	}
 }

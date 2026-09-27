@@ -120,6 +120,28 @@ func (l *loginLimiter) success(key string) {
 	a.mu.Unlock()
 }
 
+// refund takes back the attempt allow() recorded at now. Re-authentication
+// uses it on success: it shares the login key, so every confirmed deletion
+// used to spend one of the 5 attempts a minute, and the sixth snapshot an
+// admin cleaned up in a row was refused (and so was their next login). Only
+// wrong answers should count against a key.
+func (l *loginLimiter) refund(key string, now time.Time) {
+	l.mu.Lock()
+	a, ok := l.att[key]
+	l.mu.Unlock()
+	if !ok {
+		return
+	}
+	a.mu.Lock()
+	for i := len(a.window) - 1; i >= 0; i-- {
+		if a.window[i].Equal(now) {
+			a.window = append(a.window[:i], a.window[i+1:]...)
+			break
+		}
+	}
+	a.mu.Unlock()
+}
+
 // failure anota un fallo; tras loginBlockAfter consecutivos, bloquea 15 min.
 func (l *loginLimiter) failure(key string, now time.Time) {
 	l.mu.Lock()
