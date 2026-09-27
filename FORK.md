@@ -66,6 +66,68 @@ here rather than offered upstream by the owner's decision, which also means
 | `feat(updater)`: `EASYZFS_NO_UPDATE_CHECK` | Upstream checks `api.github.com` at boot and every 24 h with no opt-out. Not a defect — it sends nothing — but a recurring outbound call nobody agreed to. Does not affect the separate weekly auto-update timer `install.sh` can install. Also stops the Settings icon claiming "up to date" when no check ever succeeded. |
 | `CLAUDE.md`, this file | Working notes for this clone. Upstream keeps AI tooling out of its history. |
 
+### From the Proxmox VE analysis
+
+A second review (`easyzfs_security_proxmox_analysis.md`, kept out of the repo)
+asked what EasyZFS can do to a Proxmox host whose root is on ZFS. Its findings
+were reproduced on a Proxmox VE 8.4 test VM (ZFS 2.2.7, root on
+`rpool/ROOT/pve-1`, UEFI + Secure Boot) before and after each fix. The §
+numbers are that document's.
+
+| patch | § | what it fixes |
+|---|---|---|
+| `fix(install)`: leave a Proxmox host's packages alone | 14 | `apt-get update` exits 100 on the enterprise repos without a subscription, and the old dependency step partially upgraded ZFS (2.2.7 → 2.2.10 userland under a 2.2.7 kernel module). The installer now installs only missing packages with `--no-upgrade`, never touches ZFS packages on PVE, and prints what it found (PVE version, root pool, Secure Boot) before changing anything. On the test VM the only package it added was `sudo`, which PVE lacks. |
+| `fix(install)`: ask where the web UI listens | 3 | It listened on every interface. The installer now asks (localhost / one address / all) and keeps the answer on reinstall; `--listen` sets it non-interactively. |
+| `fix(api)`: check the Origin of every mutation by default | 4 | `CSRF_CHECK` was off unless set; it is now on unless set to `0`. |
+| `feat`: read-only mode | 5, 20 | `install.sh --read-only` (`EASYZFS_READONLY=1`): the sudoers file grants only four reads (`smartctl -j -a`, `zpool events -f`, `zpool history -i`, `zfs diff -FHt`, plus `crontab -l`), no root helper is installed, and the API refuses every storage mutation with 403 `read_only`. Even a compromised service cannot change a pool. The scheduler and replication do not start. **This is the recommended mode on a Proxmox host that holds anything important.** |
+| `fix(longops)`: read output to the end before waiting | — | Found while testing: `cmd.Wait` ran before the output reader finished, a race that lost the tail of a long operation's log (and failed `-race`). |
+| `fix(disks)`: check a disk live before ZFS takes it over | 7, 8, 9 | The disk view called an LVM physical volume and a disk with an EFI system partition "free", and pool create / vdev add / replace / RAID-Z expand / power-off trusted the cache. Each now re-reads the disk with `lsblk` at the moment of the request and refuses (409 `dev_in_use`, with the reason) anything mounted, swap, LVM, LUKS, mdadm, Ceph, an ESP or BIOS-boot partition, a ZFS label, a filesystem, or a device-mapper holder. The view shows the same reason. Fixtures are real `lsblk` output from the VM. |
+| `fix(props)`: refuse `checksum=off`, and make high-impact changes ask first | 6 | `checksum=off` and `fletcher2` are gone from the allowlist. `sync=disabled`, `copies`, `readonly=on`, `canmount`, `mountpoint`, `exec/setuid/devices=off`, a shrinking `volsize` and inheriting any of those return 409 `risk_ack_required` with an explanation until the request carries `acknowledge_risk`; the UI shows the explanation and asks. |
+| `fix(ci)`: make the TypeScript check check something | — | `web/tsconfig.json` has `"files": []`, so `tsc --noEmit` checked nothing. CI and the docs now run `tsc -b --noEmit`. |
+| `feat(auth)`: ask for the password again before irreversible operations | 5, 20 | Pool create/export, vdev add/offline/detach, replace, RAID-Z expand, checkpoint, dataset and snapshot destroy, rollback, change-key, user deletion, password and 2FA reset, backup import (which replaces every account), and a replication job with `force_full` (17 routes) now need `reauth_password` (for the backup upload, in `X-Reauth-*` headers), and the TOTP code when 2FA is on (recovery codes are not accepted: each confirmation would burn one). Answers are 403, never 401, so a wrong password does not log the user out. Wrong answers count toward the login limiter; right ones do not (`fix(auth)`: do not spend login attempts…, which fixed a 429 on the sixth deletion in a row). |
+| `fix(replication)`: run send\|recv as separate processes | 12 | `bash -c "zfs send … \| zfs recv …"`: safe only because of the input whitelists, and broken without root, since sudoers grants `zfs`, not `bash`. Now two processes joined by a pipe (`longops.StartPipeline`), each under its own `sudo`; cancelling kills both process groups. Verified on the VM as the `easyzfs` user. |
+| `fix(sysd)`: migrate a cron job to a timer that runs it the way cron did | 13 | `cron-to-timer` wrote the command straight into `ExecStart=`, which systemd does not run through a shell: pipes, redirects, `;`, `$VAR` and cron's `%` all changed meaning. The unit now runs `SHELL -c "<command>"` with cron's `PATH`, `User=` always set, `%`, `$` and `\` escaped for systemd, and an unescaped `%` (cron's stdin marker) refused. Output checked identical to cron's under real systemd on the VM. |
+| `fix(updater)`: verify a staged update as root before installing it | 10 | `easyzfs-update.service` ran `install` as root on whatever the service account had left in `$DATA_DIR/update`. The updater now records the staged release tag beside the binary (and keeps the pair through rollback). The root helper `deploy/easyzfs-apply-update` copies the binary without following symlinks, fetches that tag's `checksums.txt` from GitHub itself, and installs only a match. It is not in upstream's release tags, so without a checkout next to the installer the `.path` unit is not installed. Only matters for a `github`-channel build; the default `local` build has no updater. |
+| `fix(sudoers)`: pin every zfs/zpool argument | 2 | See below. |
+
+**§2, root helpers.** The analysis proposed one root helper per operation. The
+same boundary is drawn with sudoers instead: `pinned_sudoers` in
+`deploy/install.sh` writes one whole-argument regex per command shape the
+service runs (42 rules), and `deploy/easyzfs.sudoers` is generated from it.
+`zfs program`, `zfs allow`, `zpool import -d`, file vdevs, `altroot`,
+`zpool status -c`, `-f` on create/destroy and every flag the code never passes
+are refused; a 112-case allow/deny matrix passed with real sudo on the VM, and
+every operation was then run through the API under it. What remains is what
+the app is for: a compromised service can still destroy pools and datasets,
+and `zfs recv` into a dataset whose mountpoint it can set is root-equivalent.
+Read-only mode is the answer to that. `TestSudoersPropsMatchValidators` fails
+when a property is added to the allowlist but not to sudoers.
+
+**§11, signed releases.** Not applicable here, and not ours to do: this fork's
+builds carry the `local` channel and are never replaced from a release, and
+upstream's releases are signed (or not) by upstream. For a `github`-channel
+build, the root helper above checks the binary against the release's own
+`checksums.txt`, which protects against tampering on the NAS, not against a
+compromised release pipeline.
+
+**Still open.**
+
+- **§1, §19.1-2, §19.6, §21 — the effective mountpoint is not checked.**
+  Mountpoints that are *set* (create, clone, property change) go through the
+  allowlist; an *inherited* one never does, and neither does `zfs mount`,
+  rename, promote or import. On the VM, creating a dataset under a parent
+  whose mountpoint resolved into `/etc` left the host without network after
+  a reboot. Until this exists, run a Proxmox host that matters in read-only
+  mode, and create datasets from the CLI.
+- **Mounts made by the service are invisible to the host.** The unit's
+  `ProtectSystem=full` gives the service a private mount namespace, so a
+  dataset EasyZFS mounts (on create, clone, mount) is mounted only inside it;
+  files written on the host land in the parent's directory instead.
+  `MountFlags=shared` does not help. Dropping `ProtectSystem`/`ProtectHome`/
+  `PrivateTmp`/`ReadWritePaths` fixes it, and is deliberately withheld until
+  the check above exists: today the namespace is what keeps a bad mount from
+  reaching the host.
+
 If any of these lands upstream in a different form, drop the local commit on
 the next sync and check the upstream version closes the same case — the tests
 added with each patch are the quickest way to find out.
@@ -83,6 +145,21 @@ sudo bash deploy/install.sh --uninstall
 Needs Go 1.25+, Node/npm and make on the machine. `make install` is
 interactive; `make install INSTALL_ARGS="--yes"` takes every default, and
 `INSTALL_ARGS="--port 9090"` passes flags through.
+
+On a Proxmox host, build elsewhere and install with `--read-only`, choosing
+localhost or a management address at the listen prompt:
+
+```sh
+make build                         # on a workstation
+# copy ./easyzfs and deploy/ to the host, then on the host:
+bash deploy/install.sh --binary ./easyzfs --read-only --listen 127.0.0.1
+```
+
+The installer adds only `sudo` if missing, upgrades nothing, and prints what
+it found before it changes anything. The mode sticks: `--update` and a reinstall both keep it. To leave
+it, delete the `EASYZFS_READONLY=1` line from `/etc/easyzfs/env` and run
+`make install` again (that also installs the root helper and the full
+sudoers).
 
 Why it cannot drift back to upstream:
 
@@ -132,9 +209,8 @@ the units, but it contacts GitHub daily). Run `make update` again once fixed.
 
 | behaviour | decision |
 |---|---|
-| The sudoers file grants `zpool` and `zfs` with unrestricted arguments | Inherent to what the app does, and root-equivalent: treat a compromise of the web app as a compromise of the machine. The root-helper fix above matters regardless; it is not the only path. |
+| Even pinned, the sudoers grant lets the service destroy storage, and `zfs recv` is root-equivalent | Inherent to what the app does in full mode: treat a compromise of the web app as a compromise of the machine, or install with `--read-only`. |
 | Channel secrets (SMTP, Telegram, ntfy, Gotify) are plaintext in SQLite, alongside argon2 hashes and TOTP seeds | A backup downloaded from Settings therefore contains every secret. Store backups accordingly. |
-| CSRF origin checking is off unless `CSRF_CHECK=1` | Set it in `/etc/easyzfs/env`. Without it, protection rests on `SameSite=Lax`. |
 | The bootstrap admin password is written to the journal on first boot | Change it after first login. |
 | Any logged-in user, not only an admin, can acknowledge alerts, and acknowledgement is shared | A design choice; read-only API keys cannot. |
 

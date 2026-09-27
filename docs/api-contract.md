@@ -7,6 +7,10 @@ Acciones destructivas exigen `{"confirm":"<nombre exacto del objetivo>"}` en el 
 **Modo demo**: es una sesión mock 100% en cliente (botón "Entrar en modo demo" en el login, sin llamada al backend). Las credenciales reales autenticadas muestran SIEMPRE datos reales: no existe fallback a mock. Opcionalmente, el backend acepta `DEMO=1` para desplegar una instancia pública de demostración completa (colectores mock + mutaciones 403 `{"error":"demo_mode"}`), pero es un modo de despliegue, no de sesión.
 Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas: RFC3339 UTC.
 
+**Reautenticación** (acciones irreversibles): crear/exportar/destruir pool, añadir vdev, offline/online/detach de vdev, replace, expand, checkpoint, borrar dataset o snapshot, rollback, change-key, borrar usuario, resetear su contraseña o su 2FA, importar backup, y crear/editar un job de replicación con `force_full:true`. Además del `confirm`, el body lleva `reauth_password` (y `reauth_code`, el TOTP, si el usuario tiene 2FA; los recovery codes no valen aquí). Respuestas, siempre 403 y nunca 401 (un 401 cerraría la sesión en el front): `reauth_required` (falta la contraseña), `reauth_code_required` (falta el código), `reauth_failed` (incorrecto). Los fallos cuentan para el limitador del login (429 `rate_limited`); los aciertos no. `POST /api/backup/import` no es JSON: lleva la respuesta en las cabeceras `X-Reauth-Password` / `X-Reauth-Code`, codificadas con `encodeURIComponent`, y sin ellas el servidor responde `reauth_required` sin leer el fichero.
+
+**Modo solo lectura** (`EASYZFS_READONLY=1`, `install.sh --read-only`): toda mutación de almacenamiento → 403 `read_only`. `GET /api/version` lo indica en `read_only`.
+
 ## Auth y sesión
 - `POST /api/login` `{user, password}` → `{user:"admin", role:"admin"}` + cookie. 401 si credenciales mal. 429 `rate_limited` si se supera el límite (5 intentos/min por IP+usuario; bloqueo 15 min tras 10 fallos consecutivos), o con `Retry-After: 1` si ya hay 32 logins en curso o esperando. Un `user` de más de 64 bytes (ninguna cuenta puede tenerlo) → 401 sin crear estado.
 - `POST /api/logout` → 204. Invalida la sesión.
@@ -27,7 +31,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `POST /api/users/{name}/password` `{new, close_sessions?}` → 204 (admin). `close_sessions` por defecto `true` si no se envía.
 
 ## Sistema
-- `GET /api/version` → `{name:"EasyZFS", version, build, go, os_arch, uptime_sec, rss_bytes, db_bytes, db_path, zfs_version, demo, capabilities:{rewrite, raidz_expansion, scrub_all, scrub_range, zarc_names, json_output, version}}`
+- `GET /api/version` → `{name:"EasyZFS", version, build, go, os_arch, uptime_sec, rss_bytes, db_bytes, db_path, zfs_version, demo, capabilities:{rewrite, raidz_expansion, scrub_all, scrub_range, zarc_names, json_output, version}, read_only, update_channel}`. `update_channel`: `"local"` (build del checkout: sin updater ni rutas `/api/update/*`) o `"github"`.
   - `capabilities` — feature-gating derivado de la versión de OpenZFS del host (sondeo al arranque y cada hora): `rewrite` (zfs rewrite, Linux ≥ 2.3.4), `raidz_expansion` (≥ 2.3), `scrub_all`/`scrub_range` (scrub -a y -S/-E, ≥ 2.4), `zarc_names` (zarcsummary/zarcstat, ≥ 2.4; si no, arc_summary/arcstat), `json_output` (--json, ≥ 2.3).
 - `GET /api/performance` → `{arc:{size_bytes, hit_pct}|null, pools:[{name, read_bps, write_bps}]}`
   - Caché del colector `perf` (tick 60 s). ARC de `/proc/spl/kstat/zfs/arcstats` (respaldo: zarcsummary/arc_summary); `arc:null` = sin fuente en el sistema (la UI oculta la tarjeta). `read_bps`/`write_bps` = bytes/s de `zpool iostat -Hpy 1 1` (muestra de 1 s).
@@ -72,10 +76,11 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
   - `GET /api/datasets/{name}/properties` → `{name, properties:[{name, value, source}]}` (admin y viewer).
     - `source` ∈ `local`/`default`/`inherited`/`received`/`temporary`/`-`. Lista TODAS (nativas + user props); el front agrupa por editabilidad.
     - Lectura bajo demanda con caché TTL 30 s por dataset (excepción puntual a la caché de collectors, documentada en `docs/specs-p1-v2.5.md`). 404 `not_found`.
-  - `PATCH /api/datasets/{name}/properties` (admin) `{property, value}` → 204.
+  - `PATCH /api/datasets/{name}/properties` (admin) `{property, value, acknowledge_risk?}` → 204.
+    - Valores de alto impacto (`sync=disabled`, `copies`, `readonly=on`, `canmount`, `mountpoint`, `exec`/`setuid`/`devices=off`, reducir `volsize`) → 409 `risk_ack_required` con la explicación en `message`, hasta que la petición lleve `acknowledge_risk:true`. `checksum` solo admite `on`, `fletcher4`, `sha256`.
     - Whitelist estricta en `internal/actions/props.go` (compression, recordsize, atime, relatime, sync, checksum, copies, xattr, acltype, aclinherit, primarycache, secondarycache, logbias, canmount, mountpoint, exec, setuid, devices, readonly, snapdir, quota, reservation, volsize, volblocksize). 400 `invalid_property` / 400 `invalid_value` (nunca llega a zfs). Propiedades no aplicables al tipo (mountpoint en volume…) → 400.
     - `mountpoint`: `none`, `legacy`, o una ruta absoluta simple **dentro de la lista permitida**: el árbol del propio pool (`/<pool>` y lo que cuelga, y también el mountpoint real del dataset raíz del pool si es otro, p. ej. `/data`; nunca `/`) o estrictamente por debajo de `/mnt`, `/media`, `/srv` o `/home`. Además, como segunda capa, se rechazan las rutas de sistema (`/etc`, `/usr`, `/root`, `/var/lib/dpkg`, el directorio de datos de EasyZFS, `/opt/easyzfs`…, y cualquier ruta que las contenga): un pool puede llamarse `etc`. Por último se recorre la ruta: ningún componente existente puede ser un enlace simbólico, y cada directorio por el que pasa debe ser de root y no escribible por grupo ni otros (si no, alguien podría cambiar el siguiente tramo por un enlace antes de que root monte). Un tramo que el servicio no pueda inspeccionar también se rechaza. Error → 400 `invalid_input` con el motivo. Límite: solo cubre valores explícitos; un mountpoint heredado no pasa por aquí.
-  - `POST /api/datasets/{name}/properties/{prop}/inherit` (admin) → 204. Solo propiedades de la whitelist con `source == "local"`; 400 `invalid_property`, 409 `not_local`. Audit `dataset.setprop`/`dataset.inherit`.
+  - `POST /api/datasets/{name}/properties/{prop}/inherit` (admin) `{acknowledge_risk?}` (body opcional) → 204. Heredar una propiedad de alto impacto → 409 `risk_ack_required`, como arriba. Solo propiedades de la whitelist con `source == "local"`; 400 `invalid_property`, 409 `not_local`. Audit `dataset.setprop`/`dataset.inherit`.
 - `DELETE /api/datasets/{name}` `{confirm, recursive}` → 202
 - **Cifrado nativo** (lote D; admin; audit sin claves NUNCA):
   - `POST /api/datasets/{name}/unlock` `{key}` → 204 (`zfs load-key`, clave por stdin; monta). 400 `invalid_input` (sin clave o dataset sin cifrar), 404 `not_found`.
@@ -99,7 +104,8 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `GET /api/jobs/history` → `[{ts, tipo, target, ok, detail}]`
 
 ## Discos
-- `GET /api/disks` → `[{dev, model, serial, size_bytes, temp_c:number|null, smart:"ok"|"warn"|"crit"|"unknown", smart_detail, pool, hours}]`
+- `GET /api/disks` → `[{dev, model, serial, size_bytes, temp_c:number|null, smart:"ok"|"warn"|"crit"|"unknown", smart_detail, pool, hours, in_use, in_use_reason}]`
+  - `in_use_reason`: por qué un disco que no está en ningún pool no está libre (montado, swap, LVM, LUKS, mdadm, Ceph, partición EFI o BIOS boot, etiqueta ZFS, sistema de ficheros, retenido por device-mapper). Caché de 15 s solo para la vista: crear pool, añadir vdev, replace, expand y apagar vuelven a leer el disco en el momento y responden 409 `dev_in_use` con el motivo.
   - Solo dispositivos físicos: whitelist `sd[a-z]+`, `hd[a-z]+`, `vd[a-z]+`, `xvd[a-z]+`, `nvmeNnM`, `mmcblkN`. Excluidos siempre: `zd*` (zvols), `loop*`, `ram*`, `dm-*`, `sr*`, `fd*`, `mmcblk*boot*`, `mmcblk*rpmb`.
   - `temp_c: null` = sin lectura (eMMC, USB sin SAT, smartctl no disponible); `null` no es lo mismo que `0`. El front muestra "—".
   - `smart:"unknown"` + `smart_detail:"no disponible"` cuando el disco no habla smartctl: no es un error.
