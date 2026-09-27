@@ -1034,7 +1034,7 @@ $u ${smartctl} ^-t (short|long) ${K}\$
 $u ${dd} ^if\=${K} of\=/dev/null bs\=1M count\=2048\$
 $u ${hdparm} ^-y ${K}\$
 $u ${udisksctl} ^power-off -b ${K}\$
-$u ${lsblk}
+$u ${lsblk} ^-J( -[bd])? -o [A-Z\,]+( ${K})?\$
 $u ${crontab} -l
 $u ${SYSD_HELPER}
 EOF

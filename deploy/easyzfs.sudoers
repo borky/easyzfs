@@ -56,6 +56,6 @@ easyzfs ALL=(root) NOPASSWD: /usr/sbin/smartctl ^-t (short|long) /dev/[A-Za-z0-9
 easyzfs ALL=(root) NOPASSWD: /usr/bin/dd ^if\=/dev/[A-Za-z0-9][A-Za-z0-9_.-]* of\=/dev/null bs\=1M count\=2048$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/hdparm ^-y /dev/[A-Za-z0-9][A-Za-z0-9_.-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/bin/udisksctl ^power-off -b /dev/[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/bin/lsblk
+easyzfs ALL=(root) NOPASSWD: /usr/bin/lsblk ^-J( -[bd])? -o [A-Z\,]+( /dev/[A-Za-z0-9][A-Za-z0-9_.-]*)?$
 easyzfs ALL=(root) NOPASSWD: /usr/bin/crontab -l
 easyzfs ALL=(root) NOPASSWD: /usr/local/libexec/easyzfs-sysd
