@@ -418,6 +418,7 @@ export interface Disk {
   nvme_warn?: number;
   pool: string;
   in_use?: boolean; // particiones montadas o swap activo (no elegible como libre)
+  in_use_reason?: string; // what it holds (LVM, EFI partition, ZFS label, a mount…)
   hours: number;
   smart_full?: DiskSmartDetail; // U1: detalle completo (drill-down)
 }

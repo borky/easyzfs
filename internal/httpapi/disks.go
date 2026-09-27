@@ -4,11 +4,10 @@ package httpapi
 import (
 	"context"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
-	"easyzfs/internal/executil"
+	"easyzfs/internal/actions"
 	"easyzfs/internal/model"
 	"easyzfs/internal/recs"
 )
@@ -37,46 +36,53 @@ func (s *Server) disksEnriched(ctx context.Context) []model.Disk {
 			}
 		}
 	}
-	inUse := mountedDisks(ctx)
+	use := diskUse(ctx)
 	for i := range disks {
 		if disks[i].Pool == "" {
 			disks[i].Pool = poolForDisk(names, vdevs, disks[i].Dev, disks[i].ByID)
 		}
-		disks[i].InUse = inUse[disks[i].Dev]
+		// Pool members carry a ZFS label by definition; only disks in no
+		// pool get a reason, which then says why they are not free.
+		if disks[i].Pool == "" {
+			if reason := use[disks[i].Dev]; reason != "" {
+				disks[i].InUse, disks[i].InUseReason = true, reason
+			}
+		}
 	}
 	return disks
 }
 
-// --- discos "en uso": alguna partición montada o swap activo ---
+// --- disks "in use": the same classification the actions check live ---
 
-var mountedCache = struct {
+var diskUseCache = struct {
 	sync.Mutex
 	ts time.Time
-	m  map[string]bool
+	m  map[string]string
 }{}
 
-// mountedDisks — mapa dev→true si el disco (o alguna partición) está montado
-// o es swap activo. Caché de 15 s (lsblk es barato pero cada petición no).
-func mountedDisks(ctx context.Context) map[string]bool {
-	mountedCache.Lock()
-	defer mountedCache.Unlock()
-	if time.Since(mountedCache.ts) < 15*time.Second && mountedCache.m != nil {
-		return mountedCache.m
+// diskUse — kernel name → why the disk is not free (mounted, swap, LVM, ESP,
+// a ZFS label…), cached for 15 s for the view. It used to count only mounts
+// and swap, so an LVM physical volume or a disk with an EFI partition showed
+// as free; the actions do not trust this cache and re-check live.
+func diskUse(ctx context.Context) map[string]string {
+	diskUseCache.Lock()
+	defer diskUseCache.Unlock()
+	if time.Since(diskUseCache.ts) < 15*time.Second && diskUseCache.m != nil {
+		return diskUseCache.m
 	}
-	m := map[string]bool{}
-	out, err := executil.RunRead(ctx, 5*time.Second, "lsblk", "-rno", "NAME,MOUNTPOINTS")
-	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			f := strings.Fields(line)
-			if len(f) < 2 {
-				continue // sin punto de montaje
-			}
-			m[stripPart(f[0])] = true
-		}
+	m, err := actions.AllDiskUse(ctx)
+	if err != nil {
+		m = map[string]string{}
 	}
-	mountedCache.ts = time.Now()
-	mountedCache.m = m
+	diskUseCache.ts, diskUseCache.m = time.Now(), m
 	return m
+}
+
+// invalidateDiskUse — after a change, the next view reads disks afresh.
+func invalidateDiskUse() {
+	diskUseCache.Lock()
+	diskUseCache.m = nil
+	diskUseCache.Unlock()
 }
 
 // powerOff — POST /api/disks/{dev}/poweroff → 202.
@@ -108,10 +114,8 @@ func (s *Server) powerOff(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "dev_in_use", "el disco pertenece al pool '"+p+"'")
 		return
 	}
-	if mountedDisks(r.Context())[dev] {
-		writeErr(w, http.StatusConflict, "dev_mounted", "el disco tiene particiones montadas o swap activo")
-		return
-	}
+	// Whether it is mounted, swap or otherwise busy is checked live by
+	// actions.PowerOff (409 dev_in_use), not from the 15 s view cache.
 	if err := s.act.PowerOff(r.Context(), actor(r), dev); err != nil {
 		actionErr(w, err)
 		return

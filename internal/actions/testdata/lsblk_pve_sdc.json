@@ -1,0 +1,24 @@
+{
+   "blockdevices": [
+      {
+         "name": "sdc",
+         "type": "disk",
+         "fstype": null,
+         "parttype": null,
+         "mountpoints": [
+             null
+         ],
+         "children": [
+            {
+               "name": "sdc1",
+               "type": "part",
+               "fstype": "vfat",
+               "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+               "mountpoints": [
+                   null
+               ]
+            }
+         ]
+      }
+   ]
+}

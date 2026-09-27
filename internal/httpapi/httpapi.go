@@ -266,7 +266,7 @@ func (s *Server) Handler() http.Handler {
 		s.h.ServeSSE(w, r, actor(r))
 	}))
 
-	root.Handle("/api/", s.auth.Middleware(s.rateGuard(s.csrfGuard(s.demoGuard(a)))))
+	root.Handle("/api/", s.auth.Middleware(s.rateGuard(s.csrfGuard(s.demoGuard(s.refreshAfterMutation(a))))))
 	return root
 }
 
@@ -382,6 +382,39 @@ func (s *Server) demoGuard(next http.Handler) http.Handler {
 	})
 }
 
+// refreshAfterMutation — after a successful change on a storage route, ask
+// the pool collector for an immediate pass and drop the cached disk view.
+// Only a few handlers did this, so a pool destroyed through the API kept
+// showing as its disks' owner until the next idle tick, minutes later.
+// GET and HEAD pass straight through, so the SSE stream is never wrapped.
+func (s *Server) refreshAfterMutation(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			next.ServeHTTP(w, r)
+			return
+		}
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		if sw.code < 400 && storageRoute(r.URL.Path) {
+			if rc, ok := s.pools.(interface{ RefreshSoon() }); ok {
+				rc.RefreshSoon()
+			}
+			invalidateDiskUse()
+		}
+	})
+}
+
+// statusWriter records the status a handler wrote.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.code = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
 // storageRoute — the routes whose mutations reach pools, datasets, disks or
 // the host (jobs and replication run zfs commands later, system timers edit
 // cron and systemd). In read-only mode their mutations are refused; the app's
@@ -451,6 +484,8 @@ func actionErr(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, actions.ErrSnapshotNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, actions.ErrDiskInUse):
+		writeErr(w, http.StatusConflict, "dev_in_use", err.Error())
 	case errors.Is(err, actions.ErrWrongKey):
 		// 403, not 401: the frontend treats any 401 as an expired session.
 		writeErr(w, http.StatusForbidden, "wrong_key", err.Error())

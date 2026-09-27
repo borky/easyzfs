@@ -1,0 +1,13 @@
+{
+   "blockdevices": [
+      {
+         "name": "sdb",
+         "type": "disk",
+         "fstype": "LVM2_member",
+         "parttype": null,
+         "mountpoints": [
+             null
+         ]
+      }
+   ]
+}

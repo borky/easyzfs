@@ -1,0 +1,13 @@
+{
+   "blockdevices": [
+      {
+         "name": "sdc",
+         "type": "disk",
+         "fstype": null,
+         "parttype": null,
+         "mountpoints": [
+             null
+         ]
+      }
+   ]
+}

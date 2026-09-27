@@ -122,6 +122,12 @@ func (s *Service) PoolCreate(ctx context.Context, actor, name, topo string, disk
 	}
 	cli = append(cli, name)
 	cli = append(cli, args...)
+	// Live, uncached check of every disk just before ZFS takes it over.
+	for _, d := range disks {
+		if err := requireFreeDisk(ctx, d); err != nil {
+			return err
+		}
+	}
 	params := map[string]any{"topo": topo, "disks": disks, "ashift": ashift}
 	s.audit(ctx, actor, "pool.create", name, params, confirmed)
 	_, err = executil.Run(ctx, 60*time.Second, "zpool", cli...)
@@ -276,6 +282,12 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 	if err != nil {
 		return err
 	}
+	// Live, uncached check of every disk just before ZFS takes it over.
+	for _, d := range disks {
+		if err := requireFreeDisk(ctx, d); err != nil {
+			return err
+		}
+	}
 	s.audit(ctx, actor, "pool.vdev.add", pool,
 		map[string]any{"topo": topo, "disks": disks}, confirmed)
 	_, err = executil.Run(ctx, 60*time.Second, "zpool",
@@ -339,6 +351,11 @@ func (s *Service) VdevSize(ctx context.Context, pool, dev string) (uint64, error
 func (s *Service) PowerOff(ctx context.Context, actor, dev string) error {
 	if !reDev.MatchString(dev) {
 		return ErrInvalidDev
+	}
+	// Re-checked live: the handler's check reads the cached pool list, and a
+	// disk mounted, swapped on or given to a pool since then must stay up.
+	if err := requireFreeDisk(ctx, dev); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "disk.poweroff", dev, nil, false)
 	if _, err := executil.Run(ctx, 15*time.Second, "udisksctl", "power-off", "-b", "/dev/"+dev); err == nil {
@@ -445,6 +462,13 @@ func (s *Service) Replace(ctx context.Context, actor, pool, oldDev, newDev strin
 	if !reDev.MatchString(oldDev) || !validNewDev(newDev) {
 		return ErrInvalidDev
 	}
+	// The new disk must hold nothing, checked live. Replacing a disk with
+	// itself (after it was wiped or reseated) is ZFS's own business.
+	if kernelName(newDev) != kernelName(oldDev) {
+		if err := requireFreeDisk(ctx, newDev); err != nil {
+			return err
+		}
+	}
 	s.audit(ctx, actor, "pool.replace", pool,
 		map[string]any{"old_dev": oldDev, "new_dev": newDev}, confirmed)
 	if _, err := executil.Run(ctx, 60*time.Second, "zpool", "replace",
@@ -471,6 +495,9 @@ func (s *Service) PoolExpand(ctx context.Context, actor, pool, vdev, disk string
 	}
 	if !reDev.MatchString(disk) {
 		return ErrInvalidDev
+	}
+	if err := requireFreeDisk(ctx, disk); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "pool.expand", pool,
 		map[string]any{"vdev": vdev, "disk": disk}, confirmed)

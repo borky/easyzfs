@@ -163,6 +163,9 @@ type Disk struct {
 	NvmeWarn       int    `json:"nvme_warn,omitempty"`
 	Pool           string `json:"pool"`
 	InUse          bool   `json:"in_use,omitempty"` // particiones montadas o swap activo (no elegible como "libre")
+	// InUseReason — what the disk holds (LVM, ESP, a ZFS label, a mount…),
+	// from the same live check the actions make; set only for disks in no pool.
+	InUseReason string `json:"in_use_reason,omitempty"`
 	Hours          uint64 `json:"hours"`
 	// SmartFull — detalle SMART completo (U1, fase P1): tabla de atributos,
 	// selftests y error log parseados del mismo `smartctl -j -a` de la pasada

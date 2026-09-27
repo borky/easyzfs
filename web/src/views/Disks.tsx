@@ -177,7 +177,7 @@ export default function Disks() {
                 </td>
                 <td className="hide-md" data-l={t('dk_pool')}>
                   {d.pool}
-                  {d.in_use && <Badge tone="warn" dot={false}> {t('dk_in_use')}</Badge>}
+                  {d.in_use && <span title={d.in_use_reason}><Badge tone="warn" dot={false}> {t('dk_in_use')}</Badge></span>}
                 </td>
                 <td className="actions">
                   <span className="testbtns">

@@ -35,6 +35,7 @@ func newTestService(t *testing.T) (*Service, string) {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	stubPoolRoot(t, "")
+	stubBlankDisks(t)
 
 	d, err := db.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -397,3 +398,17 @@ func TestMountpointPoolRootElsewhere(t *testing.T) {
 		t.Fatalf("root at / let /opt/x through: %v", err)
 	}
 }
+
+// stubBlankDisks makes every disk read as blank, so action tests never look
+// at the machine running them (where "sda" is a real, busy disk).
+func stubBlankDisks(t *testing.T) {
+	t.Helper()
+	savedL, savedS, savedB := lsblkJSON, sysBlockDir, devByIDDir
+	lsblkJSON = func(_ context.Context, args ...string) ([]byte, error) {
+		name := strings.TrimPrefix(args[len(args)-1], "/dev/")
+		return []byte(`{"blockdevices":[{"name":"` + name + `","type":"disk","fstype":null,"parttype":null,"mountpoints":[null]}]}`), nil
+	}
+	sysBlockDir, devByIDDir = t.TempDir(), t.TempDir()
+	t.Cleanup(func() { lsblkJSON, sysBlockDir, devByIDDir = savedL, savedS, savedB })
+}
+
