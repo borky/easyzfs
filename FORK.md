@@ -61,12 +61,25 @@ here rather than offered upstream by the owner's decision, which also means
 | `fix(auth)`: bound `/api/login` | The limiter map grew by one uncollectable entry per request under fresh usernames, with the username (up to 1 MiB) embedded in each key, and entries were created before the argon2 semaphore, so an anonymous client could exhaust a 256 MB service. Usernames over 64 bytes are refused, admission is capped at 32, and the purge works. A client holding all 32 slots still starves other logins, as before; it can no longer take the process down. |
 | `fix(encryption)`: verify the current passphrase before change-key | `current_key` was checked for being non-empty and then ignored, so any admin session could re-wrap a dataset to a key its owner does not know. Now verified with a dry-run `zfs load-key -n`. Datasets with `keyformat=raw` (the UI never creates them) can no longer change key through the API. The "incorrect key" detection relies on OpenZFS's English error wording and has not been checked against a real host; if it differs, the change is still refused, with a generic error. |
 | `fix(install)`: make the installer's prompts answer what they show | `confirm()` returned its default as an exit status, where 0 means yes, so every text prompt was inverted: Enter at `[s/N]` answered yes. At the uninstall prompt that deleted `/var/lib/easyzfs` and `/etc/easyzfs` (never the pools). Text prompts are what the documented `curl … \| bash` install always uses, since stdin is the pipe. `--yes` now takes the displayed default, so the "ZFS not detected, continue?" prompts abort under `--yes` instead of continuing. **Upstream installs still have this.** |
+| `fix(install)`: helper source, weekly updater, dry run, uninstall | Under `curl … \| bash` the script's own directory resolved to the **current directory**, so an `easyzfs-sysd` left there by someone else was installed as the root helper; otherwise it was fetched unverified from the moving `main` branch. It now comes from the checkout, `--source` or next to `--binary`, else from the exact release tag the binary was downloaded from. The weekly-updater step aborted the installer (undefined `NEW_VERSION`, relative `cp`, no `sudo`); it now installs only for a release binary, since for a local or source build it would replace that build with upstream's release every week. Also: `DRY_RUN=1` crashed, uninstall left the root update units and `/opt/easyzfs` behind, and `hostname -I` killed the installer on Arch after a good install. **Upstream installs still have all of these.** |
 | `feat(updater)`: `EASYZFS_NO_UPDATE_CHECK` | Upstream checks `api.github.com` at boot and every 24 h with no opt-out. Not a defect — it sends nothing — but a recurring outbound call nobody agreed to. Does not affect the separate weekly auto-update timer `install.sh` can install. Also stops the Settings icon claiming "up to date" when no check ever succeeded. |
 | `CLAUDE.md`, this file | Working notes for this clone. Upstream keeps AI tooling out of its history. |
 
 If any of these lands upstream in a different form, drop the local commit on
 the next sync and check the upstream version closes the same case — the tests
 added with each patch are the quickest way to find out.
+
+## Installing this fork
+
+- **Install from this checkout**, never with the `curl … | bash` one-liner. The
+  one-liner fetches upstream's installer, and even this fork's installer, when
+  it has no local copy, fetches the root helper from upstream's release tag:
+  that helper lacks the `fix(sysd)` patch above.
+- **Never accept an in-app update, and don't install the weekly timer by hand.**
+  Both install upstream's release binary over this build, which puts back every
+  bug fixed here. The installer already skips the weekly timer for a local
+  build. `EASYZFS_NO_UPDATE_CHECK=1` stops the automatic check, but a manual
+  check from Settings can still offer one: don't click Update.
 
 ## Upstream behaviour this fork accepts as-is
 
@@ -77,7 +90,6 @@ added with each patch are the quickest way to find out.
 | CSRF origin checking is off unless `CSRF_CHECK=1` | Set it in `/etc/easyzfs/env`. Without it, protection rests on `SameSite=Lax`. |
 | The bootstrap admin password is written to the journal on first boot | Change it after first login. |
 | Any logged-in user, not only an admin, can acknowledge alerts, and acknowledgement is shared | A design choice; read-only API keys cannot. |
-| `deploy/install.sh`: the remaining defects (the root helper is fetched unverified from the moving `main` branch; an undefined `NEW_VERSION` aborts the weekly-updater step; `DRY_RUN=1` is broken; uninstall leaves the root update units behind) | Not patched yet: this fork is installed by hand from a checkout. The inverted prompts, the dangerous one, are fixed (see above). Fix the rest before relying on the installer. |
 
 ## The commit hooks
 

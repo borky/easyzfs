@@ -50,6 +50,7 @@ readonly DEFAULT_RELEASE_URL="https://github.com/gnacho/easyzfs/releases/latest/
 OPT_BINARY=""
 OPT_URL="${EASYZFS_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
 OPT_SOURCE=""
+DOWNLOADED_TAG=""   # release tag the binary was downloaded from (release_tag_of)
 OPT_PORT="8080"
 PORT_FROM_FLAG=0
 OPT_ROOT_MODE=0
@@ -648,6 +649,7 @@ install_binary() {
       info "Descargando: ${want_url}"
       if [ "$DRY_RUN" = "1" ]; then
         info "[DRY-RUN] curl -fsSL '${want_url}' → ${INSTALL_BIN}"
+        DOWNLOADED_TAG="$(release_tag_of "$want_url" || true)"
       else
         local tmp="" bin=""
         tmp="$(mktemp -d)"
@@ -680,6 +682,8 @@ install_binary() {
         fi
         "${SUDO[@]}" install -m 0755 "$bin" "$INSTALL_BIN"
         rm -rf "$tmp"
+        # The root helper is fetched from this same tag, so it matches the binary.
+        DOWNLOADED_TAG="$(release_tag_of "$want_url" || true)"
       fi
       ;;
     build)
@@ -705,30 +709,83 @@ install_binary() {
   ok "Binario instalado en ${INSTALL_BIN}"
 }
 
+# release_tag_of <url> — the release tag behind an asset URL of this project's
+# GitHub releases, or nothing. A ".../releases/latest/download/..." URL is
+# resolved through its first redirect, which names the concrete tag.
+release_tag_of() {
+  local u="$1" base="https://github.com/gnacho/easyzfs/releases/"
+  case "$u" in "$base"*) ;; *) return 1 ;; esac
+  case "$u" in
+    "${base}latest/download/"*)
+      # Headers first, then an awk that reads to the end: an early 'exit' can
+      # SIGPIPE the writer, which set -o pipefail turns into a failure.
+      local hdr
+      hdr="$(curl -fsI --max-time 15 "$u" 2>/dev/null)" || return 1
+      u="$(printf '%s\n' "$hdr" | tr -d '\r' \
+        | awk 'tolower($1)=="location:" && !seen {print $2; seen=1}')"
+      ;;
+  esac
+  case "$u" in *"/releases/download/"*) ;; *) return 1 ;; esac
+  local t="${u#*/releases/download/}"; t="${t%%/*}"
+  [[ "$t" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  printf '%s\n' "$t"
+}
+
 # install_sysd_helper — helper root confinado (edición/migración de tareas del
-# sistema): local del repo si existe; si no, desde el repo público.
+# sistema).
+#
+# Sources, in order: the checkout this script runs from, the --source tree, the
+# directory holding --binary. Only then the network, and only from the release
+# tag the binary itself was downloaded from, never from the moving main
+# branch, so the helper always matches the binary. If no tag is known (a
+# custom --url), the install stops rather than guess.
+#
+# The script's own directory only counts when the script is a real file. Under
+# 'curl ... | bash' BASH_SOURCE is empty and $0 is "bash", so dirname gave the
+# current directory: running the one-liner from a directory where someone else
+# had left an 'easyzfs-sysd' installed their file as the root helper.
+# local_deploy_file <name> — path of deploy/<name> next to this script (only
+# when the script is a real file, see install_sysd_helper), in the --source
+# tree, or next to --binary; nothing if none has it.
+local_deploy_file() {
+  local name="$1" script_dir=""
+  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || script_dir=""
+  fi
+  if [ -n "$script_dir" ] && [ -f "${script_dir}/${name}" ]; then
+    printf '%s\n' "${script_dir}/${name}"
+  elif [ -n "$OPT_SOURCE" ] && [ -f "${OPT_SOURCE}/deploy/${name}" ]; then
+    printf '%s\n' "${OPT_SOURCE}/deploy/${name}"
+  elif [ -n "$OPT_BINARY" ] && [ -f "$(dirname "$OPT_BINARY")/${name}" ]; then
+    printf '%s\n' "$(dirname "$OPT_BINARY")/${name}"
+  fi
+}
+
 install_sysd_helper() {
   step "Helper de tareas del sistema (easyzfs-sysd)"
   run "${SUDO[@]}" mkdir -p "$(dirname "$SYSD_HELPER")" \
     || die "No se pudo crear $(dirname "$SYSD_HELPER")"
-  local src=""
-  local script_dir; script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo .)"
-  if [ -f "${script_dir}/easyzfs-sysd" ]; then
-    src="${script_dir}/easyzfs-sysd"
-  elif [ -n "$OPT_BINARY" ] && [ -f "$(dirname "$OPT_BINARY")/easyzfs-sysd" ]; then
-    src="$(dirname "$OPT_BINARY")/easyzfs-sysd"
-  fi
+  local src; src="$(local_deploy_file easyzfs-sysd)"
   if [ -n "$src" ]; then
+    info "Helper local: ${src}"
     run "${SUDO[@]}" install -m 0755 "$src" "$SYSD_HELPER" \
       || die "No se pudo instalar el helper en $SYSD_HELPER"
+  elif [ -n "${DOWNLOADED_TAG:-}" ]; then
+    local url="https://raw.githubusercontent.com/gnacho/easyzfs/${DOWNLOADED_TAG}/deploy/easyzfs-sysd"
+    info "Descargando helper de la release ${DOWNLOADED_TAG}: $url"
+    if [ "$DRY_RUN" = "1" ]; then
+      info "[DRY-RUN] curl -fsSL '${url}' → ${SYSD_HELPER}"
+    else
+      local tmp; tmp="$(mktemp)"
+      curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; die "No se pudo descargar el helper."; }
+      head -1 "$tmp" | grep -q '^#!/usr/bin/env bash' \
+        || { rm -f "$tmp"; die "El helper descargado no es el script esperado."; }
+      run "${SUDO[@]}" install -m 0755 "$tmp" "$SYSD_HELPER" \
+        || { rm -f "$tmp"; die "No se pudo instalar el helper en $SYSD_HELPER"; }
+      rm -f "$tmp"
+    fi
   else
-    local url="https://raw.githubusercontent.com/gnacho/easyzfs/main/deploy/easyzfs-sysd"
-    info "Descargando helper: $url"
-    local tmp; tmp="$(mktemp)"
-    curl -fsSL "$url" -o "$tmp" || die "No se pudo descargar el helper."
-    run "${SUDO[@]}" install -m 0755 "$tmp" "$SYSD_HELPER" \
-      || die "No se pudo instalar el helper en $SYSD_HELPER"
-    rm -f "$tmp"
+    die "No hay helper local y no se sabe de qué release vino el binario: ejecuta el instalador desde el repo (bash deploy/install.sh) o usa --source."
   fi
   ok "Helper instalado en ${SYSD_HELPER}"
 }
@@ -962,7 +1019,7 @@ DEMO=1"
     info "[DRY-RUN] escribiría ${ENV_FILE} (modo 0600):"
     printf '    %s\n' "LISTEN_ADDR=:${OPT_PORT}" "DB_PATH=${DATA_DIR}/app.db" \
       "SESSION_SECRET=***" "ADMIN_PASSWORD=***" \
-      "WEBHOOK_SECRET=***"
+      "WEBHOOK_SECRET=***" \
       "VAPID_PUBLIC_KEY=***" "VAPID_PRIVATE_KEY=***" "VAPID_SUBJECT=${vapid_sub}" \
       "$(if [ "$OPT_DEMO" = "1" ]; then echo 'DEMO=1'; fi)"
   else
@@ -1070,19 +1127,43 @@ EOF
     run "${SUDO[@]}" systemctl enable --now easyzfs-update.path
     ok "Auto-update: easyzfs-update.path activo (aplica versiones descargadas por /api/update/apply)."
 
-    # Timer de auto-update semanal (patrón Keynest/Deltos): comprueba releases
-    # estables una vez por semana y aplica automáticamente con checksums.
-    local upd_weekly_svc="/etc/systemd/system/easyzfs-update-weekly.service"
-    local upd_weekly_timer="/etc/systemd/system/easyzfs-update-weekly.timer"
-    local upd_script="/opt/easyzfs/easyzfs-update-weekly.sh"
-    if [ "$DRY_RUN" = "1" ]; then
-      info "[DRY-RUN] instalaría easyzfs-update-weekly.timer + .service + script"
-    else
-      "${SUDO[@]}" mkdir -p /opt/easyzfs
-      cp deploy/easyzfs-update-weekly.sh "$upd_script"
-      "${SUDO[@]}" chmod +x "$upd_script"
-      printf '%s\n' "${NEW_VERSION#v}" > /opt/easyzfs/.release-id
-      write_root_file "$upd_weekly_svc" 0644 <<EOF
+  fi
+
+  # Timer de auto-update semanal (patrón Keynest/Deltos): comprueba releases
+  # estables una vez por semana y aplica automáticamente con checksums.
+  #
+  # Only for a binary that came from a release, and with .release-id set to
+  # that release: the weekly job installs the latest upstream release over
+  # whatever does not match it. For a local binary or a source build (a fork,
+  # a patched build) that would silently replace it every week, so the timer
+  # is skipped there. The marker was written from NEW_VERSION, which nothing
+  # defined: under set -u that aborted the installer right after the service
+  # had started. The copy used a relative path (absent under curl | bash) and
+  # no sudo for the root-owned /opt/easyzfs.
+  local upd_weekly_svc="/etc/systemd/system/easyzfs-update-weekly.service"
+  local upd_weekly_timer="/etc/systemd/system/easyzfs-update-weekly.timer"
+  local upd_script="/opt/easyzfs/easyzfs-update-weekly.sh"
+  local weekly_src="" weekly_tmp=0
+  if [ "$BIN_MODE" != "download" ]; then
+    info "Auto-update semanal NO instalado: el binario es local o compilado (${BIN_MODE}), y el timer lo sustituiría por la última release oficial."
+  elif [ -z "${DOWNLOADED_TAG:-}" ]; then
+    info "Auto-update semanal NO instalado: no se pudo determinar de qué release oficial viene el binario (¿URL propia?)."
+  elif [ "$DRY_RUN" = "1" ]; then
+    info "[DRY-RUN] instalaría easyzfs-update-weekly.timer + .service + script (release ${DOWNLOADED_TAG})"
+  else
+    "${SUDO[@]}" mkdir -p /opt/easyzfs
+    weekly_src="$(local_deploy_file easyzfs-update-weekly.sh)"
+    if [ -z "$weekly_src" ]; then
+      weekly_src="$(mktemp)"; weekly_tmp=1
+      curl -fsSL "https://raw.githubusercontent.com/gnacho/easyzfs/${DOWNLOADED_TAG}/deploy/easyzfs-update-weekly.sh" \
+        -o "$weekly_src" || { rm -f "$weekly_src"; die "No se pudo descargar easyzfs-update-weekly.sh."; }
+      head -1 "$weekly_src" | grep -q '^#!/bin/sh' \
+        || { rm -f "$weekly_src"; die "easyzfs-update-weekly.sh descargado no es el script esperado."; }
+    fi
+    "${SUDO[@]}" install -m 0755 "$weekly_src" "$upd_script"
+    [ "$weekly_tmp" = "1" ] && rm -f "$weekly_src"
+    printf '%s\n' "${DOWNLOADED_TAG#v}" | "${SUDO[@]}" tee /opt/easyzfs/.release-id >/dev/null
+    write_root_file "$upd_weekly_svc" 0644 <<EOF
 [Unit]
 Description=EasyZFS weekly auto-update check and apply
 After=network-online.target
@@ -1095,7 +1176,7 @@ User=root
 StandardOutput=journal
 StandardError=journal
 EOF
-      write_root_file "$upd_weekly_timer" 0644 <<EOF
+    write_root_file "$upd_weekly_timer" 0644 <<EOF
 [Unit]
 Description=EasyZFS weekly auto-update timer
 After=network-online.target
@@ -1108,10 +1189,9 @@ RandomizedDelaySec=4h
 [Install]
 WantedBy=timers.target
 EOF
-      run "${SUDO[@]}" systemctl daemon-reload
-      run "${SUDO[@]}" systemctl enable --now easyzfs-update-weekly.timer
-      ok "Auto-update semanal: easyzfs-update-weekly.timer activo (comprueba y aplica releases estables 1 vez/semana)."
-    fi
+    run "${SUDO[@]}" systemctl daemon-reload
+    run "${SUDO[@]}" systemctl enable --now easyzfs-update-weekly.timer
+    ok "Auto-update semanal: easyzfs-update-weekly.timer activo (comprueba y aplica releases estables 1 vez/semana)."
   fi
 }
 
@@ -1156,7 +1236,9 @@ verify_service() {
 
 summary() {
   local ip=""
-  ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  # 'hostname -I' is Debian's; Arch's hostname exits 64 on it, and under
+  # set -eo pipefail that ended the installer here, after a good install.
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
   ip="${ip:-127.0.0.1}"
   step "Instalación completada"
   cat <<EOF
@@ -1204,6 +1286,11 @@ do_uninstall() {
   [ -e "$SUDOERS_PATH" ] && found=1
   [ -d "$ENV_DIR" ] && found=1
   [ -d "$DATA_DIR" ] && found=1
+  # The update units run as root on their own schedule; a box where only they
+  # are left still has something installed.
+  local u upd_units="easyzfs-update-weekly.timer easyzfs-update-weekly.service easyzfs-update.path easyzfs-update.service"
+  for u in $upd_units; do [ -e "/etc/systemd/system/${u}" ] && found=1; done
+  [ -d /opt/easyzfs ] && found=1
   if [ "$found" = "0" ]; then
     ok "No hay nada instalado de ${APP}; nada que hacer."
     return 0
@@ -1212,7 +1299,15 @@ do_uninstall() {
   if command -v systemctl >/dev/null 2>&1; then
     run "${SUDO[@]}" systemctl stop easyzfs.service || true
     run "${SUDO[@]}" systemctl disable easyzfs.service || true
+    # Stop the triggers first, so neither can fire mid-uninstall and reinstall
+    # the binary being removed. Uninstall used to leave all four behind, and
+    # the weekly timer kept running as root afterwards.
+    run "${SUDO[@]}" systemctl disable --now easyzfs-update-weekly.timer easyzfs-update.path 2>/dev/null || true
   fi
+  for u in $upd_units; do
+    [ -e "/etc/systemd/system/${u}" ] && { run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"; }
+  done
+  [ -d /opt/easyzfs ] && { run "${SUDO[@]}" rm -rf /opt/easyzfs; ok "Eliminado: /opt/easyzfs"; }
   [ -e "$UNIT_PATH" ] && { run "${SUDO[@]}" rm -f "$UNIT_PATH"; ok "Unit eliminada: ${UNIT_PATH}"; }
   if command -v systemctl >/dev/null 2>&1; then
     run "${SUDO[@]}" systemctl daemon-reload || true
