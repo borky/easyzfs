@@ -48,6 +48,13 @@ import (
 var (
 	version = "dev"
 	build   = ""
+	// updateChannel — where this binary may be updated from. "local" (set by
+	// this fork's Makefile) means from the checkout it was built from, by
+	// rebuilding and reinstalling: the in-app updater is not created at all,
+	// so the binary never contacts GitHub and exposes no update routes, and
+	// an upstream release can never replace it from the UI. Anything else
+	// keeps upstream's behaviour: releases of gnacho/easyzfs.
+	updateChannel = "github"
 )
 
 //go:embed dist
@@ -57,7 +64,15 @@ func main() {
 	// -generate-vapid: imprime un par de claves VAPID para /etc/easyzfs/env
 	// (lo usa deploy/install.sh) y sale 0. No toca BD ni configuración.
 	genVapid := flag.Bool("generate-vapid", false, "genera un par de claves VAPID (Web Push) y sale")
+	// -update-channel: prints the update channel and exits. deploy/install.sh
+	// asks the binary it installs, and skips the root update units for a
+	// binary that is updated from its checkout instead.
+	printChannel := flag.Bool("update-channel", false, "imprime el canal de actualización (local|github) y sale")
 	flag.Parse()
+	if *printChannel {
+		fmt.Println(updateChannel)
+		return
+	}
 	if *genVapid {
 		priv, pub, err := webpush.GenerateVAPIDKeys()
 		if err != nil {
@@ -187,10 +202,15 @@ func main() {
 
 	// Updater: detecta releases semver y prepara el apply (el swap lo hace la
 	// unit easyzfs-update.path). Inerte si version=dev o sin DATA_DIR escribible.
-	updaterSvc := updater.New(version, cfg.DataDir(), os.Getenv("GITHUB_TOKEN"))
+	var updaterSvc *updater.Updater
+	if updateChannel != "local" {
+		updaterSvc = updater.New(version, cfg.DataDir(), os.Getenv("GITHUB_TOKEN"))
+	}
 	// Chequeo inicial + ticker de 24 h: el estado se cachea y /api/update/status
 	// lo lee sin tocar GitHub (evita el rate-limit de la API, patrón NetPulse).
-	if cfg.NoUpdateCheck {
+	if updaterSvc == nil {
+		log.Println("actualizaciones: desde el checkout local (sin updater, sin contacto con GitHub)")
+	} else if cfg.NoUpdateCheck {
 		log.Println("comprobación automática de actualizaciones desactivada (EASYZFS_NO_UPDATE_CHECK)")
 	} else {
 		updaterSvc.Start(ctx)
@@ -217,7 +237,7 @@ func main() {
 		Actions: act, Sched: sched, Jobs: jobStore, Hub: h, Push: pushSender,
 		Backup: backupStore, LongOps: longOps, Repl: replRunner, Updater: updaterSvc,
 		Channels: channelsClient, ChannelStore: channelStore, Mailer: emailNotifier,
-		Version: version, Build: build, ZFSVersion: zfsVersion,
+		Version: version, Build: build, ZFSVersion: zfsVersion, UpdateChannel: updateChannel,
 	})
 
 	mux := http.NewServeMux()

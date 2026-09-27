@@ -201,11 +201,15 @@ function Shell() {
   const [version, setVersion] = useState('');
   const [relDismissed, setRelDismissed] = useState(getReleaseDismissed());
   const [updateToast, setUpdateToast] = useState('');
-  const rel = useReleaseCheck(version || undefined, ready && !!user && !demo && isAdmin);
+  // null until /api/version answers, so a local build never polls update
+  // routes it does not have.
+  const [channel, setChannel] = useState<string | null>(null);
+  const rel = useReleaseCheck(version || undefined, ready && !!user && !demo && isAdmin && channel === 'github');
   useEffect(() => {
     if (!ready || !user || demo) return;
     getProvider().getVersion().then((v) => {
       setVersion(v.version);
+      setChannel(v.update_channel ?? 'github');
       if (v.pendingUpdate?.to) {
         setUpdateToast(t('upd_toast_updated', { v: v.pendingUpdate.to }));
         setTimeout(() => setUpdateToast(''), 5000);

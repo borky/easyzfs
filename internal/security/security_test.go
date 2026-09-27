@@ -30,9 +30,10 @@ func TestMiddlewareCabecerasSeguridad(t *testing.T) {
 	if !strings.Contains(csp, "default-src 'self'") {
 		t.Errorf("CSP sin default-src 'self': %q", csp)
 	}
-	// La CSP debe permitir el check de actualizaciones pasivo (releasecheck).
-	if !strings.Contains(csp, "https://api.github.com") {
-		t.Errorf("CSP sin connect-src api.github.com: %q", csp)
+	// The browser only ever talks to this server: the release check goes
+	// through /api/update/status, so connect-src must not allow GitHub.
+	if !strings.Contains(csp, "connect-src 'self'") || strings.Contains(csp, "github") {
+		t.Errorf("connect-src should be 'self' only: %q", csp)
 	}
 	// El front embebe las fuentes (Space Grotesk/JetBrains Mono) como data:.
 	if !strings.Contains(csp, "font-src 'self' data:") {

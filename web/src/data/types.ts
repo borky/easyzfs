@@ -62,6 +62,9 @@ export interface UserInfo {
 
 export interface VersionInfo {
   name?: string; // nombre del producto ("EasyZFS")
+  // "local": built from a checkout and updated from it; there is no in-app
+  // updater and no /api/update/* route. Missing (older servers) = "github".
+  update_channel?: 'local' | 'github';
   version: string;
   build: string;
   go: string;

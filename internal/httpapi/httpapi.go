@@ -65,6 +65,10 @@ type Server struct {
 	build        string
 	zfsVersion   string
 
+	// updateChannel — "local" when the binary is updated from its checkout
+	// and has no updater; the UI then hides the update check.
+	updateChannel string
+
 	loginLimiter *loginLimiter // rate limit de /api/login (IP+usuario)
 }
 
@@ -97,6 +101,8 @@ type Deps struct {
 	Version      string
 	Build        string
 	ZFSVersion   string
+
+	UpdateChannel string
 }
 
 // NewServer crea el servidor del API.
@@ -111,7 +117,7 @@ func NewServer(d Deps) *Server {
 		mailer: d.Mailer,
 		backup: d.Backup, longOps: d.LongOps, repl: d.Repl,
 		updater: d.Updater,
-		started: time.Now(), version: d.Version, build: d.Build, zfsVersion: d.ZFSVersion,
+		started: time.Now(), version: d.Version, build: d.Build, zfsVersion: d.ZFSVersion, updateChannel: d.UpdateChannel,
 		loginLimiter: newLoginLimiter(),
 	}
 }

@@ -53,7 +53,7 @@ export class MockProvider implements DataProvider {
     name: 'EasyZFS', version: '0.1.0', build: '2026-08-01', go: 'go1.23.4', os_arch: 'linux/amd64',
     uptime_sec: 17 * 86400 + 4 * 3600, rss_bytes: 21 * 1024 ** 2,
     db_bytes: Math.round(8.4 * 1024 ** 2), db_path: '/var/lib/easyzfs/app.db',
-    zfs_version: '2.4.1', demo: true,
+    zfs_version: '2.4.1', demo: true, update_channel: 'github',
     load1: 0.42, load5: 0.38, load15: 0.31,
     mem_total_bytes: 8 * 1024 ** 3, mem_avail_bytes: Math.round(4.9 * 1024 ** 3),
     arc_hit_pct: 97.4, arc_size_bytes: Math.round(1.8 * 1024 ** 3),

@@ -52,6 +52,8 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 		"capabilities":  caps,
 		"demo":          s.cfg.Demo,
 		"pendingUpdate": pendingUpdateJSON(s.updater),
+
+		"update_channel": s.updateChannel,
 	}
 	// Métricas del host (best effort: se omiten si no se pueden leer).
 	if l1, l5, l15, ok := loadAvg(); ok {

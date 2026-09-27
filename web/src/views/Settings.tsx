@@ -87,7 +87,7 @@ function ReleaseIcon({ version }: { version: string | undefined }) {
 // si hay versión nueva, botón "Actualizar" que aplica (el servidor descarga+
 // valida y easyzfs-update.path reinicia con el binario nuevo). Muestra el
 // resultado inline: al día, nueva versión, aplicando o error.
-function UpdateCheckRow({ version }: { version: string | undefined }) {
+function UpdateCheckRow({ version, channel }: { version: string | undefined; channel: string | undefined }) {
   const { t } = useApp();
   const { openModal } = useModal();
   const [state, setState] = useState<'idle' | 'checking' | 'uptodate' | 'available' | 'error'>('idle');
@@ -110,6 +110,22 @@ function UpdateCheckRow({ version }: { version: string | undefined }) {
       setState('error');
     }
   };
+
+  // Until /api/version answers, the channel is unknown: render nothing rather
+  // than a check button that, on a local build, would post to a route that
+  // does not exist.
+  if (channel === undefined) return null;
+  // Built from a checkout: there is nothing to check against and no route to
+  // ask. Say how this install is updated instead of offering a button.
+  if (channel === 'local') {
+    return (
+      <div className="upd-widget">
+        <div className="upd-line">
+          <span className="upd-status muted">{t('upd_local')}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="upd-widget">
@@ -1187,7 +1203,7 @@ export default function Settings() {
             <span className="ab-sep" />
 
             {/* 1. Comprobar actualizaciones (widget inline) */}
-            <UpdateCheckRow version={version?.version} />
+            <UpdateCheckRow version={version?.version} channel={version?.update_channel} />
 
             {/* 2. Respaldos (desplegable) */}
             <button type="button" aria-expanded={adminPanel === 'backup'}
@@ -1337,7 +1353,7 @@ export default function Settings() {
                     ? <button className="btn sm primary" onClick={() => { void installEvt.prompt(); }}>{t('ab_install_btn')}</button>
                     : null
             )}
-            {isAdmin && <UpdateCheckRow version={version?.version} />}
+            {isAdmin && <UpdateCheckRow version={version?.version} channel={version?.update_channel} />}
           </div>
         </div>
       )}
