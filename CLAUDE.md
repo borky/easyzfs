@@ -99,7 +99,9 @@ internal/
   executil/          defensive exec (see invariant 2)
   collectors/        zpool, smart, sensors, schedsys, perf, caps, events,
                      mantenimiento, mock — each an in-memory cache + SSE
-  actions/           real ZFS/SMART mutations: whitelists, confirm, audit_log
+  actions/           real ZFS/SMART mutations: whitelists, confirm, audit_log;
+                     mountpoint.go resolves the mountpoint ZFS will really use
+                     (inherited/received/default) before anything mounts
   scheduler/         snapshot/scrub/smart jobs; custom schedule format
   longops/           generic long-process runner (rewrite, replication)
   replication/       zfs send/recv local + SSH, own SSH keypair under DATA_DIR
@@ -171,7 +173,15 @@ docs/api-contract.md the front↔back contract — source of truth for the API
    cache); a property with real blast radius gets a `PropRisk` entry.
    Deleting a dataset from the UI goes through the recycle bin
    (`DatasetTrash`, `internal/actions/trash.go`), and anything that takes
-   redundancy away checks the pool first (`vdevActionRisk`).
+   redundancy away checks the pool first (`vdevActionRisk`). Anything that can
+   end in a dataset being mounted goes through `internal/actions/mountpoint.go`
+   on the path ZFS will really use, not the one that was asked for
+   (`checkMountpoint` in `props.go` only covers a value somebody sets). Pick the
+   entry point: `checkEffectiveMountpoint` for one dataset, `…Tree` for a
+   `create -p` that makes ancestors too, `checkMountDanger` where the operation
+   does not choose the place (promote, `canmount`), `checkInheritedMountpoint`
+   for `zfs inherit mountpoint`, `checkRenameMount` for a rename, and
+   `mountTree` to mount a whole tree as an import would.
    Any new `zpool`/`zfs` argument shape needs a line in `pinned_sudoers`
    (see below), or sudo refuses it at runtime while every test passes.
 5. Frontend: add the method to `web/src/data/provider.ts` (the interface),
