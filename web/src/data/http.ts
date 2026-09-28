@@ -200,8 +200,8 @@ export class HttpProvider implements DataProvider {
     post<void>(`/pools/${enc(pool)}/scrub`, { action });
   exportPool = (name: string, confirm: string, force: boolean, destroy: boolean) =>
     post<void>(`/pools/${enc(name)}/export`, { confirm, force, destroy });
-  addVdev = (pool: string, topo: string, disks: string[], confirm: string) =>
-    post<void>(`/pools/${enc(pool)}/vdev`, { topo, disks, confirm });
+  addVdev = (pool: string, topo: string, disks: string[], confirm: string, checkpoint = false) =>
+    post<void>(`/pools/${enc(pool)}/vdev`, { topo, disks, confirm, checkpoint });
   replaceDisk = (pool: string, oldDev: string, newDev: string, confirm: string) =>
     post<void>(`/pools/${enc(pool)}/replace`, { old_dev: oldDev, new_dev: newDev, confirm });
   vdevAction = (pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string, ack = false) =>

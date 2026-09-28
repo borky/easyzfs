@@ -73,7 +73,8 @@ export interface DataProvider {
   importPool(name?: string): Promise<string[]>;
   scrubAction(pool: string, action: 'start' | 'pause' | 'stop'): Promise<void>;
   exportPool(name: string, confirm: string, force: boolean, destroy: boolean): Promise<void>;
-  addVdev(pool: string, topo: string, disks: string[], confirm: string): Promise<void>;
+  /** checkpoint: take a pool checkpoint first (opt-in; it blocks replace until discarded). */
+  addVdev(pool: string, topo: string, disks: string[], confirm: string, checkpoint?: boolean): Promise<void>;
   replaceDisk(pool: string, oldDev: string, newDev: string, confirm: string): Promise<void>;
   /** ack: the caller showed the 409 risk_ack_required warning and the user went on. */
   vdevAction(pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string, ack?: boolean): Promise<void>;

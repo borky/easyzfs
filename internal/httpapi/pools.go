@@ -133,9 +133,10 @@ func (s *Server) exportPool(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addVdev(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var body struct {
-		Topo    string   `json:"topo"`
-		Disks   []string `json:"disks"`
-		Confirm string   `json:"confirm"`
+		Topo       string   `json:"topo"`
+		Disks      []string `json:"disks"`
+		Confirm    string   `json:"confirm"`
+		Checkpoint bool     `json:"checkpoint"` // take a pool checkpoint first (opt-in)
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -144,7 +145,7 @@ func (s *Server) addVdev(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	disks := s.resolveDisks(body.Disks)
-	if err := s.act.VdevAdd(r.Context(), actor(r), name, body.Topo, disks, true); err != nil {
+	if err := s.act.VdevAdd(r.Context(), actor(r), name, body.Topo, disks, true, body.Checkpoint); err != nil {
 		actionErr(w, err)
 		return
 	}

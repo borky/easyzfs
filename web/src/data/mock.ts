@@ -475,7 +475,7 @@ export class MockProvider implements DataProvider {
     }
     emitEvent({ type: 'overview' });
   };
-  addVdev = async (pool: string, topo: string, disks: string[], confirm: string) => {
+  addVdev = async (pool: string, topo: string, disks: string[], confirm: string, _checkpoint = false) => {
     await delay(300);
     if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
     const p = this.pools.find((x) => x.name === pool);

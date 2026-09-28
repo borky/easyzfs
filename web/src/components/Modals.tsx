@@ -1309,6 +1309,7 @@ function PoolDiskModal({ pool, mode, presetOld, presetNew, onClose }: { pool: st
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [identifying, setIdentifying] = useState(false);
+  const [checkpoint, setCheckpoint] = useState(false);
 
   const free = useMemo(() => (disks ?? []).filter((d) => (d.pool === '—' || d.pool === '') && !d.in_use), [disks]);
   const current = useMemo(() => pools?.find((pl) => pl.name === pool)?.vdevs ?? [], [pools, pool]);
@@ -1346,7 +1347,7 @@ function PoolDiskModal({ pool, mode, presetOld, presetNew, onClose }: { pool: st
     e.preventDefault();
     setBusy(true); setErr('');
     try {
-      if (mode === 'vdev') await getProvider().addVdev(pool, topo, [...sel], confirm.trim());
+      if (mode === 'vdev') await getProvider().addVdev(pool, topo, [...sel], confirm.trim(), checkpoint);
       else {
         // by-id si existe: las letras sdX son inestables entre arranques (#65)
         const outDev = newDisk?.by_id ? '/dev/disk/by-id/' + newDisk.by_id : newDev;
@@ -1364,7 +1365,13 @@ function PoolDiskModal({ pool, mode, presetOld, presetNew, onClose }: { pool: st
         <p className="desc">
           {t(mode === 'vdev' ? 'av_desc' : 'rp_desc')} <b className="mono">{pool}</b>
         </p>
-        {mode === 'vdev' && <p className="desc" style={{ marginTop: 8 }}>{t('av_checkpoint')}</p>}
+        {mode === 'vdev' && (<>
+          <label className="checklabel" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={checkpoint} onChange={(e) => setCheckpoint(e.target.checked)} />
+            {t('av_checkpoint_opt')}
+          </label>
+          {checkpoint && <p className="desc" style={{ marginTop: 4 }}>{t('av_checkpoint')}</p>}
+        </>)}
 
         {mode === 'vdev' && (<>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>{t('np_topo')}

@@ -271,7 +271,8 @@ func (s *Service) CheckpointDiscard(ctx context.Context, actor, pool string) err
 
 // VdevAdd — 'zpool add <pool> [topo] <disks...>'.
 // confirmed debe ser true solo si el handler validó {"confirm":pool}.
-func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks []string, confirmed bool) error {
+// checkpoint: take a pool checkpoint first (opt-in, see below).
+func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks []string, confirmed, checkpoint bool) error {
 	if !rePool.MatchString(pool) {
 		return ErrInvalidName
 	}
@@ -288,21 +289,25 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 			return err
 		}
 	}
-	// A vdev, once added, is permanent (removal only works for mirrors and
-	// single disks, never with RAID-Z in the pool): a wrong topology or
-	// disk is the classic way to be stuck with a pool. Take a checkpoint
-	// first, so the pool can be rewound to before the add (export, then
-	// 'zpool import --rewind-to-checkpoint'). An existing checkpoint already
-	// covers it. It holds freed space until discarded, and blocks
-	// attach/detach/remove meanwhile; the pool view offers to discard it.
-	cp, err := executil.RunRead(ctx, 10*time.Second, "zpool", "get", "-Hp", "-o", "value", "checkpoint", pool)
-	if err != nil {
-		return fmt.Errorf("leer el checkpoint de %s (necesario antes de añadir un vdev): %w", pool, err)
-	}
+	// A vdev, once added, is permanent on a pool with RAID-Z: a wrong
+	// topology or disk is the classic way to be stuck with a pool. On
+	// request, a checkpoint is taken first so the add can be rewound
+	// (export, then 'zpool import --rewind-to-checkpoint'). Opt-in, never
+	// automatic: while a checkpoint exists ZFS also refuses 'zpool replace'
+	// and hot-spare activation, so one left behind would block replacing a
+	// failed disk. An existing checkpoint is refused rather than reused: it
+	// would rewind to its own, older date.
 	created := false
-	if v := strings.TrimSpace(string(cp)); v == "" || v == "-" {
+	if checkpoint {
+		cp, err := executil.RunRead(ctx, 10*time.Second, "zpool", "get", "-Hp", "-o", "value", "checkpoint", pool)
+		if err != nil {
+			return fmt.Errorf("leer el checkpoint de %s: %w", pool, err)
+		}
+		if v := strings.TrimSpace(string(cp)); v != "" && v != "-" {
+			return fmt.Errorf("%w: %s ya tiene un checkpoint (de otra fecha); descártalo antes, o añade sin checkpoint", ErrConflict, pool)
+		}
 		if _, err := executil.Run(ctx, 30*time.Second, "zpool", "checkpoint", pool); err != nil {
-			return fmt.Errorf("crear un checkpoint antes de añadir el vdev (no se ha añadido nada): %w", err)
+			return fmt.Errorf("crear el checkpoint (no se ha añadido nada; ¿pool sin feature@zpool_checkpoint?): %w", err)
 		}
 		created = true
 	}
