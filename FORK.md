@@ -152,8 +152,8 @@ storage and keeps its hands off it.
   recorded.** On Proxmox the pools exist before EasyZFS is installed.
   - The installer made `rpool`, with the OS on `rpool/ROOT/pve-1`.
   - The admin made the data pools, registered as Proxmox storage.
-- **The OS pool** is whichever pool's dataset is mounted at `/`, from
-  mountinfo, so no pool name is assumed. It stays view-only apart from
+- **OS pools** are whichever pools have a dataset mounted at `/` or `/boot`,
+  from mountinfo, so no pool name is assumed. It stays view-only apart from
   maintenance (scrub, trim, clear, SMART, snapshots). Replacing one of its
   disks needs Proxmox's own procedure (partitions copied, `proxmox-boot-tool`),
   which `zpool replace` does not do.
@@ -165,11 +165,33 @@ storage and keeps its hands off it.
 - **Proxmox storage** is the `zfspool` datasets in `/etc/pve/storage.cfg` (read
   through one pinned `sudo cat`) and any dataset holding guest disks. It
   cannot be destroyed, renamed, unmounted or moved, and a pool holding it
-  cannot be exported or destroyed. Its disks can still be replaced: for a data
-  pool that is the repair that matters.
-- **No recursive snapshot sweeps up guest disks.** That covers scheduled
-  snapshot jobs too: `qm rollback` refuses while a snapshot it does not know
-  sits on the disk.
+  cannot be exported or destroyed, and only properties its guests would not
+  feel can change. Its disks can still be replaced: for a data pool that is
+  the repair that matters.
+- **No snapshot of EasyZFS's lands on a guest disk**: `qm rollback` refuses
+  while one it does not know sits there. A manual recursive snapshot over
+  guest disks is refused. A scheduled job instead snapshots the rest of the
+  tree in one atomic command, and still prunes, which cleans up automatic
+  snapshots left on guest disks by earlier versions.
+- **A review found, and these fixed:**
+  - Asking for a checkpoint when adding a vdev took it *before* the guard
+    refused the add, leaving one on the OS pool, where it blocks
+    `zpool replace`.
+  - A storage root such as `rpool/data` still accepted `exec`, `quota`,
+    `sync` and key changes, all of which its guests inherit. Only harmless
+    properties are allowed there now.
+  - Guest names now follow Proxmox's own volume pattern: templates
+    (`basevol-…`) and hand-named disks (`vm-100-mydisk`).
+  - Disk work on a data pool no longer depends on listing every dataset,
+    only on mountinfo.
+  - Also covered now:
+    - `dir:` storage, boot pools at `/boot`, and ancestors of outside mounts;
+    - create or clone targets with Proxmox names or inside `rpool/ROOT`;
+    - discarding an OS pool's checkpoint;
+    - an unreadable `storage.cfg`, which marks every top-level dataset as
+      storage and is logged;
+    - a failed collector read, which keeps the last view instead of showing
+      the host as plain data.
 - Each rule is enforced in the actions, which read the host again and refuse
   when they cannot. The UI marks each item and leaves out what would be
   refused.

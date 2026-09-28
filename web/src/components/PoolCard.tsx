@@ -298,7 +298,7 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
         {running && !resilvering && !expanding && <button className="btn sm" onClick={() => scrub('stop')}>{t('pool_scrub_stop')}</button>}
         <button className="btn sm" title={t('pool_history_hint')}
           onClick={() => openModal('history', { pool: pool.name })}>{t('pool_history')}</button>
-        <button className="btn sm" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : t('ck_title')}
+        <button className="btn sm" disabled={!isAdmin || hostSys} title={!isAdmin ? t('no_permission') : hostSys ? lockedTitle : t('ck_title')}
           onClick={() => openModal('checkpoint', { pool: pool.name, active: pool.checkpoint })}>{t('pool_checkpoint')}</button>
         <button className="btn sm" disabled={!isAdmin || hostSys} title={!isAdmin ? t('no_permission') : hostSys ? lockedTitle : t('pool_add_vdev_hint')}
           onClick={() => openModal('addvdev', { pool: pool.name })}>{t('pool_add_vdev')}</button>

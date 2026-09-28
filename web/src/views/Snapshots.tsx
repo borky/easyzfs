@@ -16,6 +16,11 @@ export default function Snapshots() {
   const pools = useData((p) => p.getPools());
   const [poolFilter, setPoolFilter] = useState<string>('');
   const { data, loading, reload } = useData((p) => p.getSnapshots());
+  // Host storage (analysis §21): rolling back the running OS or a guest disk,
+  // or deleting a snapshot Proxmox keeps for a VM, is refused by the server;
+  // the buttons say so instead of failing.
+  const dsList = useData((p) => p.getDatasets());
+  const hostOf = (ds: string) => dsList.data?.find((d) => d.name === ds);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [err, setErr] = useState('');
 
@@ -80,9 +85,12 @@ export default function Snapshots() {
                     {fmtBytes(s.used_bytes)} · {timeAgo(s.ts, t)}
                   </span>
                   <span className="actions" style={{ marginLeft: 'auto' }}>
-                    <button className="btn sm" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : undefined}
+                    <button className="btn sm"
+                      disabled={!isAdmin || hostOf(g.dataset)?.host === 'system' || hostOf(g.dataset)?.host === 'guest'}
+                      title={!isAdmin ? t('no_permission') : hostOf(g.dataset)?.host && hostOf(g.dataset)?.host !== 'storage' ? hostOf(g.dataset)?.host_reason : undefined}
                       onClick={() => openModal('rollback', { full: s.full })}>{t('snap_restore')}</button>
-                    <button className="btn sm danger" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : undefined}
+                    <button className="btn sm danger" disabled={!isAdmin || hostOf(g.dataset)?.host === 'guest'}
+                      title={!isAdmin ? t('no_permission') : hostOf(g.dataset)?.host === 'guest' ? hostOf(g.dataset)?.host_reason : undefined}
                       onClick={() => openModal('delsnap', { full: s.full })}>{t('snap_delete')}</button>
                     <button className="btn sm" disabled={!isAdmin}
                       onClick={() => cloneSnap(s.full)}>{t('snap_clone')}</button>

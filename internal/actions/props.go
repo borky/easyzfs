@@ -590,14 +590,15 @@ func (s *Service) volsizeShrinks(ctx context.Context, name, value string) bool {
 }
 
 
-// propHostOp — the host-storage class of changing property: where a dataset
-// mounts is refused on Proxmox storage too (its containers' subvolumes are
-// found by that path); any other property only on system datasets and guest
-// disks.
+// propHostOp — the host-storage class of changing property. On Proxmox
+// storage only properties with no effect on what runs from it are allowed:
+// its guests inherit the rest (exec=off stops every container, a quota below
+// usage pauses VMs, sync=disabled risks their disks on power loss, and a
+// mountpoint change loses the containers' subvolumes).
 func propHostOp(property string) HostOp {
 	switch property {
-	case "mountpoint", "canmount", "readonly":
-		return OpDatasetMountCfg
+	case "compression", "atime", "relatime", "recordsize", "primarycache", "secondarycache", "logbias", "snapdir":
+		return OpDatasetChange
 	}
-	return OpDatasetChange
+	return OpDatasetSensitive
 }

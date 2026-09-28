@@ -7,24 +7,27 @@
 // container disks. Nothing here depends on what EasyZFS created or has
 // recorded; every decision is read from the live system each time:
 //
-//   - the host pool: the pool whose dataset is mounted at / (mountinfo);
-//   - system datasets: in that pool, its root dataset, the root filesystem's
-//     boot-environment container (rpool/ROOT) and everything in it, and any
-//     dataset mounted outside the pool's own tree (rpool/var-lib-vz at
-//     /var/lib/vz);
-//   - guest disks: Proxmox's own names (vm-100-disk-0, base-…, subvol-…,
-//     vm-…-state-…, vm-…-cloudinit), on any pool;
+//   - OS pools: pools with a ZFS dataset mounted at / or /boot (mountinfo);
+//     rpool on Proxmox, rpool and bpool on Ubuntu;
+//   - system datasets: in an OS pool, its root dataset, the root
+//     filesystem's boot-environment container (rpool/ROOT) and everything in
+//     it, anything mounted outside the pool's own tree (rpool/var-lib-vz at
+//     /var/lib/vz) and every ancestor of such a mount;
+//   - guest disks: Proxmox's volume names, (vm|base|subvol|basevol)-<id>-…,
+//     on any pool;
 //   - Proxmox storage: the datasets /etc/pve/storage.cfg names as zfspool
-//     storage, and any dataset holding guest disks.
+//     storage, those mounted at a dir storage's path, and any dataset holding
+//     guest disks.
 //
-// The rules: the host pool is view-only apart from maintenance (scrub, trim,
+// The rules: an OS pool is view-only apart from maintenance (scrub, trim,
 // clear, SMART, snapshots); a system dataset or a guest disk cannot be
 // destroyed, renamed, unmounted, rolled back or changed; Proxmox storage
-// cannot be destroyed, renamed, unmounted or have its mountpoint changed,
-// and a pool holding it cannot be exported or destroyed. Everything else,
-// including replacing a failed disk in a data pool, stays available. When
-// the host cannot be read, the guarded operations are refused: an unknown
-// host is not a data pool.
+// cannot be destroyed, renamed, unmounted or given a property its guests
+// would inherit (only compression, atime, recordsize, caching, logbias,
+// snapdir), and a pool holding it cannot be exported or destroyed.
+// Everything else, including replacing a failed disk in a data pool, stays
+// available. When the host cannot be read, the guarded operations are
+// refused: an unknown host is not a data pool.
 package actions
 
 import (
@@ -32,18 +35,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"easyzfs/internal/executil"
 )
 
-// ErrHostStorage — the target is storage the host runs on or Proxmox
-// manages. Mapped to 403 host_storage.
-var ErrHostStorage = errors.New("almacenamiento del host")
+var (
+	// ErrHostStorage — the target is storage the host runs on or Proxmox
+	// manages. Mapped to 403 host_storage.
+	ErrHostStorage = errors.New("almacenamiento del host")
+	// ErrHostUnknown — the host could not be read, so whether the target is
+	// its storage is unknown. Mapped to 409 host_unknown: it is not a claim
+	// that the target is host storage.
+	ErrHostUnknown = errors.New("no se pudo leer el host")
+)
 
 // Host kinds, as the API reports them (model.Pool.Host, model.Dataset.Host).
 const (
@@ -52,10 +64,11 @@ const (
 	HostStorage = "storage" // Proxmox storage, or a pool holding it
 )
 
-// reGuestDisk — the names Proxmox gives the disks it manages
-// (PVE::Storage::ZFSPoolPlugin): images, templates, container subvolumes,
-// saved RAM state and cloud-init drives.
-var reGuestDisk = regexp.MustCompile(`^(vm|base)-\d+-disk-\d+$|^subvol-\d+-disk-\d+$|^vm-\d+-state-.+$|^vm-\d+-cloudinit$`)
+// reGuestDisk — Proxmox's volume names (PVE::Storage::ZFSPoolPlugin parses
+// them as (vm|base|subvol|basevol)-<vmid>-<rest>): VM and CT disks and
+// templates, state files, cloud-init drives, fleecing images, and names
+// given by hand to 'pvesm alloc'.
+var reGuestDisk = regexp.MustCompile(`^(vm|base|subvol|basevol)-\d+-\S+$`)
 
 // Test seams.
 var (
@@ -73,13 +86,15 @@ var (
 
 // HostView — what the host runs on, read at one moment.
 type HostView struct {
-	RootDataset string // mounted at /; "" when the root filesystem is not ZFS
-	HostPool    string // the pool of RootDataset
+	RootDataset string          // mounted at /; "" when the root filesystem is not ZFS
+	OSPools     map[string]bool // pools with a dataset mounted at / or /boot
 	PVE         bool
-	// StorageRoots — dataset → Proxmox storage id (zfspool entries).
+	// StorageRoots — dataset → Proxmox storage id (zfspool entries, and
+	// datasets mounted at a dir storage's path).
 	StorageRoots map[string]string
-	// StorageUnknown — a Proxmox host whose storage.cfg could not be read:
-	// only the guest-disk names protect its storage then.
+	// StorageUnknown — a Proxmox host whose storage.cfg could not be read.
+	// Every top-level dataset is then treated as storage: guessing that one
+	// is not would be the unsafe answer.
 	StorageUnknown bool
 	datasets       map[string]dsEntry
 	guests         []string
@@ -89,13 +104,11 @@ type dsEntry struct{ typ, mountpoint string }
 
 // LoadHostView reads the host now.
 func LoadHostView(ctx context.Context) (*HostView, error) {
-	h := &HostView{StorageRoots: map[string]string{}, datasets: map[string]dsEntry{}}
-	root, err := zfsRootDataset()
+	root, osPools, err := osPoolsFromMountinfo()
 	if err != nil {
 		return nil, fmt.Errorf("leer los montajes del host: %w", err)
 	}
-	h.RootDataset = root
-	h.HostPool, _, _ = strings.Cut(root, "/")
+	h := &HostView{RootDataset: root, OSPools: osPools, StorageRoots: map[string]string{}, datasets: map[string]dsEntry{}}
 	out, err := listAllDatasets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listar datasets: %w", err)
@@ -110,10 +123,19 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 			h.guests = append(h.guests, f[0])
 		}
 	}
+	sort.Strings(h.guests)
 	if st, err := os.Stat(pveDir); err == nil && st.IsDir() {
 		h.PVE = true
 		if cfg, err := readStorageCfg(ctx); err == nil {
-			h.StorageRoots = parseStorageCfg(string(cfg))
+			zfspools, dirs := parseStorageCfg(string(cfg))
+			for ds, id := range zfspools {
+				h.StorageRoots[ds] = id
+			}
+			for name, e := range h.datasets {
+				if id, ok := dirs[path.Clean(e.mountpoint)]; ok && strings.HasPrefix(e.mountpoint, "/") {
+					h.StorageRoots[name] = id
+				}
+			}
 		} else {
 			h.StorageUnknown = true
 		}
@@ -121,15 +143,16 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 	return h, nil
 }
 
-// zfsRootDataset — the ZFS dataset mounted at /, from mountinfo (field 5 is
-// the mount point, and after the " - " separator come fstype and source).
-func zfsRootDataset() (string, error) {
+// osPoolsFromMountinfo — the ZFS dataset mounted at /, and the pools with a
+// ZFS dataset mounted at / or /boot. mountinfo: field 5 is the mount point;
+// after the " - " separator come fstype and source.
+func osPoolsFromMountinfo() (root string, pools map[string]bool, err error) {
 	f, err := os.Open(mountinfoPath)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer f.Close()
-	root := ""
+	top := map[string]string{} // mount point → ZFS source on top ("" = not ZFS)
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
@@ -138,67 +161,86 @@ func zfsRootDataset() (string, error) {
 			continue
 		}
 		fields, tail := strings.Fields(pre), strings.Fields(post)
-		if len(fields) < 5 || len(tail) < 2 || fields[4] != "/" {
+		if len(fields) < 5 || len(tail) < 2 || (fields[4] != "/" && fields[4] != "/boot") {
 			continue
 		}
-		// The last mount at / wins, as it is the one on top.
+		// The last mount at a point wins, as it is the one on top.
 		if tail[0] == "zfs" {
-			root = tail[1]
+			top[fields[4]] = tail[1]
 		} else {
-			root = ""
+			top[fields[4]] = ""
 		}
 	}
-	return root, sc.Err()
+	if err := sc.Err(); err != nil {
+		return "", nil, err
+	}
+	pools = map[string]bool{}
+	for _, src := range top {
+		if src != "" {
+			p, _, _ := strings.Cut(src, "/")
+			pools[p] = true
+		}
+	}
+	return top["/"], pools, nil
 }
 
-// parseStorageCfg — the zfspool entries of a Proxmox storage.cfg: dataset →
-// storage id.
-func parseStorageCfg(cfg string) map[string]string {
-	roots := map[string]string{}
-	id := ""
+// parseStorageCfg — a Proxmox storage.cfg: zfspool dataset → storage id, and
+// dir storage path → storage id. Options are "key value" separated by any
+// whitespace, as Proxmox's own parser reads them.
+func parseStorageCfg(cfg string) (zfspools, dirs map[string]string) {
+	zfspools, dirs = map[string]string{}, map[string]string{}
+	typ, id := "", ""
 	for _, line := range strings.Split(cfg, "\n") {
-		if line == "" {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			// A commented-out section's options must not attach to the
 			// section before it.
 			if line[0] == '#' {
-				id = ""
+				typ, id = "", ""
 			}
 			continue
 		}
 		if line[0] != ' ' && line[0] != '\t' {
-			id = ""
-			if typ, name, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(typ) == "zfspool" {
-				id = strings.TrimSpace(name)
+			typ, id = "", ""
+			if t, name, ok := strings.Cut(line, ":"); ok {
+				typ, id = strings.TrimSpace(t), strings.TrimSpace(name)
 			}
 			continue
 		}
-		if id == "" {
+		f := strings.Fields(line)
+		if len(f) < 2 || id == "" {
 			continue
 		}
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), " "); ok && k == "pool" {
-			roots[strings.TrimSpace(v)] = id
+		switch {
+		case typ == "zfspool" && f[0] == "pool":
+			zfspools[f[1]] = id
+		case typ == "dir" && f[0] == "path":
+			dirs[path.Clean(f[1])] = id
 		}
 	}
-	return roots
+	return zfspools, dirs
 }
 
 func under(name, anc string) bool { return name == anc || strings.HasPrefix(name, anc+"/") }
 
-// PoolKind — HostSystem for the pool the OS runs on, HostStorage for a pool
-// holding Proxmox storage or guest disks, "" otherwise, with the reason.
+// PoolKind — HostSystem for a pool the OS runs or boots from, HostStorage
+// for a pool holding Proxmox storage or guest disks, "" otherwise, with the
+// reason.
 func (h *HostView) PoolKind(pool string) (string, string) {
 	if pool == "" {
 		return "", ""
 	}
-	if pool == h.HostPool {
-		return HostSystem, fmt.Sprintf("el pool %s contiene el sistema operativo en marcha (%s montado en /)", pool, h.RootDataset)
+	if h.OSPools[pool] {
+		if h.RootDataset != "" && under(h.RootDataset, pool) {
+			return HostSystem, fmt.Sprintf("el pool %s contiene el sistema operativo en marcha (%s montado en /)", pool, h.RootDataset)
+		}
+		return HostSystem, fmt.Sprintf("el pool %s contiene el arranque del sistema (montado en /boot)", pool)
 	}
-	for ds, id := range h.StorageRoots {
+	for _, ds := range sortedKeys(h.StorageRoots) {
 		if under(ds, pool) {
-			return HostStorage, fmt.Sprintf("el pool %s contiene el almacenamiento de Proxmox «%s» (%s)", pool, id, ds)
+			return HostStorage, fmt.Sprintf("el pool %s contiene el almacenamiento de Proxmox «%s» (%s)", pool, h.StorageRoots[ds], ds)
 		}
 	}
 	for _, g := range h.guests {
@@ -206,43 +248,55 @@ func (h *HostView) PoolKind(pool string) (string, string) {
 			return HostStorage, fmt.Sprintf("el pool %s contiene discos de máquinas virtuales o contenedores de Proxmox (%s…)", pool, g)
 		}
 	}
+	if h.PVE && h.StorageUnknown {
+		return HostStorage, fmt.Sprintf("no se pudo leer /etc/pve/storage.cfg: el pool %s podría ser almacenamiento de Proxmox", pool)
+	}
 	return "", ""
 }
 
 // DatasetKind — how name (a dataset, or a snapshot "ds@snap") belongs to the
-// host, with the reason; "" when it is ordinary data.
+// host, with the reason; "" when it is ordinary data. It works on names
+// that do not exist yet too (the target of a create, clone or rename).
 func (h *HostView) DatasetKind(name string) (string, string) {
 	name, _, _ = strings.Cut(name, "@")
 	pool, _, _ := strings.Cut(name, "/")
 	if reGuestDisk.MatchString(path.Base(name)) {
-		return HostGuest, fmt.Sprintf("%s es un disco de una máquina virtual o contenedor de Proxmox: gestiónalo desde Proxmox", name)
+		return HostGuest, fmt.Sprintf("%s es un disco de una máquina virtual o contenedor de Proxmox", name)
 	}
-	if h.HostPool != "" && pool == h.HostPool {
+	if h.OSPools[pool] {
 		if name == pool {
-			return HostSystem, fmt.Sprintf("%s es el dataset raíz del pool del sistema: lo que se cambie en él lo heredan el sistema operativo y todo lo demás", name)
+			return HostSystem, fmt.Sprintf("%s es el dataset raíz de un pool del sistema: lo que se cambie en él lo heredan el sistema operativo y todo lo demás", name)
 		}
 		// The boot-environment container (rpool/ROOT) and all it holds,
 		// and the root filesystem's own ancestors.
-		if bootEnv := path.Dir(h.RootDataset); bootEnv != "." && bootEnv != pool && under(name, bootEnv) {
-			return HostSystem, fmt.Sprintf("%s forma parte del sistema operativo en marcha (%s)", name, h.RootDataset)
+		if h.RootDataset != "" && under(h.RootDataset, pool) {
+			if bootEnv := path.Dir(h.RootDataset); bootEnv != pool && under(name, bootEnv) {
+				return HostSystem, fmt.Sprintf("%s forma parte del sistema operativo en marcha (%s)", name, h.RootDataset)
+			}
+			if under(h.RootDataset, name) || under(name, h.RootDataset) {
+				return HostSystem, fmt.Sprintf("%s forma parte del sistema operativo en marcha (%s)", name, h.RootDataset)
+			}
 		}
-		if under(h.RootDataset, name) || under(name, h.RootDataset) {
-			return HostSystem, fmt.Sprintf("%s forma parte del sistema operativo en marcha (%s)", name, h.RootDataset)
-		}
-		// Mounted outside the pool's own tree: host storage such as
-		// /var/lib/vz. Checked on the dataset and each ancestor.
+		// Mounted outside the pool's own tree (host storage such as
+		// /var/lib/vz): the dataset, what is below it, and its ancestors,
+		// which a recursive destroy or a rename would take along.
 		for d := name; d != pool && d != "."; d = path.Dir(d) {
 			if e, ok := h.datasets[d]; ok && outsidePoolTree(e.mountpoint, pool) {
 				return HostSystem, fmt.Sprintf("%s está montado en %s, fuera del pool: es almacenamiento del sistema", d, e.mountpoint)
 			}
 		}
+		for _, d := range sortedKeys(h.datasets) {
+			if strings.HasPrefix(d, name+"/") && outsidePoolTree(h.datasets[d].mountpoint, pool) {
+				return HostSystem, fmt.Sprintf("%s contiene %s, montado en %s: es almacenamiento del sistema", name, d, h.datasets[d].mountpoint)
+			}
+		}
 	}
 	if id, ok := h.StorageRoots[name]; ok {
-		return HostStorage, fmt.Sprintf("%s es el almacenamiento de Proxmox «%s»: los discos de las VMs y contenedores viven aquí", name, id)
+		return HostStorage, fmt.Sprintf("%s es el almacenamiento de Proxmox «%s»", name, id)
 	}
-	for ds, id := range h.StorageRoots {
-		if under(ds, name) {
-			return HostStorage, fmt.Sprintf("%s contiene el almacenamiento de Proxmox «%s» (%s)", name, id, ds)
+	for _, ds := range sortedKeys(h.StorageRoots) {
+		if strings.HasPrefix(ds, name+"/") {
+			return HostStorage, fmt.Sprintf("%s contiene el almacenamiento de Proxmox «%s» (%s)", name, h.StorageRoots[ds], ds)
 		}
 	}
 	for _, g := range h.guests {
@@ -250,7 +304,19 @@ func (h *HostView) DatasetKind(name string) (string, string) {
 			return HostStorage, fmt.Sprintf("%s contiene discos de máquinas virtuales o contenedores de Proxmox (%s…)", name, g)
 		}
 	}
+	if h.PVE && h.StorageUnknown && strings.Count(name, "/") == 1 {
+		return HostStorage, fmt.Sprintf("no se pudo leer /etc/pve/storage.cfg: %s podría ser almacenamiento de Proxmox", name)
+	}
 	return "", ""
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // outsidePoolTree — a real mountpoint that is not /<pool> or below it.
@@ -267,11 +333,16 @@ type HostOp int
 
 const (
 	OpPoolRemove    HostOp = iota // export or destroy the pool
-	OpPoolLayout                  // add, replace, detach, offline, expand, create a checkpoint
+	OpPoolLayout                  // add, replace, detach, offline, expand, checkpoints
 	OpDatasetRemove               // destroy, trash, rename, promote, rewrite
 	OpDatasetUnmount
-	OpDatasetChange   // properties, quota, compression, keys
-	OpDatasetMountCfg // mountpoint, canmount, readonly
+	// OpDatasetChange — a property with no effect on what runs on the data:
+	// compression, atime, recordsize, caching, logbias, snapdir.
+	OpDatasetChange
+	// OpDatasetSensitive — anything a guest would feel through inheritance
+	// (exec, devices, setuid, sync, quota, acltype, mountpoint, readonly…)
+	// and encryption keys.
+	OpDatasetSensitive
 	OpRollback
 	OpSnapshotDestroy
 	OpSnapshotCreate
@@ -283,10 +354,10 @@ func allowed(op HostOp, kind string) bool {
 		return true
 	}
 	switch op {
-	case OpPoolRemove, OpDatasetRemove, OpDatasetUnmount, OpDatasetMountCfg:
+	case OpPoolRemove, OpDatasetRemove, OpDatasetUnmount, OpDatasetSensitive:
 		return false
 	case OpPoolLayout:
-		// The OS pool's disks carry boot partitions that 'zpool replace' or
+		// An OS pool's disks carry boot partitions that 'zpool replace' or
 		// 'add' do not set up (proxmox-boot-tool does): a data pool that
 		// merely holds Proxmox storage keeps full disk management.
 		return kind != HostSystem
@@ -303,9 +374,19 @@ func allowed(op HostOp, kind string) bool {
 // guardHost refuses op on a pool (pool != "") or dataset that belongs to the
 // host. It reads the host now; if it cannot, it refuses.
 func guardHost(ctx context.Context, op HostOp, pool, dataset string) error {
+	if op == OpPoolLayout && dataset == "" {
+		// Disk work on a pool is refused only on an OS pool, which mountinfo
+		// alone decides: replacing a failed disk in a data pool must not
+		// depend on listing every dataset of every pool succeeding.
+		root, osPools, err := osPoolsFromMountinfo()
+		if err != nil {
+			return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+		}
+		return (&HostView{RootDataset: root, OSPools: osPools}).check(op, pool, "")
+	}
 	h, err := LoadHostView(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: no se pudo comprobar si es almacenamiento del host (%v); no se hace nada", ErrHostStorage, err)
+		return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
 	}
 	return h.check(op, pool, dataset)
 }
@@ -337,11 +418,11 @@ func hostHint(kind string) string {
 // guardSnapshotCreate — no snapshot of a guest disk, and no recursive one that
 // would take guest disks with it: Proxmox tracks its own snapshots of them,
 // and 'qm rollback' refuses while a newer snapshot it does not know exists.
-// This is also what a scheduled snapshot job on such a tree runs into.
+// Scheduled jobs use SnapshotTreeSkipping instead.
 func guardSnapshotCreate(ctx context.Context, dataset string, recursive bool) error {
 	h, err := LoadHostView(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: no se pudo comprobar si es almacenamiento del host (%v); no se hace nada", ErrHostStorage, err)
+		return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
 	}
 	if err := h.check(OpSnapshotCreate, "", dataset); err != nil {
 		return err
@@ -356,16 +437,25 @@ func guardSnapshotCreate(ctx context.Context, dataset string, recursive bool) er
 	return nil
 }
 
-// guardRenameTarget — a rename must not put a dataset into the running OS's
-// tree or under host storage mounted outside its pool, nor give it a name
-// Proxmox would take for one of its disks.
-func guardRenameTarget(ctx context.Context, newName string) error {
+// guardNewName — the name a create, clone or rename would give a dataset
+// must not put it into the running OS's tree or under host storage mounted
+// outside its pool, nor be a name Proxmox would take for one of its disks
+// (it would adopt the dataset, and "remove unused disks" would destroy it).
+func guardNewName(ctx context.Context, newName string) error {
 	h, err := LoadHostView(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: no se pudo comprobar si es almacenamiento del host (%v); no se hace nada", ErrHostStorage, err)
+		return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
 	}
-	if kind, why := h.DatasetKind(newName); kind == HostSystem || kind == HostGuest {
-		return fmt.Errorf("%w: el destino %s no es válido: %s", ErrHostStorage, newName, why)
+	if reGuestDisk.MatchString(path.Base(newName)) {
+		return fmt.Errorf("%w: %s tiene nombre de disco de Proxmox (vm-/base-/subvol-/basevol-<id>-…); Proxmox lo tomaría por suyo", ErrHostStorage, newName)
+	}
+	pool, _, _ := strings.Cut(newName, "/")
+	if h.OSPools[pool] && newName != pool {
+		// Everything below the new name's parent that is system: the boot
+		// environments, or a dataset mounted outside the pool.
+		if kind, why := h.DatasetKind(path.Dir(newName)); kind == HostSystem && path.Dir(newName) != pool {
+			return fmt.Errorf("%w: el destino %s está dentro de almacenamiento del sistema: %s", ErrHostStorage, newName, why)
+		}
 	}
 	return nil
 }
@@ -376,4 +466,72 @@ func guardRenameTarget(ctx context.Context, newName string) error {
 // force_full). Same rules and same fail-closed read as the actions.
 func CheckHostDataset(ctx context.Context, op HostOp, dataset string) error {
 	return guardHost(ctx, op, "", dataset)
+}
+
+// LogIfStorageUnknown — said once per process, so the admin learns why every
+// top-level dataset of a Proxmox host shows as storage.
+var storageUnknownOnce sync.Once
+
+func (h *HostView) LogIfStorageUnknown() {
+	if h != nil && h.PVE && h.StorageUnknown {
+		storageUnknownOnce.Do(func() {
+			log.Printf("hoststorage: no se pudo leer /etc/pve/storage.cfg (¿falta la regla de sudoers? ejecuta 'make update'); todos los datasets de primer nivel se tratan como almacenamiento de Proxmox")
+		})
+	}
+}
+
+// SnapshotTree — what a scheduled snapshot job takes: dataset and everything
+// below it, as 'zfs snapshot -r' would, minus Proxmox guest disks, in one
+// atomic 'zfs snapshot a@x b@x …'. A job over a Proxmox storage pool used
+// to sweep up the VM disks (blocking qm rollback); refusing it outright
+// would instead stop the admin's own datasets being snapshotted at all.
+// Returns the guest disks left out.
+func (s *Service) SnapshotTree(ctx context.Context, actor, dataset, name string) (skipped []string, err error) {
+	if !reDataset.MatchString(dataset) || !reSnapName.MatchString(name) {
+		return nil, ErrInvalidName
+	}
+	h, err := LoadHostView(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+	}
+	if err := h.check(OpSnapshotCreate, "", dataset); err != nil {
+		return nil, err
+	}
+	var targets []string
+	for _, d := range sortedKeys(h.datasets) {
+		if !under(d, dataset) {
+			continue
+		}
+		guest := false
+		for _, g := range h.guests {
+			if under(d, g) {
+				guest = true
+				break
+			}
+		}
+		if guest {
+			skipped = append(skipped, d)
+			continue
+		}
+		targets = append(targets, d+"@"+name)
+	}
+	args := []string{"snapshot", "-r", dataset + "@" + name}
+	if len(skipped) > 0 {
+		if len(targets) == 0 {
+			return skipped, nil
+		}
+		args = append([]string{"snapshot"}, targets...)
+	}
+	s.audit(ctx, actor, "snapshot.create", dataset+"@"+name,
+		map[string]any{"recursive": true, "skipped_guest_disks": skipped}, false)
+	if err := runZFSSnap(ctx, args...); err != nil {
+		return skipped, fmt.Errorf("crear snapshot: %w", err)
+	}
+	return skipped, nil
+}
+
+// runZFSSnap — test seam for SnapshotTree's one command.
+var runZFSSnap = func(ctx context.Context, args ...string) error {
+	_, err := executil.Run(ctx, 60*time.Second, "zfs", args...)
+	return err
 }

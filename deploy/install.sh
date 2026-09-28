@@ -1024,7 +1024,7 @@ $u ${zfs} ^change-key -o keyformat\=passphrase ${D}\$
 $u ${zfs} ^set ${PROPS}\=${VAL} ${D}\$
 $u ${zfs} ^inherit (-S )?${PROPS} ${D}\$
 $u ${zfs} ^destroy (-r )?${D}(@${N}|\#ezrepl-last)?\$
-$u ${zfs} ^snapshot (-r )?${S}\$
+$u ${zfs} ^snapshot (-r )?${S}( ${S})*\$
 $u ${zfs} ^rollback -r ${S}\$
 $u ${zfs} ^diff -FHt ${S} ${S}\$
 $u ${zfs} ^clone (-o mountpoint\=${VAL} )?${S} ${D}\$
@@ -1076,7 +1076,7 @@ write_sudoers() {
     # 'zpool import -d', altroot…). It used to be a silent fallback, printed
     # as a warning nobody sees under --yes.
     warn "sudo < 1.9.10: se concede zpool/zfs/smartctl sin restringir argumentos (--allow-unpinned-sudo)."
-    content="${SVC_USER} ALL=(root) NOPASSWD: ${zpool_path}, ${zfs_path}, ${smartctl_path}, ${lsblk_path}, ${crontab_path} -l, ${hdparm_path} -y /dev/*, ${udisksctl_path} power-off -b /dev/*, ${dd_path} if=/dev/* of=/dev/null bs=1M count=2048, ${SYSD_HELPER}"
+    content="${SVC_USER} ALL=(root) NOPASSWD: ${zpool_path}, ${zfs_path}, ${smartctl_path}, ${lsblk_path}, ${crontab_path} -l, ${hdparm_path} -y /dev/*, ${udisksctl_path} power-off -b /dev/*, ${dd_path} if=/dev/* of=/dev/null bs=1M count=2048, ${cat_path} /etc/pve/storage.cfg, ${SYSD_HELPER}"
   else
     die "sudo < 1.9.10 no permite fijar los argumentos de zpool/zfs: el servicio sería equivalente a root. Actualiza sudo, instala con --read-only, o acepta el riesgo con --allow-unpinned-sudo."
   fi

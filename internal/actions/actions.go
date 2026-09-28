@@ -283,6 +283,11 @@ func (s *Service) CheckpointDiscard(ctx context.Context, actor, pool string) err
 	if !rePool.MatchString(pool) {
 		return ErrInvalidName
 	}
+	// An OS pool's checkpoint is the admin's, taken from the console before
+	// an upgrade; dropping it is not maintenance.
+	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "pool.checkpoint.discard", pool, nil, true)
 	if _, err := executil.Run(ctx, 30*time.Second, "zpool", "checkpoint", "-d", pool); err != nil {
 		return fmt.Errorf("descartar checkpoint: %w", err)
@@ -318,6 +323,11 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 	// and hot-spare activation, so one left behind would block replacing a
 	// failed disk. An existing checkpoint is refused rather than reused: it
 	// would rewind to its own, older date.
+	// Before anything runs, the checkpoint included: taken first and then
+	// refused, it stayed on the pool, where it blocks zpool replace.
+	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
+		return err
+	}
 	created := false
 	if checkpoint {
 		cp, err := executil.RunRead(ctx, 10*time.Second, "zpool", "get", "-Hp", "-o", "value", "checkpoint", pool)
@@ -331,9 +341,6 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 			return fmt.Errorf("crear el checkpoint (no se ha añadido nada; ¿pool sin feature@zpool_checkpoint?): %w", err)
 		}
 		created = true
-	}
-	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
-		return err
 	}
 	s.audit(ctx, actor, "pool.vdev.add", pool,
 		map[string]any{"topo": topo, "disks": disks, "checkpoint_created": created}, confirmed)
@@ -617,6 +624,9 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 	if InTrash(full) { // the recycle bin's names are the app's own (trash.go)
 		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
 	}
+	if err := guardNewName(ctx, full); err != nil {
+		return err
+	}
 	if compression != "lz4" && compression != "zstd" && compression != "off" {
 		return fmt.Errorf("compresión inválida (lz4|zstd|off)")
 	}
@@ -704,7 +714,7 @@ func (s *Service) DatasetUnloadKey(ctx context.Context, actor, name string) erro
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
 	}
-	if err := guardHost(ctx, OpDatasetChange, "", name); err != nil {
+	if err := guardHost(ctx, OpDatasetSensitive, "", name); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, "dataset.lock", name, nil, false)
@@ -731,7 +741,7 @@ func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, currentPass
 	if len(newPassphrase) < 8 {
 		return fmt.Errorf("%w: la passphrase nueva debe tener al menos 8 caracteres", ErrInvalidInput)
 	}
-	if err := guardHost(ctx, OpDatasetChange, "", name); err != nil {
+	if err := guardHost(ctx, OpDatasetSensitive, "", name); err != nil {
 		return err
 	}
 	if err := s.verifyDatasetKey(ctx, name, currentPassphrase); err != nil {
@@ -800,7 +810,11 @@ func (s *Service) DatasetPatch(ctx context.Context, actor, name string,
 	if len(props) == 0 {
 		return nil
 	}
-	if err := guardHost(ctx, OpDatasetChange, "", name); err != nil {
+	op := OpDatasetChange // compression only
+	if quota != nil {
+		op = OpDatasetSensitive // a quota below usage pauses the guests below it
+	}
+	if err := guardHost(ctx, op, "", name); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, "dataset.patch", name, map[string]any{"props": props}, false)
@@ -1008,6 +1022,9 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 	if InTrash(target) {
 		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
 	}
+	if err := guardNewName(ctx, target); err != nil {
+		return err
+	}
 	args := []string{"clone"}
 	if mountpoint != "" {
 		// Same check the properties endpoint applies to this very property
@@ -1094,7 +1111,7 @@ func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName str
 	if err := guardHost(ctx, OpDatasetRemove, "", oldName); err != nil {
 		return err
 	}
-	if err := guardRenameTarget(ctx, newName); err != nil {
+	if err := guardNewName(ctx, newName); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, "dataset.rename", oldName,

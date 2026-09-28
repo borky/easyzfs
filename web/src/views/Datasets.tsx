@@ -114,23 +114,25 @@ export default function Datasets() {
                 <td className="num">{d.quota_bytes ? fmtBytes(d.quota_bytes) : <span className="dim">—</span>}</td>
                 <td className="mono dim hide-md" style={{ fontSize: 12 }}>{d.mountpoint || '—'}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  {encrypted && isAdmin && !osOrGuest && (<>
+                  {encrypted && isAdmin && (<>
                     {!unlocked && (
                       <button className="btn sm" title={t('ds_unlock_hint')}
                         onClick={(e) => { e.stopPropagation(); openModal('unlockds', { ds: d }); }}>
                         {t('ds_unlock')}
                       </button>
                     )}{' '}
-                    {unlocked && (
+                    {unlocked && !osOrGuest && d.host !== 'storage' && (
                       <button className="btn sm" title={t('ds_lock_hint')}
                         onClick={(e) => { e.stopPropagation(); openModal('lockds', { ds: d }); }}>
                         {t('ds_lock')}
                       </button>
                     )}{' '}
-                    <button className="btn sm" title={t('ds_changekey_hint')}
-                      onClick={(e) => { e.stopPropagation(); openModal('changekey', { ds: d }); }}>
-                      {t('ds_changekey')}
-                    </button>{' '}
+                    {!hosted && (
+                      <button className="btn sm" title={t('ds_changekey_hint')}
+                        onClick={(e) => { e.stopPropagation(); openModal('changekey', { ds: d }); }}>
+                        {t('ds_changekey')}
+                      </button>
+                    )}{' '}
                   </>)}
                   {d.host !== 'guest' && (
                     <button className="btn sm" onClick={(e) => { e.stopPropagation(); openModal('newsnap', { dataset: d.name }); }}>

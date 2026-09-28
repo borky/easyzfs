@@ -509,6 +509,8 @@ func actionErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, actions.ErrHostStorage):
 		writeErr(w, http.StatusForbidden, "host_storage", err.Error())
+	case errors.Is(err, actions.ErrHostUnknown):
+		writeErr(w, http.StatusConflict, "host_unknown", err.Error())
 	case errors.Is(err, actions.ErrConflict):
 		writeErr(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, actions.ErrRiskAck):

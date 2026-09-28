@@ -13,9 +13,10 @@ import (
 	"easyzfs/internal/actions"
 )
 
-// HostStorageProvider — the last view of the host; nil before the first read
-// or after a failed one (the views then show nothing as protected, and the
-// actions, which re-read, refuse).
+// HostStorageProvider — the last good view of the host; nil only before the
+// first successful read. A failed read keeps the previous view: dropping it
+// would render the host's storage as ordinary data. The actions do not use
+// it; they re-read, and refuse when they cannot.
 type HostStorageProvider interface {
 	HostView() *actions.HostView
 }
@@ -57,8 +58,10 @@ func (c *HostStorageCollector) collect(ctx context.Context) {
 	defer cancel()
 	v, err := c.read(cctx)
 	if err != nil {
-		log.Printf("hoststorage: %v", err)
+		log.Printf("hoststorage: %v (se mantiene la última lectura buena)", err)
+		return
 	}
+	v.LogIfStorageUnknown()
 	c.mu.Lock()
 	c.view = v
 	c.mu.Unlock()

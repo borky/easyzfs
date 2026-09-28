@@ -288,8 +288,13 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 	switch j.Tipo {
 	case "snapshot":
 		name := model.AutoSnapPrefix + time.Now().Format("20060102-1504")
-		if err := s.actions.SnapshotCreate(ctx, "scheduler", j.Target, name, true); err != nil {
-			return err
+		// Proxmox guest disks are left out (actions.SnapshotTree), and the
+		// prune below runs even when the snapshot fails: automatic snapshots
+		// already on a guest disk otherwise stayed there for good, blocking
+		// that VM's rollback in Proxmox.
+		skipped, createErr := s.actions.SnapshotTree(ctx, "scheduler", j.Target, name)
+		if len(skipped) > 0 {
+			log.Printf("scheduler: snapshot de %s sin %d discos de Proxmox (%s…)", j.Target, len(skipped), skipped[0])
 		}
 		if j.Retention != "" {
 			dur, err := ParseRetention(j.Retention)
@@ -304,7 +309,7 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 				log.Printf("scheduler: %d snapshots viejos purgados de %s", n, j.Target)
 			}
 		}
-		return nil
+		return createErr
 	case "scrub":
 		return s.actions.Scrub(ctx, "scheduler", j.Target, "start")
 	case "trim":

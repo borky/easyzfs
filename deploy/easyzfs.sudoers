@@ -43,7 +43,7 @@ easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^change-key -o keyformat\=passphrase 
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^set (compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize)\=[A-Za-z0-9_./-]+ [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^inherit (-S )?(compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize) [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^destroy (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*(@[A-Za-z0-9][A-Za-z0-9_.\:-]*|\#ezrepl-last)?$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^snapshot (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^snapshot (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*( [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*)*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rollback -r [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^diff -FHt [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^clone (-o mountpoint\=[A-Za-z0-9_./-]+ )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*$
