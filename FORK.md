@@ -127,18 +127,23 @@ compromised release pipeline.
 - **§1, §19.1-2, §19.6, §21 — the effective mountpoint is not checked.**
   Mountpoints that are *set* (create, clone, property change) go through the
   allowlist; an *inherited* one never does, and neither does `zfs mount`,
-  rename, promote or import. On the VM, creating a dataset under a parent
+  rename, promote, import, or restoring a dataset from the recycle bin. On the VM, creating a dataset under a parent
   whose mountpoint resolved into `/etc` left the host without network after
   a reboot. Until this exists, run a Proxmox host that matters in read-only
   mode, and create datasets from the CLI.
-- **Mounts made by the service are invisible to the host.** The unit's
-  `ProtectSystem=full` gives the service a private mount namespace, so a
-  dataset EasyZFS mounts (on create, clone, mount) is mounted only inside it;
-  files written on the host land in the parent's directory instead.
-  `MountFlags=shared` does not help. Dropping `ProtectSystem`/`ProtectHome`/
-  `PrivateTmp`/`ReadWritePaths` fixes it, and is deliberately withheld until
-  the check above exists: today the namespace is what keeps a bad mount from
-  reaching the host.
+
+### Destructive actions only after the safety steps
+
+Fork-only, built on the fixes above:
+
+| patch | what it does |
+|---|---|
+| `fix(unit)`: drop the private mount namespace | `ProtectSystem`/`ProtectHome`/`PrivateTmp` gave the service its own mount namespace: datasets it mounted were invisible on the host, and ones it unmounted, renamed or destroyed stayed mounted there (destroy failed "busy"). It was kept for a while as a guard against bad mounts, but it never was one — ZFS applies a mountpoint at the next import regardless. `make update` removes the lines from an installed unit. |
+| `feat(datasets)`: a recycle bin | Deleting a dataset renames it into `<pool>/easyzfs-trash` (unmounted, readonly) and destroys it after 7 days; restore puts it back with its mountpoints. The delete dialog shows space, children, snapshots and mountpoint first, and offers an explicit permanent delete. The bin dataset disappears from the pool when empty. A dataset that inherits encryption from its parent cannot leave its encryption root and must be deleted permanently. |
+| `feat(pools)`: checkpoint before adding a vdev | A wrong `zpool add` is permanent on a RAID-Z pool; a checkpoint taken first lets it be rewound. |
+| `feat(pools)`: redundancy warnings; rollback impact | Offline/detach on a degraded or resilvering pool, or detach from a two-way mirror, need an explicit acknowledgement. The rollback dialog lists the snapshots it will destroy and suggests cloning. |
+
+A "safety snapshot before rollback" was considered and dropped: `zfs rollback -r` destroys every snapshot newer than its target, the safety one included.
 
 If any of these lands upstream in a different form, drop the local commit on
 the next sync and check the upstream version closes the same case — the tests

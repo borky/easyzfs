@@ -169,6 +169,9 @@ docs/api-contract.md the front↔back contract — source of truth for the API
    `confirm` when destructive, write `audit_log`. A disk about to be handed to
    ZFS or powered off goes through `requireFreeDisk` (live `lsblk`, never the
    cache); a property with real blast radius gets a `PropRisk` entry.
+   Deleting a dataset from the UI goes through the recycle bin
+   (`DatasetTrash`, `internal/actions/trash.go`), and anything that takes
+   redundancy away checks the pool first (`vdevActionRisk`).
    Any new `zpool`/`zfs` argument shape needs a line in `pinned_sudoers`
    (see below), or sudo refuses it at runtime while every test passes.
 5. Frontend: add the method to `web/src/data/provider.ts` (the interface),
@@ -235,6 +238,9 @@ function for manual installs; `TestStaticSudoersMatchesInstaller` and
 schedules goes through `/usr/local/libexec/easyzfs-sysd`, a confined root
 helper accepting three validated operations on whitelisted files. The unit
 deliberately does **not** set `NoNewPrivileges=yes` — sudo needs the setuid bit.
+It also sets no `ProtectSystem`/`ProtectHome`/`PrivateTmp`: each creates a
+private mount namespace, which the sudo'd `zfs` inherits, so mounts and
+unmounts stopped reaching the host (see FORK.md). Don't add them back.
 
 If you add a command that needs root, add its exact shape to `pinned_sudoers`,
 regenerate `deploy/easyzfs.sudoers`, and check it with real sudo
