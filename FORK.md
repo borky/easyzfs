@@ -277,6 +277,27 @@ so a compromised service process could skip every Go-side check.
     root apply helper. The helper verifies the release checksum; requiring
     a signature too is spec item P3, not done yet.
 
+### Proxmox guest configs (spec P2, P6)
+
+Guest disks were recognised by Proxmox's volume names alone. Now every
+node's VM and container config (`/etc/pve/nodes/*/{qemu-server,lxc}/*.conf`,
+snapshot sections and `unused` disks included) is read, and each volume it
+references is mapped through `storage.cfg` to its dataset. That disk is a
+guest disk whatever its name, and the reason names the guest ("lo usa VM 900").
+
+- The files are root-only: the service asks the gateway (`priv pvecfg`),
+  which reads exactly those paths, and the old `cat storage.cfg` sudo rule is
+  gone outside read-only mode.
+- If `/etc/pve` or any guest config cannot be read (pmxcfs down, a
+  permission problem), the host is treated as unknown. Every pool and
+  top-level dataset then counts as Proxmox storage, and the UI banner says so.
+- Storage definitions count cluster-wide: one restricted to another node
+  (`nodes`) still protects its dataset here.
+- Verified on the Proxmox VE 8.4 VM with a real `qm create`'d VM: all three
+  of its disks were marked with the VM and refused for deletion.
+- A two-node cluster could not be tested with one VM; that behaviour comes
+  from Proxmox's shared `/etc/pve`.
+
 ### Destructive actions only after the safety steps
 
 Fork-only, built on the fixes above:

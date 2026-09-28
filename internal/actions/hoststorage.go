@@ -110,6 +110,9 @@ type HostView struct {
 	datasets       map[string]dsEntry
 	names          []string // datasets, sorted
 	guests         []string
+	// guestRefs — dataset → the guests whose config references it
+	// ("VM 100", "CT 101"), from /etc/pve (pveconfig.go).
+	guestRefs map[string][]string
 }
 
 type dsEntry struct{ typ, mountpoint string }
@@ -120,7 +123,8 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("leer los montajes del host: %w", err)
 	}
-	h := &HostView{RootDataset: root, OSPools: osPools, StorageRoots: map[string]string{}, datasets: map[string]dsEntry{}}
+	h := &HostView{RootDataset: root, OSPools: osPools, StorageRoots: map[string]string{},
+		datasets: map[string]dsEntry{}, guestRefs: map[string][]string{}}
 	out, err := listAllDatasets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listar datasets: %w", err)
@@ -135,12 +139,23 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 			h.guests = append(h.guests, f[0])
 		}
 	}
-	sort.Strings(h.guests)
 	h.names = sortedKeys(h.datasets)
 	if st, err := os.Stat(pveDir); err == nil && st.IsDir() {
 		h.PVE = true
-		if cfg, err := readStorageCfg(ctx); err == nil {
-			zfspools, dirs := parseStorageCfg(string(cfg))
+		if pc, err := readPVEConfig(ctx); err == nil {
+			zfspools, dirs := parseStorageCfg(pc.StorageCfg)
+			// Datasets a guest config references, whatever their names.
+			for ref, who := range guestVolumeRefs(pc.Guests) {
+				storage, vol, _ := strings.Cut(ref, ":")
+				for ds, id := range zfspools {
+					if id == storage {
+						h.guestRefs[ds+"/"+vol] = who
+						if !contains(h.guests, ds+"/"+vol) {
+							h.guests = append(h.guests, ds+"/"+vol)
+						}
+					}
+				}
+			}
 			for ds, id := range zfspools {
 				h.StorageRoots[ds] = id
 			}
@@ -162,6 +177,7 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 			h.StorageUnknown = true
 		}
 	}
+	sort.Strings(h.guests)
 	return h, nil
 }
 
@@ -282,6 +298,14 @@ func (h *HostView) PoolKind(pool string) (string, string) {
 func (h *HostView) DatasetKind(name string) (string, string) {
 	name, _, _ = strings.Cut(name, "@")
 	pool, _, _ := strings.Cut(name, "/")
+	for d := name; d != "." && d != ""; d = path.Dir(d) {
+		if who := h.guestRefs[d]; len(who) > 0 {
+			return HostGuest, fmt.Sprintf("%s lo usa %s en Proxmox (según su configuración)", d, strings.Join(who, ", "))
+		}
+		if !strings.Contains(d, "/") {
+			break
+		}
+	}
 	if guestPath(name) {
 		return HostGuest, fmt.Sprintf("%s es (o está dentro de) un disco de una máquina virtual o contenedor de Proxmox", name)
 	}

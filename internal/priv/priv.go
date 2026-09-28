@@ -13,6 +13,7 @@ package priv
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -42,6 +43,19 @@ func Main(args []string) int {
 		return 2
 	}
 	os.Setenv("PATH", securePath)
+	// A read, not a tool: Proxmox's storage and guest configs, root-only,
+	// from their fixed paths (actions.ReadPVEConfig), as JSON on stdout.
+	if len(args) == 1 && args[0] == "pvecfg" {
+		c, err := actions.ReadPVEConfig("/etc/pve")
+		if err != nil {
+			refuse("host_unknown", fmt.Sprintf("leer /etc/pve: %v", err))
+			return 3
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(c); err != nil {
+			return 3
+		}
+		return 0
+	}
 	tool, rest := args[0], args[1:]
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	err := actions.PrivCheck(ctx, tool, rest)

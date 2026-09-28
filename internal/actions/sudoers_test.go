@@ -16,7 +16,7 @@ func pinnedSudoers(t *testing.T) string {
 	t.Helper()
 	script := `eval "$(sed -n '/^pinned_sudoers() {/,/^}/p' ../../deploy/install.sh)"
 SVC_USER=easyzfs SYSD_HELPER=/usr/local/libexec/easyzfs-sysd
-pinned_sudoers /usr/local/bin/easyzfs /usr/bin/lsblk /usr/bin/crontab /usr/bin/fuser /usr/bin/cat`
+pinned_sudoers /usr/local/bin/easyzfs /usr/bin/lsblk /usr/bin/crontab /usr/bin/fuser`
 	gen, err := exec.Command("bash", "-c", script).Output()
 	if err != nil {
 		t.Fatal(err)

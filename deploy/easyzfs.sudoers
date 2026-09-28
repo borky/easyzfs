@@ -20,7 +20,6 @@
 Defaults:easyzfs !pam_session, !log_allowed
 easyzfs ALL=(root) NOPASSWD: /usr/local/bin/easyzfs priv *
 easyzfs ALL=(root) NOPASSWD: /usr/bin/fuser ^-sm? /[A-Za-z0-9_./-]+$
-easyzfs ALL=(root) NOPASSWD: /usr/bin/cat /etc/pve/storage.cfg
 easyzfs ALL=(root) NOPASSWD: /usr/bin/lsblk ^-J( -[bd])? -o [A-Z\,]+( /dev/[A-Za-z0-9][A-Za-z0-9_.-]*)?$
 easyzfs ALL=(root) NOPASSWD: /usr/bin/crontab -l
 easyzfs ALL=(root) NOPASSWD: /usr/local/libexec/easyzfs-sysd

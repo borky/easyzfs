@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,7 +86,8 @@ func replayObserved() int {
 			bad++
 		}
 	}
-	if len(observed) == 0 {
+	// A full run must have recorded something; one narrowed with -run may not.
+	if f := flag.Lookup("test.run"); len(observed) == 0 && (f == nil || f.Value.String() == "") {
 		fmt.Fprintln(os.Stderr, "FAIL: no storage-tool command was recorded; the replay checks nothing")
 		return 1
 	}
