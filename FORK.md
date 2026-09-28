@@ -126,6 +126,25 @@ compromised release pipeline.
 **§1, §19.1-2 — done**, see the effective-mountpoint row above. A Proxmox host
 that matters no longer needs read-only mode for this reason.
 
+Verified on the Proxmox VE 8.4 test VM (OpenZFS 2.2.7) with the installed
+binary, not only in tests:
+- Refused with a readable reason, and `rpool` left unchanged: a dataset under
+  `rpool/ROOT/pve-1` at `/etc` (the incident) or anywhere else under `/`;
+  mounting `rpool/ROOT/pve-1`; renaming a dataset under it; and pools named
+  `etc` or `home`.
+- Still working: datasets and children under `rpool/data`, a child of
+  `rpool/var-lib-vz`, a child of a `chown`-ed share, unmount and mount
+  (including `/var/lib/vz` itself), and recycle-bin trash and restore.
+- A data pool round-trip (create, datasets including one recorded at `/srv`,
+  export, import) comes back fully mounted.
+- Real sudo allows `zpool import -N <pool>` and `zfs share <ds>`, and refuses
+  the mounting `zpool import <pool>`, `import -N -d` and `zfs share -a`.
+
+One thing the import cannot report: on a host with no NFS server tooling, OpenZFS
+2.2 marks a dataset "already shared" after a share attempt fails, so
+`zfs share` answers that and the import shows no warning although no export
+exists. A plain `zpool import` could not have exported it either.
+
 **Still open.**
 
 - **§19.6, §21 — host storage is not marked as such.** The rules above stop a
