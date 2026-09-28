@@ -100,6 +100,9 @@ func must(t *testing.T, err error) {
 
 func TestApplyHelperInstallsMatchingRelease(t *testing.T) {
 	e := newApplyEnv(t)
+	unit := filepath.Join(e.dir, "easyzfs.service")
+	must(t, os.WriteFile(unit, []byte("[Service]\nUser=easyzfs\nProtectSystem=full\nReadWritePaths=/var/lib/easyzfs\n# ProtectHome=yes is explained here\nProtectHome=yes\nPrivateTmp=yes\nMemoryMax=256M\n"), 0o644))
+	e.env = append(e.env, "EASYZFS_APPLY_UNIT="+unit)
 	e.publish("v2.9.30", "genuine release")
 	e.stage(t, "genuine release", "v2.9.30")
 	if out, err := e.run(t); err != nil {
@@ -110,6 +113,10 @@ func TestApplyHelperInstallsMatchingRelease(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.upd, ".restart-me")); !os.IsNotExist(err) {
 		t.Error(".restart-me was not consumed")
+	}	// The private mount namespace goes, comments and the rest stay.
+	b, _ := os.ReadFile(unit)
+	if got := string(b); got != "[Service]\nUser=easyzfs\n# ProtectHome=yes is explained here\nMemoryMax=256M\n" {
+		t.Errorf("unit after update:\n%s", got)
 	}
 }
 
