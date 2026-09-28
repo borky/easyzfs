@@ -11,10 +11,13 @@
 package priv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"syscall"
 	"time"
@@ -54,9 +57,62 @@ func Main(args []string) int {
 	}
 	// LC_ALL=C: the service reads ZFS's English messages ("does not exist").
 	env := []string{"PATH=" + securePath, "LC_ALL=C"}
+	if tool == "zfs" && len(rest) > 0 && rest[0] == "recv" {
+		return recv(bin, rest, env)
+	}
 	err = syscall.Exec(bin, append([]string{tool}, rest...), env)
 	refuse("invalid_input", fmt.Sprintf("ejecutar %s: %v", tool, err))
 	return 3
+}
+
+// recv — 'zfs recv' after checking the stream is what the form says: the
+// filesystem form (setuid, devices and exec off) for a filesystem stream,
+// the volume form for a volume stream. volmode is ignored for a filesystem,
+// so a filesystem stream must never go through the volume form, and only
+// the stream itself says which it is. Its first record is read here and fed
+// back to zfs ahead of the rest, so zfs runs as a child rather than by exec;
+// SIGTERM and SIGINT are passed on, and its exit status is returned.
+func recv(bin string, args, env []string) int {
+	hdr := make([]byte, 40)
+	n, err := io.ReadFull(os.Stdin, hdr)
+	if err != nil {
+		refuse("invalid_input", fmt.Sprintf("leer el stream: %v", err))
+		return 3
+	}
+	volume, err := actions.RecvStreamIsVolume(hdr[:n])
+	if err != nil {
+		refuse(actions.PrivCode(err), err.Error())
+		return 3
+	}
+	if volume != actions.IsRecvVolumeForm(args[1:]) {
+		refuse("not_allowed", "el tipo del stream no corresponde a la forma de zfs recv pedida")
+		return 3
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Args[0] = "zfs"
+	cmd.Env = env
+	cmd.Stdin = io.MultiReader(bytes.NewReader(hdr[:n]), os.Stdin)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	sig := make(chan os.Signal, 2)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	if err := cmd.Start(); err != nil {
+		refuse("invalid_input", fmt.Sprintf("ejecutar zfs recv: %v", err))
+		return 3
+	}
+	go func() {
+		for s := range sig {
+			_ = cmd.Process.Signal(s)
+		}
+	}()
+	err = cmd.Wait()
+	signal.Stop(sig)
+	if ee, ok := err.(*exec.ExitError); ok {
+		return ee.ExitCode()
+	}
+	if err != nil {
+		return 3
+	}
+	return 0
 }
 
 // refuse — one line on stderr in the form executil turns back into a

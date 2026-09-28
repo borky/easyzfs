@@ -15,8 +15,9 @@ import (
 func TestStagesPassTheGatewayGrammar(t *testing.T) {
 	r := &Runner{dataDir: t.TempDir()}
 	for _, j := range []*Job{localJob(), sshJob()} {
-		for _, incremental := range []bool{false, true} {
-			for _, st := range r.stages(j, j.Source+"@ezrepl-x", incremental) {
+		for _, variant := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+			incremental, volume := variant[0], variant[1]
+			for _, st := range r.stages(j, j.Source+"@ezrepl-x", incremental, volume) {
 				if !st.Sudo {
 					continue
 				}

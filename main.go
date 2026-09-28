@@ -70,14 +70,6 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "priv" {
 		os.Exit(priv.Main(os.Args[2:]))
 	}
-	// Run as root through sudo, this binary is only ever the gateway. sudo
-	// matches its 'priv *' rule against the space-joined arguments, so a
-	// single argument "priv x" passes the rule without being "priv" here,
-	// and would otherwise start the whole daemon as root.
-	if os.Geteuid() == 0 && os.Getenv("SUDO_USER") != "" {
-		fmt.Fprintln(os.Stderr, "easyzfs: bajo sudo solo se admite 'easyzfs priv …'")
-		os.Exit(3)
-	}
 	// -generate-vapid: imprime un par de claves VAPID para /etc/easyzfs/env
 	// (lo usa deploy/install.sh) y sale 0. No toca BD ni configuración.
 	genVapid := flag.Bool("generate-vapid", false, "genera un par de claves VAPID (Web Push) y sale")
@@ -97,6 +89,17 @@ func main() {
 		}
 		fmt.Printf("VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\n", pub, priv)
 		return
+	}
+
+	// Run as root through sudo, this binary only ever answers the flags
+	// above (the installer asks them under 'sudo bash install.sh') or acts
+	// as the gateway. sudo matches its 'priv *' rule against the
+	// space-joined arguments, so a single argument "priv x" passes the rule
+	// without being "priv" here, and would otherwise start the whole daemon
+	// as root.
+	if os.Geteuid() == 0 && os.Getenv("SUDO_USER") != "" {
+		fmt.Fprintln(os.Stderr, "easyzfs: bajo sudo solo se admite 'easyzfs priv …'")
+		os.Exit(3)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

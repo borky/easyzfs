@@ -1033,7 +1033,10 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 	if err := guardNewName(ctx, target); err != nil {
 		return err
 	}
-	args := []string{"clone"}
+	// setuid and devices off: a clone inherits them from its new parent
+	// (usually "on"), not from its origin, so a clone of a received replica
+	// would bring the stream's setuid files and device nodes to life.
+	args := []string{"clone", "-o", "setuid=off", "-o", "devices=off"}
 	if mountpoint != "" {
 		// Same check the properties endpoint applies to this very property
 		// (see props.go). Unvalidated, 'zfs clone -o mountpoint=/etc' mounts the

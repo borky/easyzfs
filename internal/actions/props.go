@@ -453,6 +453,9 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 	if !spec.valid(value) {
 		return fmt.Errorf("%w: valor inválido para %s (%s)", ErrInvalidInput, property, spec.describeKind())
 	}
+	if err := setuidDevicesOn(property, value); err != nil {
+		return err
+	}
 	if err := guardHost(ctx, propHostOp(property), "", name); err != nil {
 		return err
 	}
@@ -493,6 +496,9 @@ func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property 
 	}
 	if _, ok := propValidators[property]; !ok {
 		return fmt.Errorf("%w: propiedad no editable (%s)", ErrInvalidInput, property)
+	}
+	if property == "setuid" || property == "devices" {
+		return fmt.Errorf("%w: %s no se hereda desde EasyZFS: el valor heredado o recibido suele ser on (ver setuidDevicesOn)", ErrInvalidInput, property)
 	}
 	if err := guardHost(ctx, propHostOp(property), "", name); err != nil {
 		return err
@@ -601,4 +607,18 @@ func propHostOp(property string) HostOp {
 		return OpDatasetChange
 	}
 	return OpDatasetSensitive
+}
+
+// setuidDevicesOn — EasyZFS never turns setuid or devices back on. A received
+// replica is the one place setuid-root files and device nodes can arrive
+// from outside (the stream is whatever the sender put in it), and it is
+// received with both off (RecvArgs); turning either on, or inheriting it
+// back to the default "on", would make them live on the next mount. A NAS
+// has no use for either on a data share; the console remains for the rare
+// case that does.
+func setuidDevicesOn(property, value string) error {
+	if (property == "setuid" || property == "devices") && value == "on" {
+		return fmt.Errorf("%w: %s=on no se activa desde EasyZFS: haría efectivos los ficheros setuid o de dispositivo de lo que se haya recibido", ErrInvalidInput, property)
+	}
+	return nil
 }

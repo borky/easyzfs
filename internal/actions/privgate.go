@@ -207,17 +207,39 @@ func privZFS(ctx context.Context, a []string) error {
 			return nil
 		}
 	case "recv":
-		// Only the hardened form (RecvArgs): a stream is whatever the sender
-		// put in it, setuid-root files and device nodes included, so it is
-		// received unmounted, with setuid, devices and exec forced off and
-		// the stream's own mountpoint and share settings ignored. Mounted
-		// later, it goes through the mount check like anything else. A later
-		// force_full may destroy it, hence the host check.
-		if n == len(RecvArgs)+2 && strings.Join(a[1:n-1], " ") == strings.Join(RecvArgs, " ") && isDataset(a[n-1]) {
-			if err := guardHost(ctx, OpDatasetRemove, "", a[n-1]); err != nil {
+		// Only the hardened forms (RecvFSArgs, RecvVolArgs): a stream is
+		// whatever the sender put in it, setuid-root files and device nodes
+		// included, so a filesystem is received unmounted, with setuid,
+		// devices and exec forced off and the stream's own mountpoint and
+		// share settings ignored; mounted later, it goes through the mount
+		// check. Which form fits is decided by the stream itself, which only
+		// the gateway process can read (internal/priv, RecvStreamIsVolume):
+		// volmode is silently ignored for a filesystem stream, so the volume
+		// form must never receive one.
+		//
+		// Into an existing dataset only if a receive of ours created it
+		// (easyzfs:replica=on, which only a receive sets): an incremental
+		// stream built against any dataset's latest snapshot would otherwise
+		// plant files in it. A later force_full may destroy it, hence the
+		// host check.
+		if n >= 3 && isDataset(a[n-1]) && (argsEqual(a[1:n-1], RecvFSArgs) || argsEqual(a[1:n-1], RecvVolArgs)) {
+			dest := a[n-1]
+			if err := guardHost(ctx, OpDatasetRemove, "", dest); err != nil {
 				return err
 			}
-			return checkEffectiveMountpoint(ctx, a[n-1])
+			mark, err := readReplicaMark(ctx, dest)
+			switch {
+			case errors.Is(err, ErrNoSuchDataset):
+				// a new replica
+			case err != nil:
+				return fmt.Errorf("%w: %v", ErrHostUnknown, err)
+			case mark != "on":
+				return fmt.Errorf("%w: %s ya existe y no es una réplica creada por EasyZFS; no se recibe encima", ErrConflict, dest)
+			}
+			if argsEqual(a[1:n-1], RecvFSArgs) {
+				return checkEffectiveMountpoint(ctx, dest)
+			}
+			return nil
 		}
 	case "snapshot":
 		rest, recursive := a[1:], false
@@ -301,7 +323,13 @@ func privZFS(ctx context.Context, a []string) error {
 	case "create":
 		return privZFSCreate(ctx, a[1:])
 	case "clone":
+		// Always with setuid and devices off (SnapshotClone): a clone
+		// inherits them from its new parent, not from its origin.
 		rest, mp := a[1:], ""
+		if len(rest) < 4 || rest[0] != "-o" || rest[1] != "setuid=off" || rest[2] != "-o" || rest[3] != "devices=off" {
+			return notAllowed("zfs", a)
+		}
+		rest = rest[4:]
 		if len(rest) == 4 && rest[0] == "-o" && strings.HasPrefix(rest[1], "mountpoint=") {
 			mp, rest = strings.TrimPrefix(rest[1], "mountpoint="), rest[2:]
 		}
@@ -475,6 +503,9 @@ func privZFSSet(ctx context.Context, a []string) error {
 		return notAllowed("zfs", append([]string{"set"}, a...))
 	}
 	name := a[1]
+	if err := setuidDevicesOn(prop, value); err != nil {
+		return err
+	}
 	if err := guardHost(ctx, propHostOp(prop), "", name); err != nil {
 		return err
 	}
@@ -502,7 +533,9 @@ func privZFSInherit(ctx context.Context, a []string) error {
 		return notAllowed("zfs", append([]string{"inherit"}, a...))
 	}
 	prop, name := a[0], a[1]
-	if _, ok := propValidators[prop]; !ok {
+	if _, ok := propValidators[prop]; !ok || prop == "setuid" || prop == "devices" {
+		// Inheriting setuid or devices resets them to the default, or with
+		// -S to what a crafted stream carried: "on" either way.
 		return notAllowed("zfs", append([]string{"inherit"}, a...))
 	}
 	if err := guardHost(ctx, propHostOp(prop), "", name); err != nil {
@@ -527,10 +560,106 @@ func privZFSInherit(ctx context.Context, a []string) error {
 	return nil
 }
 
-// RecvArgs — the one receive shape the gateway runs (see its "recv" case);
-// internal/replication builds its receive stage from it.
-var RecvArgs = []string{"-s", "-u", "-o", "setuid=off", "-o", "devices=off", "-o", "exec=off",
-	"-x", "mountpoint", "-x", "canmount", "-x", "sharenfs", "-x", "sharesmb"}
+// RecvFSArgs / RecvVolArgs — the two receive shapes the gateway runs (see
+// its "recv" case), for a filesystem and a volume stream; internal/replication
+// builds its receive stage from them. The filesystem form fails on a volume
+// stream (setuid "does not apply"), and the gateway checks the stream's own
+// type before running either (internal/priv). Both stamp the destination
+// easyzfs:replica=on, the mark a later incremental receive requires.
+var (
+	RecvFSArgs = []string{"-s", "-u", "-o", "setuid=off", "-o", "devices=off", "-o", "exec=off",
+		"-x", "mountpoint", "-x", "canmount", "-x", "sharenfs", "-x", "sharesmb", "-o", "easyzfs:replica=on"}
+	RecvVolArgs = []string{"-s", "-u", "-o", "volmode=dev", "-o", "easyzfs:replica=on"}
+)
+
+// RecvArgsFor — the receive shape for a volume or a filesystem stream.
+func RecvArgsFor(volume bool) []string {
+	if volume {
+		return RecvVolArgs
+	}
+	return RecvFSArgs
+}
+
+// IsRecvVolumeForm — whether a receive argv (after "recv") is the volume form.
+func IsRecvVolumeForm(args []string) bool {
+	return len(args) == len(RecvVolArgs)+1 && argsEqual(args[:len(args)-1], RecvVolArgs)
+}
+
+func argsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// readReplicaMark — the easyzfs:replica user property; ErrNoSuchDataset when
+// the dataset does not exist.
+var readReplicaMark = func(ctx context.Context, name string) (string, error) {
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "easyzfs:replica", name)
+	if err != nil {
+		return "", classifyReadErr(err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DMU objset types in a send stream's DRR_BEGIN record (sys/dmu.h).
+const (
+	dmuOstZFS  = 2
+	dmuOstZvol = 3
+)
+
+// RecvStreamIsVolume reads the stream's first record (DRR_BEGIN) and says
+// whether it carries a volume. hdr must hold at least 40 bytes: record type
+// and payload length (2×uint32), then drr_magic, versioninfo and creation
+// time (3×uint64) and the objset type (uint32). drr_magic tells the byte
+// order.
+func RecvStreamIsVolume(hdr []byte) (bool, error) {
+	if len(hdr) < 40 {
+		return false, fmt.Errorf("%w: stream demasiado corto", ErrInvalidInput)
+	}
+	const magic = 0x2F5bacbac
+	le := func(b []byte) uint64 {
+		var v uint64
+		for i := 7; i >= 0; i-- {
+			v = v<<8 | uint64(b[i])
+		}
+		return v
+	}
+	be := func(b []byte) uint64 {
+		var v uint64
+		for i := 0; i < 8; i++ {
+			v = v<<8 | uint64(b[i])
+		}
+		return v
+	}
+	var typ uint64
+	switch {
+	case le(hdr[8:16]) == magic:
+		if uint32(le(hdr[0:8])) != 0 { // DRR_BEGIN
+			return false, fmt.Errorf("%w: el stream no empieza por DRR_BEGIN", ErrInvalidInput)
+		}
+		typ = le(hdr[32:40]) & 0xffffffff
+	case be(hdr[8:16]) == magic:
+		if be(hdr[0:8])>>32 != 0 {
+			return false, fmt.Errorf("%w: el stream no empieza por DRR_BEGIN", ErrInvalidInput)
+		}
+		typ = be(hdr[32:40]) >> 32
+	default:
+		return false, fmt.Errorf("%w: no es un stream de zfs send", ErrInvalidInput)
+	}
+	switch typ {
+	case dmuOstZFS:
+		return false, nil
+	case dmuOstZvol:
+		return true, nil
+	}
+	return false, fmt.Errorf("%w: tipo de dataset %d en el stream", ErrInvalidInput, typ)
+}
 
 // readMounted — the dataset's mounted property ("yes"/"no").
 var readMounted = func(ctx context.Context, name string) (string, error) {

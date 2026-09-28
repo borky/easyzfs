@@ -235,16 +235,28 @@ so a compromised service process could skip every Go-side check.
     through it.
 - **A review of the gateway** found, and these fixed:
   - `zfs recv` mounted whatever the stream held, setuid-root files and device
-    nodes included, which was a path to root. Receives now run only as
-    `recv -s -u -o setuid=off -o devices=off -o exec=off -x mountpoint
-    -x canmount -x sharenfs -x sharesmb` (`actions.RecvArgs`, which
-    replication uses). A local replica therefore stays unmounted until
-    someone mounts it; the mount goes through the checks.
+    nodes included, which was a path to root. Two hardened forms now exist
+    (`actions.RecvFSArgs`/`RecvVolArgs`, which replication uses):
+    - a filesystem is received unmounted, with `setuid`, `devices` and `exec`
+      off and the stream's mountpoint, canmount and share settings ignored;
+    - a volume is received with `volmode=dev`.
+
+    The gateway reads the stream's own header to check which form applies,
+    since `volmode` is silently ignored for a filesystem stream. It only
+    receives into an existing dataset carrying `easyzfs:replica=on`, a mark
+    only a receive sets; otherwise an incremental stream could plant files in
+    any dataset. A replica made by an earlier version lacks the mark and needs
+    `zfs set easyzfs:replica=on <dataset>` from the console, or a full resend.
+  - The hardening could be undone by turning `setuid` or `devices` back on,
+    by inheriting them, or by cloning the replica under a parent where they
+    are on. EasyZFS now never turns either on or inherits them, and clones are
+    created with both off.
   - `zfs send` streamed any snapshot to the service account. Sending from the
     running OS (`/etc/shadow`, host keys, the cluster database) is refused.
   - sudo's `priv *` glob also matches a single argument such as `"priv x"`,
     which would have started the whole daemon as root. Under sudo the binary
-    now refuses anything but `priv`.
+    now refuses anything but `priv` and the installer's flag-only queries
+    (`-update-channel`, `-generate-vapid`).
   - `destroy -r` of a snapshot reached guest disks' same-named snapshots; it
     is refused (nothing uses it).
   - Clone-then-promote could carry a guest disk's snapshots away. Promote now

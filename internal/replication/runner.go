@@ -229,7 +229,11 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 		return fmt.Errorf("snapshot %s: %w", fullSnap, err)
 	}
 	incremental := j.LastBookmark != ""
-	op, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, incremental)...)
+	volume, err := sourceIsVolume(ctx, j.Source)
+	if err != nil {
+		return err
+	}
+	op, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, incremental, volume)...)
 	if err != nil {
 		return fmt.Errorf("lanzar replicación: %w", err)
 	}
@@ -255,7 +259,7 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 	if err := r.destroyDest(ctx, j); err != nil {
 		return fmt.Errorf("force_full: no se pudo destruir el destino: %w", err)
 	}
-	op2, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, false)...)
+	op2, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, false, volume)...)
 	if err != nil {
 		return fmt.Errorf("force_full: lanzar envío completo: %w", err)
 	}
@@ -329,7 +333,7 @@ func (r *Runner) destroyDest(ctx context.Context, j *Job) error {
 // zfs but not bash. zfs runs through sudo; ssh runs as the service user.
 // ssh joins its remote arguments for the remote shell, as before; the dataset
 // name there is still whitelist-checked.
-func (r *Runner) stages(j *Job, fullSnap string, incremental bool) []longops.Stage {
+func (r *Runner) stages(j *Job, fullSnap string, incremental, volume bool) []longops.Stage {
 	send := []string{"send", "-v"}
 	if j.Raw {
 		send = append(send, "-w")
@@ -346,10 +350,10 @@ func (r *Runner) stages(j *Job, fullSnap string, incremental bool) []longops.Sta
 	// issues — a flag with nothing to exclude, and one more argv shape to keep
 	// pinned in sudoers. What a destination *can* already hold is a received
 	// mountpoint put there by somebody else's stream; run() checks for that.
-	// The hardened receive the privileged gateway requires (actions.RecvArgs):
-	// unmounted, setuid/devices/exec off, the stream's mountpoint and share
-	// settings ignored. A stream is whatever the sender put in it.
-	recv := longops.Stage{Name: "zfs", Args: append(append([]string{"recv"}, actions.RecvArgs...), j.DestDataset), Sudo: true}
+	// The hardened receive the privileged gateway requires, filesystem or
+	// volume form (actions.RecvArgsFor; the gateway checks the stream really
+	// is what the form says). A stream is whatever the sender put in it.
+	recv := longops.Stage{Name: "zfs", Args: append(append([]string{"recv"}, actions.RecvArgsFor(volume)...), j.DestDataset), Sudo: true}
 	if j.DestType == "ssh" {
 		args := append(r.sshArgs(j), j.User+"@"+j.Host, "zfs", "recv", "-s", j.DestDataset)
 		recv = longops.Stage{Name: "ssh", Args: args}
@@ -419,4 +423,14 @@ func (r *Runner) mockRun(ctx context.Context, j *Job) error {
 	}
 	j.LastBookmark = snap
 	return nil
+}
+
+// sourceIsVolume — whether the job replicates a zvol (a VM disk), which
+// takes the volume form of the hardened receive. A test seam.
+var sourceIsVolume = func(ctx context.Context, source string) (bool, error) {
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "type", source)
+	if err != nil {
+		return false, fmt.Errorf("tipo de %s: %w", source, err)
+	}
+	return strings.TrimSpace(string(out)) == "volume", nil
 }

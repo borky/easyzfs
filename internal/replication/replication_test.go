@@ -442,7 +442,7 @@ func TestRunNowPreventsDoubleExecution(t *testing.T) {
 func TestStagesNoShell(t *testing.T) {
 	r := &Runner{dataDir: t.TempDir()}
 	for _, j := range []*Job{localJob(), sshJob()} {
-		st := r.stages(j, j.Source+"@ezrepl-x", true)
+		st := r.stages(j, j.Source+"@ezrepl-x", true, false)
 		if len(st) != 2 {
 			t.Fatalf("%s: %d stages, want 2", j.DestType, len(st))
 		}
