@@ -28,6 +28,22 @@ LimitNOFILE=4096
 # the property at the next import. Mountpoints are checked when set
 # (internal/actions/props.go); the root surface is the pinned sudoers file.
 
+# Hardening that keeps sudo and the host's mount namespace (remediation spec
+# P5, tested one directive at a time on Proxmox VE 8.4 / systemd 252, in a
+# unit running as the service account): no core dump can write the session
+# secret or a passphrase to disk, System V IPC dies with the service, and
+# kernel keyrings stay private. Every seccomp-based directive
+# (LockPersonality, RestrictRealtime, SystemCallArchitectures,
+# RestrictSUIDSGID, RestrictNamespaces, ProtectHostname, ProtectClock,
+# MemoryDenyWriteExecute, RestrictAddressFamilies) implies NoNewPrivileges
+# for a non-root unit, and sudo then refuses to run; ProtectKernelTunables,
+# ProtectKernelModules, ProtectKernelLogs and ProtectControlGroups also give
+# the service its own mount namespace (see below). UMask would reach the
+# sudo'd zfs too, and the directories it creates for mountpoints.
+LimitCORE=0
+RemoveIPC=yes
+KeyringMode=private
+
 # Solo si escucha en puerto <1024 (preferir puerto alto + proxy):
 # AmbientCapabilities=CAP_NET_BIND_SERVICE
 

@@ -264,7 +264,11 @@ fail when they drift. The unit deliberately does **not** set
 `NoNewPrivileges=yes` — sudo needs the setuid bit. It also sets no
 `ProtectSystem`/`ProtectHome`/`PrivateTmp`: each creates a private mount
 namespace, which the sudo'd `zfs` inherits, so mounts and unmounts stopped
-reaching the host (see FORK.md). Don't add them back.
+reaching the host (see FORK.md). Don't add them back. Nor any seccomp-based
+directive (`LockPersonality`, `SystemCallFilter`, `Restrict*`,
+`MemoryDenyWriteExecute`…): for a non-root unit each implies
+`NoNewPrivileges`, and sudo stops working. `internal/actions/unit_test.go`
+enforces both.
 
 If you add a command that needs root, add its shape to the gateway's grammar
 (`internal/actions/privgate.go`) with the checks its action makes, and a case

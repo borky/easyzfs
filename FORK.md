@@ -353,6 +353,49 @@ unless `--i-understand-root-mode` is also given. Tests:
 `internal/actions/rootmode_test.go` runs the real installer for the refusal
 and the gate function for each decision.
 
+### systemd hardening that keeps sudo and host mounts (spec P5)
+
+Each directive the spec lists was tried alone on the Proxmox VE 8.4 VM
+(systemd 252), in a transient unit running as `easyzfs`, checking three
+things: the unit shares PID 1's mount namespace, `sudo easyzfs priv zfs
+create` works, and the new dataset's mount appears in `/proc/1/mountinfo`.
+
+| Directive | Result |
+|---|---|
+| `LockPersonality`, `RestrictRealtime`, `SystemCallArchitectures=native`, `RestrictSUIDSGID`, `RestrictNamespaces`, `ProtectHostname`, `ProtectClock`, `MemoryDenyWriteExecute`, `RestrictAddressFamilies` | rejected: for a non-root unit systemd implies `NoNewPrivileges` (`NoNewPrivs: 1`), and sudo refuses to run |
+| `ProtectKernelTunables`, `ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups` | rejected: private mount namespace (and NNP for the first three) |
+| `LimitCORE=0`, `RemoveIPC=yes`, `KeyringMode=private` | kept: same namespace, sudo works, mounts reach the host |
+| `UMask=0027` | passed, not kept: the sudo'd `zfs` inherits it, and the directories it creates for mountpoints would lose world access |
+
+`install.sh --update` adds the three kept lines to an existing unit. After
+the update the live service was checked: same mount namespace as PID 1,
+`NoNewPrivs: 0`, core limit 0, and the end-to-end API script (create,
+mount, unmount, clone, rename, delete to the recycle bin, rollback, scrub)
+ran through it. `internal/actions/unit_test.go` fails if the static unit or
+the installer's template loses the three lines or gains a rejected one. The
+real protection stays where it was: the gateway's checks, which run as
+root outside the service.
+
+### Secure cookie, mode sweep, proxy docs (spec P8)
+
+- The session cookie is Secure whenever the browser reached the app over
+  HTTPS: TLS on the connection, or, with `TRUST_PROXY=1`, a proxy's
+  `X-Forwarded-Proto` (or, without it, `Forwarded`) saying so; configure
+  the proxy to set `X-Forwarded-Proto`, which takes precedence.
+  `COOKIE_SECURE=1` still forces it. The last value is the one read, the
+  one the nearest (trusted) proxy wrote; earlier ones can come from the
+  client.
+- `DEMO=1` no longer starts the scheduler or the replication runner: the
+  API refused to create jobs, but jobs already in the database would have
+  run real commands. `backgroundJobs()` in `main.go` decides for both
+  modes, with a test.
+- `internal/httpapi/modesweep_test.go` finds every mutating route in the
+  source and checks it against read-only (storage routes → 403
+  `read_only`; anything that is neither storage nor an allowlisted
+  app-settings route fails the test) and demo (everything but logout and
+  alert ack → 403 `demo_mode`).
+- README: a modes table, and reverse-proxy and firewall examples.
+
 ### Destructive actions only after the safety steps
 
 Fork-only, built on the fixes above:

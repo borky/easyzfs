@@ -256,7 +256,37 @@ If a proxy sits in front (NPM/Caddy), SSE already sends
 
 > **Nginx Proxy Manager on the same host**: use
 > `LISTEN_ADDR=127.0.0.1:8080` so the backend is only reachable through
-> NPM, and `COOKIE_SECURE=1` once NPM serves SSL.
+> NPM, and `COOKIE_SECURE=1` once NPM serves SSL — or `TRUST_PROXY=1`, which
+> marks the session cookie Secure for exactly the requests the proxy says
+> arrived over HTTPS (`X-Forwarded-Proto` / `Forwarded`).
+
+**Reverse proxy and firewall.** EasyZFS serves plain HTTP only; TLS belongs
+to a proxy in front. Keep the backend unreachable except through it — bind
+to loopback as above, or, if the proxy is on another machine, bind to the
+LAN address and allow only the proxy's address to the port:
+
+```bash
+# nftables: only the proxy (192.0.2.10 here) may reach the backend
+nft add rule inet filter input tcp dport 8080 ip saddr != 192.0.2.10 drop
+```
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;   # read with TRUST_PROXY=1
+    proxy_http_version 1.1;
+}
+location /api/events {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;                          # SSE
+    proxy_read_timeout 1h;
+}
+```
+
+Never expose the port to the internet directly: the admin UI can destroy
+pools, and every storage change it makes runs as root through its gateway.
 
 ## Configuration
 
@@ -270,7 +300,9 @@ The service reads `/etc/easyzfs/env`:
 | `ADMIN_PASSWORD` | *(generated)* | First admin password (bootstrap) |
 | `DEMO` | - | `1` = demo mode (mock + mutations blocked) |
 | `MOCK` | - | `1` = mock collectors |
-| `COOKIE_SECURE` | - | `1` = Secure cookie (behind TLS proxy) |
+| `COOKIE_SECURE` | - | `1` = Secure cookie on every response (behind a TLS proxy) |
+| `TRUST_PROXY` | - | `1` = trust `X-Forwarded-Proto`/`Forwarded` from the proxy: a login it received over HTTPS gets a Secure cookie. A connection with TLS always does |
+| `EASYZFS_READONLY` | - | `1` = read-only mode (see [Modes](#demo-and-mock-modes)) |
 | `EASYZFS_SUDO` | auto | `1`/`0` forces or disables `sudo -n` on zpool/zfs/smartctl/lsblk/crontab |
 | `RETENTION_DAYS` | `30` | Series retention (daily purge 03:30) |
 | `EASYZFS_ZPOOL_INTERVAL` | `10` | Full collection interval (seconds) while the web UI is open |
@@ -284,6 +316,22 @@ The service reads `/etc/easyzfs/env`:
 Restart after changes: `sudo systemctl restart easyzfs`.
 
 ## Demo and mock modes
+
+| Mode | Data | Storage changes | Scheduled jobs, replication, recycle-bin purge | Privileges (sudoers) |
+|---|---|---|---|---|
+| Production (default) | real | yes, through the privileged gateway's checks | run | gateway + a few pinned reads |
+| Read-only (`--read-only`, `EASYZFS_READONLY=1`) | real | refused (403 `read_only`); app settings, users and alert channels stay editable | not started | pinned reads only, no gateway, no root helper |
+| Demo (`DEMO=1`) | mock | every mutation refused (403 `demo_mode`) except logout and acknowledging an alert | not started | — (meant for a mock deployment) |
+
+Read-only and demo are enforced by the application. Read-only's
+privilege-level half is its sudoers file, which grants no gateway, so even a
+compromised service cannot change storage — when installed with
+`--read-only` (the installer refuses it together with `--root-mode`;
+setting `EASYZFS_READONLY=1` by hand keeps the full sudoers until the next
+install or `make update`, which read it back and write the read-only file); a demo deployment must simply
+not be given a production sudoers file. `internal/httpapi/modesweep_test.go`
+checks every mutating route against both modes, and requires each one to be
+classified as storage or app-settings.
 
 - `DEMO=1`:realistic mock data (pools `tank`/`ssd`, 7 disks, a
   live-progressing scrub over SSE) and **all mutations return 403

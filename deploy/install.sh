@@ -248,10 +248,14 @@ confirm() {
   # Only the text path had this; whiptail's own exit status is right.
   if [ "$OPT_YES" = "1" ]; then [ "$def" = "1" ]; return; fi
   if [ "$USE_WHIPTAIL" = "1" ]; then
+    # whiptail focuses Yes unless told otherwise, so a "default no" question
+    # (root mode, uninstalling the data, skipping integrity verification)
+    # was answered yes by a bare Enter. --defaultyes does not exist in
+    # whiptail (newt exits with "unknown option"); Yes is already its default.
     if [ "$def" = "1" ]; then
-      whiptail --title "$APP" --yesno "$text" 10 68 --defaultyes
-    else
       whiptail --title "$APP" --yesno "$text" 10 68
+    else
+      whiptail --title "$APP" --defaultno --yesno "$text" 10 68
     fi
     return $?
   fi
@@ -934,7 +938,9 @@ install_sysd_helper() {
 
 setup_user_and_sudoers() {
   step "Cuenta de servicio y privilegios"
-  if [ "$OPT_ROOT_MODE" = "0" ] && [ "$OPT_YES" = "0" ]; then
+  # Read-only is guaranteed by the service account's sudoers: root is not
+  # offered with it (root_mode_gate refuses the combination anyway).
+  if [ "$OPT_ROOT_MODE" = "0" ] && [ "$OPT_YES" = "0" ] && [ "$OPT_READONLY" = "0" ]; then
     local choice=""
     menu choice "EasyZFS — privilegios" "¿Con qué usuario debe correr el servicio?" \
       easyzfs "Usuario de sistema 'easyzfs' + sudoers limitado (recomendado)" \
@@ -959,6 +965,17 @@ setup_user_and_sudoers() {
   write_sudoers
 }
 
+# env_readonly — an existing install's env file sets EASYZFS_READONLY=1.
+env_readonly() {
+  if [ -r "$ENV_FILE" ]; then
+    grep -qs '^EASYZFS_READONLY=1' "$ENV_FILE"
+  elif [ "${#SUDO[@]}" -gt 0 ]; then
+    sudo -n grep -qs '^EASYZFS_READONLY=1' "$ENV_FILE" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
 # root_mode_gate — root mode is an explicit, acknowledged decision (spec P4).
 # In root mode the web-facing process is root: the gateway's checks still run
 # in-process, but nothing outside the process enforces them, so a bug or a
@@ -968,6 +985,12 @@ setup_user_and_sudoers() {
 # and declining falls back to the service account.
 root_mode_gate() {
   [ "$OPT_ROOT_MODE" = "1" ] || return 0
+  # Checked here, where root mode is final (the menu can pick it), and
+  # against the env file too: configure_env later turns read-only back on
+  # from an existing install's EASYZFS_READONLY=1.
+  if [ "$OPT_READONLY" = "1" ] || env_readonly; then
+    die "El modo solo lectura no se combina con el modo root: se garantiza con el sudoers del usuario 'easyzfs', y como root no hay ninguno. Quita --root-mode (o EASYZFS_READONLY de ${ENV_FILE})."
+  fi
   warn "Modo root: el servicio web correrá como root. Las comprobaciones de EasyZFS siguen, pero dentro del mismo proceso: un fallo o una intrusión en el servicio es root en el host (y en Proxmox, en todas sus VMs). Con el usuario 'easyzfs' cada operación de almacenamiento pasa por un gateway root con su propia validación."
   if [ "$OPT_YES" = "1" ]; then
     [ "$OPT_ROOT_ACK" = "1" ] || die "--root-mode con --yes requiere --i-understand-root-mode."
@@ -1386,6 +1409,21 @@ LimitNOFILE=4096
 
 # Hardening (${nota})
 ${nnp}
+# Hardening that keeps sudo and the host's mount namespace (remediation spec
+# P5, tested one directive at a time on Proxmox VE 8.4 / systemd 252, in a
+# unit running as the service account): no core dump can write the session
+# secret or a passphrase to disk, System V IPC dies with the service, and
+# kernel keyrings stay private. Every seccomp-based directive
+# (LockPersonality, RestrictRealtime, SystemCallArchitectures,
+# RestrictSUIDSGID, RestrictNamespaces, ProtectHostname, ProtectClock,
+# MemoryDenyWriteExecute, RestrictAddressFamilies) implies NoNewPrivileges
+# for a non-root unit, and sudo then refuses to run; ProtectKernelTunables,
+# ProtectKernelModules, ProtectKernelLogs and ProtectControlGroups also give
+# the service its own mount namespace (see below). UMask would reach the
+# sudo'd zfs too, and the directories it creates for mountpoints.
+LimitCORE=0
+RemoveIPC=yes
+KeyringMode=private
 # No ProtectSystem/ProtectHome/PrivateTmp: each gives the service a private
 # mount namespace, and the zfs commands it runs through sudo inherit it. A
 # dataset it mounted was then visible only inside, and one it unmounted,
@@ -1792,6 +1830,19 @@ do_update() {
     run "${SUDO[@]}" systemctl daemon-reload
     ok "Unit: quitado el espacio de montaje privado (los montajes de ZFS ahora son los del host)."
   fi
+  # Units written before the P5 hardening lines: add them after
+  # LimitNOFILE (or before [Install]), leaving the rest as it is.
+  if ! grep -q '^RemoveIPC=' "$UNIT_PATH"; then
+    local anchor='^LimitNOFILE='
+    grep -q "$anchor" "$UNIT_PATH" || anchor='^\[Install\]'
+    if [ "$anchor" = '^LimitNOFILE=' ]; then
+      run "${SUDO[@]}" sed -i "/${anchor}/a LimitCORE=0\nRemoveIPC=yes\nKeyringMode=private" "$UNIT_PATH"
+    else
+      run "${SUDO[@]}" sed -i "/${anchor}/i LimitCORE=0\nRemoveIPC=yes\nKeyringMode=private\n" "$UNIT_PATH"
+    fi
+    run "${SUDO[@]}" systemctl daemon-reload
+    ok "Unit: añadidos LimitCORE=0, RemoveIPC=yes y KeyringMode=private."
+  fi
   run "${SUDO[@]}" systemctl restart easyzfs.service
   verify_service strict || die "El servicio no responde con el binario nuevo. Para volver al anterior: sudo install -m 0755 ${INSTALL_BIN}.prev ${INSTALL_BIN} && sudo systemctl restart easyzfs"
   ok "Actualizado. Config, datos y ${ENV_FILE} sin tocar."
@@ -1879,6 +1930,19 @@ parse_args() {
       *) die "Opción desconocida: $1 (usa --help)" ;;
     esac
   done
+  # Root mode is a fresh install's decision: on --update the service keeps
+  # the User= its unit already has, and a stray --root-mode made
+  # service_user() answer root for an easyzfs install, skipping its sudoers
+  # refresh and handing the update directory to root.
+  if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_UPDATE" = "1" ]; then
+    die "--root-mode no se aplica a --update: la actualización conserva el usuario con el que ya corre el servicio."
+  fi
+  # Read-only's guarantee is its sudoers file, which grants no gateway; a
+  # root service has no sudoers at all, so read-only would be the app's word
+  # alone.
+  if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_READONLY" = "1" ]; then
+    die "--read-only no se combina con --root-mode: el modo solo lectura se garantiza con el sudoers del usuario 'easyzfs', y como root no hay ninguno."
+  fi
   # Refuse an unacknowledged unattended root install before anything is done
   # (remediation spec P4); the interactive path asks in root_mode_gate.
   if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_YES" = "1" ] && [ "$OPT_ROOT_ACK" != "1" ]; then
