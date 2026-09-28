@@ -501,10 +501,14 @@ export class MockProvider implements DataProvider {
     if (newD) newD.pool = pool;
     emitEvent({ type: 'overview' });
   };
-  vdevAction = async (pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string) => {
+  vdevAction = async (pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string, ack = false) => {
     await delay(300);
     const p = this.pools.find((x) => x.name === pool);
     if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    // Same gate as the server (vdevActionRisk), for the demo.
+    if (!ack && action !== 'online' && p.status !== 'ONLINE') {
+      throw new ApiError(409, 'risk_ack_required', `el pool está ${p.status}: quitar otro disco ahora puede dejarlo sin redundancia`);
+    }
     const v = p.vdevs.find((x) => x.dev === dev);
     if (!v) throw new ApiError(404, 'not_found', 'Vdev no encontrado');
     if (action === 'detach') {

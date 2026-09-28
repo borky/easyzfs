@@ -4,6 +4,8 @@ package httpapi
 import (
 	"net/http"
 	"strings"
+
+	"easyzfs/internal/model"
 )
 
 // listPools — GET /api/pools (caché; vdevs con temp cruzada con discos).
@@ -258,15 +260,26 @@ func (s *Server) replaceDisk(w http.ResponseWriter, r *http.Request) {
 func (s *Server) vdevAction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var body struct {
-		Dev     string `json:"dev"`
-		Action  string `json:"action"`
-		Confirm string `json:"confirm"`
+		Dev             string `json:"dev"`
+		Action          string `json:"action"`
+		Confirm         string `json:"confirm"`
+		AcknowledgeRisk bool   `json:"acknowledge_risk"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Action == "detach" && !requireConfirm(w, body.Confirm, name) {
 		return
+	}
+	if !body.AcknowledgeRisk {
+		for _, p := range s.pools.Pools() {
+			if p.Name == name {
+				if why := vdevActionRisk(p, body.Action); why != "" {
+					writeErr(w, http.StatusConflict, "risk_ack_required", why)
+					return
+				}
+			}
+		}
 	}
 	if err := s.act.VdevAction(r.Context(), actor(r), name, body.Dev, body.Action, body.Action == "detach"); err != nil {
 		actionErr(w, err)
@@ -531,6 +544,38 @@ func poolForDisk(pools []string, vdevs map[string][]string, dev string, aliases 
 				}
 			}
 		}
+	}
+	return ""
+}
+
+// vdevActionRisk — why taking a disk out of service now could leave the pool
+// without redundancy, from the collector's view of it; "" when nothing
+// stands out. It asks for an acknowledgement, it does not forbid: ZFS still
+// refuses what would lose data outright ("no valid replicas"), but it
+// happily takes the last redundant copy out of a pool that is already
+// degraded or resilvering, and a mistake there is the one that loses data
+// when the next disk fails.
+func vdevActionRisk(p model.Pool, action string) string {
+	if action != "offline" && action != "detach" {
+		return ""
+	}
+	if p.Status != "ONLINE" {
+		return "el pool está " + p.Status + ": quitar otro disco ahora puede dejarlo sin redundancia, o sin datos si falla uno más"
+	}
+	if p.Scrub.State == "running" && (p.Scrub.Kind == "resilver" || p.Scrub.Kind == "expand") {
+		return "hay un " + p.Scrub.Kind + " en curso: espera a que termine antes de quitar un disco"
+	}
+	mirrorLeaves := 0
+	for _, v := range p.Vdevs {
+		if v.Replacing {
+			return "hay una sustitución de disco en curso: espera a que termine antes de quitar otro"
+		}
+		if v.Role == "mirror" {
+			mirrorLeaves++
+		}
+	}
+	if action == "detach" && p.Topo == "mirror" && mirrorLeaves == 2 {
+		return "es un mirror de dos discos: al retirar uno, el pool se queda sin redundancia y un fallo del otro pierde los datos"
 	}
 	return ""
 }

@@ -1,6 +1,7 @@
 // Tarjeta de pool compartida entre Panel y Pools (réplica del mockup)
 import { getProvider } from '../data';
 import type { Disk, Pool, Topo } from '../data/types';
+import { ApiError } from '../data/types';
 import { errorMessage, useApp } from '../ui/store';
 import { t } from '../ui/i18n';
 import { fmtBytes, fmtBytesPair, fmtPct, fmtRatio, timeAgo } from '../ui/format';
@@ -87,13 +88,19 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
     } catch (e) { const m = errorMessage(e, t); setErr(m); notify(m, 'err'); }
   };
 
-  const vdevAct = async (dev: string, action: 'offline' | 'online') => {
-    setErr('');
+  // risk — the server's warning (409 risk_ack_required) for taking a disk
+  // out of a pool that is degraded or resilvering; shown with a way on.
+  const [risk, setRisk] = useState<{ dev: string; action: 'offline' | 'online'; msg: string } | null>(null);
+  const vdevAct = async (dev: string, action: 'offline' | 'online', ack = false) => {
+    setErr(''); setRisk(null);
     try {
-      await getProvider().vdevAction(pool.name, dev, action);
+      await getProvider().vdevAction(pool.name, dev, action, undefined, ack);
       onChanged();
       notify(t('toast_action_done'), 'ok');
-    } catch (e) { const m = errorMessage(e, t); setErr(m); notify(m, 'err'); }
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'risk_ack_required') { setRisk({ dev, action, msg: e.message }); return; }
+      const m = errorMessage(e, t); setErr(m); notify(m, 'err');
+    }
   };
 
   const toggleAutotrim = async () => {
@@ -260,6 +267,13 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
       </div>
 
       {err && <p className="form-err" style={{ padding: '0 16px' }} role="alert">{err}</p>}
+      {risk && (
+        <div className="form-err" style={{ padding: '0 16px' }} role="alert">
+          <p>{risk.msg}</p>
+          <button type="button" className="btn sm danger" onClick={() => vdevAct(risk.dev, risk.action, true)}>{t('risk_continue')}</button>{' '}
+          <button type="button" className="btn sm" onClick={() => setRisk(null)}>{t('cancel')}</button>
+        </div>
+      )}
 
       <div className="pool-actions">
         {!resilvering && !expanding && (

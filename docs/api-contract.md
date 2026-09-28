@@ -60,6 +60,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `POST /api/pools/{name}/scrub` `{action:"start"|"pause"|"stop"}` → 202
 - `POST /api/pools/{name}/export` `{confirm, force, destroy}` → 202
 - `POST /api/pools/{name}/vdev` `{topo, disks:[…], confirm}` → 202 (añadir vdev). `confirm` = nombre del pool. Antes de `zpool add` se crea un checkpoint del pool si no hay uno (así un vdev equivocado se puede deshacer con `zpool import --rewind-to-checkpoint`); si no se puede leer o crear, no se añade nada (500).
+- `POST /api/pools/{name}/vdev/action` (admin, reautenticación) `{dev, action:"offline"|"online"|"detach", confirm?, acknowledge_risk?}` → 202. `detach` exige `confirm` = nombre del pool. `offline`/`detach` con el pool no ONLINE, con un resilver/expansión o una sustitución en curso, o `detach` en un mirror de dos discos → 409 `risk_ack_required` con el motivo en `message`, hasta que la petición lleve `acknowledge_risk:true` (lo decide la caché del colector; ZFS sigue rechazando por su cuenta lo que perdería datos).
 - `POST /api/pools/{name}/replace` `{old_dev, new_dev, confirm}` → 202. `confirm` = nombre del pool.
 - `POST /api/pools/{name}/autotrim` (admin) `{enabled:bool}` → 204 (`zpool set autotrim=on|off`).
 - `POST /api/pools/{name}/checkpoint` (admin) `{action:"create"|"discard", confirm}` → 202. `confirm` = nombre del pool (operación delicada: el checkpoint bloquea remove/attach/detach y retiene espacio; revertir con `zpool import --rewind-to-checkpoint`).

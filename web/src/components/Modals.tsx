@@ -13,6 +13,7 @@ import type { SysSchedState } from '../ui/syssched';
 import type { Dataset, DatasetProp, Disk, DiskSmartLogResp, DiskSmartResp, Job, Pool, PropGroup, ReplicationJob, SystemTimer, Topo } from '../data/types';
 import type { I18nKey } from '../ui/i18n';
 import { isTrash } from '../ui/trash';
+import { ApiError } from '../data/types';
 
 // ---------- utilidades comunes ----------
 // propRisk — mirrors actions.PropRisk: the high-impact values that need a
@@ -1599,15 +1600,23 @@ function DetachModal({ pool, dev, path, onClose }: { pool: string; dev: string; 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const label = path ? path.replace('/dev/', '') : dev;
+  // The server's warning when detaching would leave the pool without
+  // redundancy (409 risk_ack_required); the user must tick it to go on.
+  const [risk, setRisk] = useState('');
+  const [ack, setAck] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr('');
     try {
-      await getProvider().vdevAction(pool, dev, 'detach', confirm.trim());
+      await getProvider().vdevAction(pool, dev, 'detach', confirm.trim(), ack);
       refresh(); onClose();
       notify(t('toast_action_done'), 'ok');
-    } catch (ex) { const msg = errorMessage(ex, t); setErr(msg); notify(msg, 'err'); setBusy(false); }
+    } catch (ex) {
+      setBusy(false);
+      if (ex instanceof ApiError && ex.code === 'risk_ack_required') { setRisk(ex.message); return; }
+      const msg = errorMessage(ex, t); setErr(msg); notify(msg, 'err');
+    }
   };
 
   return (
@@ -1617,11 +1626,18 @@ function DetachModal({ pool, dev, path, onClose }: { pool: string; dev: string; 
         <p className="desc">{t('dt_desc', { dev: label, pool })}</p>
         <label htmlFor="dt-confirm">{t('ex_confirm_lbl_pool')}</label>
         <input id="dt-confirm" placeholder={pool} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" />
+        {risk && (<>
+          <p className="form-err" role="alert">{risk}</p>
+          <label className="checklabel">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+            {t('risk_understood')}
+          </label>
+        </>)}
         {err && <p className="form-err" role="alert">{err}</p>}
         <div className="m-actions">
           <button type="button" className="btn" onClick={onClose}>{t('cancel')}</button>
           <SubmitBtn label={t('vdev_detach')} busy={busy} danger
-            disabled={!isAdmin || confirm.trim() !== pool} />
+            disabled={!isAdmin || confirm.trim() !== pool || (!!risk && !ack)} />
         </div>
       </form>
     </ModalBox>
@@ -1637,6 +1653,12 @@ function RollbackModal({ full, onClose }: { full: string; onClose: () => void })
   const [ds, snap] = full.split('@');
   // Se acepta el nombre corto (dataset) o la ruta completa que muestra el modal
   const rbConfirmOk = [ds, full].includes(confirm.trim());
+  // 'zfs rollback -r' destroys every snapshot newer than the target: list
+  // them, since that loss is the part people do not expect.
+  const groups = useLoad(() => getProvider().getSnapshots());
+  const all = groups?.find((g) => g.dataset === ds)?.snaps ?? [];
+  const target = all.find((x) => x.full === full);
+  const newer = target ? all.filter((x) => x.ts > target.ts).sort((a, b) => a.ts.localeCompare(b.ts)) : [];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1655,6 +1677,18 @@ function RollbackModal({ full, onClose }: { full: string; onClose: () => void })
         <h3>{t('rb_title')}</h3>
         <p className="desc">{t('rb_desc1')} <b className="mono">{ds}</b> {t('rb_desc2')} <b className="mono">{snap}</b>.</p>
         <p className="desc" style={{ marginTop: 10, color: 'var(--err)' }}>⚠️ {t('rb_warn')}</p>
+        {groups && (
+          <div className="card" style={{ padding: 12, marginTop: 10 }}>
+            <strong>{t('rb_newer', { n: String(newer.length) })}</strong>
+            {newer.length > 0 && (
+              <ul style={{ margin: '6px 0 0 18px' }}>
+                {newer.slice(0, 8).map((x) => <li key={x.full} className="mono">{x.name} <span className="dim">({fmtDateTime(x.ts)})</span></li>)}
+                {newer.length > 8 && <li className="dim">… +{newer.length - 8}</li>}
+              </ul>
+            )}
+          </div>
+        )}
+        <p className="desc" style={{ marginTop: 10 }}>{t('rb_clone_hint')}</p>
         <label htmlFor="rb-confirm">{t('rb_confirm_lbl')}</label>
         <input id="rb-confirm" placeholder={ds} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         {err && <p className="form-err" role="alert">{err}</p>}

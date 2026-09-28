@@ -204,8 +204,8 @@ export class HttpProvider implements DataProvider {
     post<void>(`/pools/${enc(pool)}/vdev`, { topo, disks, confirm });
   replaceDisk = (pool: string, oldDev: string, newDev: string, confirm: string) =>
     post<void>(`/pools/${enc(pool)}/replace`, { old_dev: oldDev, new_dev: newDev, confirm });
-  vdevAction = (pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string) =>
-    post<void>(`/pools/${enc(pool)}/vdev/action`, { dev, action, confirm });
+  vdevAction = (pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string, ack = false) =>
+    post<void>(`/pools/${enc(pool)}/vdev/action`, { dev, action, confirm, acknowledge_risk: ack });
   setAutotrim = (pool: string, enabled: boolean) =>
     post<void>(`/pools/${enc(pool)}/autotrim`, { enabled });
   checkpointPool = (pool: string, action: 'create' | 'discard', confirm: string) =>

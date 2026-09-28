@@ -75,7 +75,8 @@ export interface DataProvider {
   exportPool(name: string, confirm: string, force: boolean, destroy: boolean): Promise<void>;
   addVdev(pool: string, topo: string, disks: string[], confirm: string): Promise<void>;
   replaceDisk(pool: string, oldDev: string, newDev: string, confirm: string): Promise<void>;
-  vdevAction(pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string): Promise<void>;
+  /** ack: the caller showed the 409 risk_ack_required warning and the user went on. */
+  vdevAction(pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string, ack?: boolean): Promise<void>;
   setAutotrim(pool: string, enabled: boolean): Promise<void>;
   checkpointPool(pool: string, action: 'create' | 'discard', confirm: string): Promise<void>;
   getPoolHistory(pool: string): Promise<PoolHistoryEntry[]>;
