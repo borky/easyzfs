@@ -1,0 +1,9 @@
+30 1 0:27 / / rw,relatime shared:1 - zfs rpool/ROOT/pve-1 rw,xattr,posixacl,casesensitive
+43 25 0:36 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:19 - fusectl fusectl rw
+82 30 0:41 / /rpool rw,relatime shared:33 - zfs rpool rw,xattr,noacl,casesensitive
+102 82 0:42 / /rpool/ROOT rw,relatime shared:51 - zfs rpool/ROOT rw,xattr,noacl,casesensitive
+105 82 0:43 / /rpool/data rw,relatime shared:53 - zfs rpool/data rw,xattr,noacl,casesensitive
+112 30 0:49 / /var/lib/lxcfs rw,nosuid,nodev,relatime shared:71 - fuse.lxcfs lxcfs rw,user_id=0,group_id=0,allow_other
+99 30 0:40 / /var/lib/vz rw,relatime shared:49 - zfs rpool/var-lib-vz rw,xattr,noacl,casesensitive
+287 105 0:53 / /rpool/data/subvol-101-disk-0 rw,relatime shared:153 - zfs rpool/data/subvol-101-disk-0 rw,xattr,noacl,casesensitive
+294 105 0:54 / /rpool/data/media rw,relatime shared:157 - zfs rpool/data/media rw,xattr,noacl,casesensitive

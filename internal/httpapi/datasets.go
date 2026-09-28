@@ -15,7 +15,21 @@ type keyMutator interface {
 
 // listDatasets — GET /api/datasets (caché del colector).
 func (s *Server) listDatasets(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.pools.Datasets())
+	ds := s.pools.Datasets()
+	if hv := s.hostView(); hv != nil {
+		for i := range ds {
+			ds[i].Host, ds[i].HostReason = hv.DatasetKind(ds[i].Name)
+		}
+	}
+	writeJSON(w, http.StatusOK, ds)
+}
+
+// hostView — the host-storage cache, or nil (mock, not read yet, failed).
+func (s *Server) hostView() *actions.HostView {
+	if s.host == nil {
+		return nil
+	}
+	return s.host.HostView()
 }
 
 // createDataset — POST /api/datasets {pool, name, type, compression, atime?,

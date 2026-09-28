@@ -213,6 +213,12 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 	// carry no properties, another sender's may — and that is the one worth
 	// catching before the receive repeats it (§1).
 	if j.DestType != "ssh" {
+		// Nor may a receive land in the running OS, a Proxmox guest disk or
+		// a storage root (analysis §21): a job can create and overwrite its
+		// destination, and with force_full destroy it.
+		if err := actions.CheckHostDataset(ctx, actions.OpDatasetRemove, j.DestDataset); err != nil {
+			return err
+		}
 		if err := actions.CheckEffectiveMountpoint(ctx, j.DestDataset); err != nil {
 			return err
 		}
@@ -307,6 +313,9 @@ func (r *Runner) destroyDest(ctx context.Context, j *Job) error {
 		// the wrong identity and not granted, so it could not run at all.
 		args := append(r.sshArgs(j), j.User+"@"+j.Host, "zfs", "destroy", "-r", j.DestDataset)
 		_, err := executil.RunDirect(ctx, 120*time.Second, "ssh", args...)
+		return err
+	}
+	if err := actions.CheckHostDataset(ctx, actions.OpDatasetRemove, j.DestDataset); err != nil {
 		return err
 	}
 	_, err := executil.Run(ctx, 120*time.Second, "zfs", "destroy", "-r", j.DestDataset)

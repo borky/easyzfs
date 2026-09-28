@@ -51,6 +51,12 @@ type Pool struct {
 	// RaidzVdevs — nombres de los vdevs raidz del pool ("raidz2-0"…), objetivo
 	// válido de 'zpool attach <pool> <vdev> <disco>' (RAID-Z expansion, lote D).
 	RaidzVdevs []string `json:"raidz_vdevs,omitempty"`
+	// Host — "system" for the pool the running OS lives on, "storage" for
+	// one holding Proxmox storage or guest disks, absent otherwise; with
+	// HostReason saying why. Read from the live host, never from what
+	// EasyZFS created: on Proxmox the pools exist before it is installed.
+	Host       string `json:"host,omitempty"`
+	HostReason string `json:"host_reason,omitempty"`
 }
 
 // MissingPool — pool conocido (visto antes por el colector) que ya no aparece
@@ -114,6 +120,11 @@ type Dataset struct {
 	Encryption string `json:"encryption"`
 	// KeyStatus — "available" | "unavailable" | "-" (sin cifrado).
 	KeyStatus string `json:"keystatus"`
+	// Host — "system" (part of the running OS), "guest" (a Proxmox VM or
+	// container disk) or "storage" (Proxmox storage, or holding guest
+	// disks); absent for ordinary data. HostReason says why.
+	Host       string `json:"host,omitempty"`
+	HostReason string `json:"host_reason,omitempty"`
 }
 
 // DatasetProp — una propiedad de un dataset (GET /api/datasets/{name}/properties).

@@ -185,6 +185,9 @@ func (s *Service) PoolExport(ctx context.Context, actor, name string, force, des
 	if !rePool.MatchString(name) {
 		return ErrInvalidName
 	}
+	if err := guardHost(ctx, OpPoolRemove, name, ""); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "pool.export", name,
 		map[string]any{"force": force, "destroy": destroy}, true)
 	if destroy {
@@ -264,6 +267,9 @@ func (s *Service) CheckpointCreate(ctx context.Context, actor, pool string) erro
 	if !rePool.MatchString(pool) {
 		return ErrInvalidName
 	}
+	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "pool.checkpoint.create", pool, nil, true)
 	if _, err := executil.Run(ctx, 30*time.Second, "zpool", "checkpoint", pool); err != nil {
 		return fmt.Errorf("checkpoint: %w", err)
@@ -326,6 +332,9 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 		}
 		created = true
 	}
+	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "pool.vdev.add", pool,
 		map[string]any{"topo": topo, "disks": disks, "checkpoint_created": created}, confirmed)
 	_, err = executil.Run(ctx, 60*time.Second, "zpool",
@@ -350,6 +359,11 @@ func (s *Service) VdevAction(ctx context.Context, actor, pool, dev, action strin
 	case "offline", "online", "detach":
 	default:
 		return ErrInvalidAction
+	}
+	if action != "online" { // bringing a disk back is always fine
+		if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
+			return err
+		}
 	}
 	s.audit(ctx, actor, "pool.vdev."+action, pool, map[string]any{"dev": dev}, confirmed)
 	if _, err := executil.Run(ctx, 60*time.Second, "zpool", action, pool, dev); err != nil {
@@ -518,6 +532,9 @@ func (s *Service) Replace(ctx context.Context, actor, pool, oldDev, newDev strin
 	if err := requireFreeDiskFor(ctx, newDev, ownPool); err != nil {
 		return err
 	}
+	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "pool.replace", pool,
 		map[string]any{"old_dev": oldDev, "new_dev": newDev}, confirmed)
 	if _, err := executil.Run(ctx, 60*time.Second, "zpool", "replace",
@@ -546,6 +563,9 @@ func (s *Service) PoolExpand(ctx context.Context, actor, pool, vdev, disk string
 		return ErrInvalidDev
 	}
 	if err := requireFreeDisk(ctx, disk); err != nil {
+		return err
+	}
+	if err := guardHost(ctx, OpPoolLayout, pool, ""); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, "pool.expand", pool,
@@ -684,6 +704,9 @@ func (s *Service) DatasetUnloadKey(ctx context.Context, actor, name string) erro
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
 	}
+	if err := guardHost(ctx, OpDatasetChange, "", name); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "dataset.lock", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "unload-key", name); err != nil {
 		return fmt.Errorf("bloquear dataset: %w", err)
@@ -707,6 +730,9 @@ func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, currentPass
 	}
 	if len(newPassphrase) < 8 {
 		return fmt.Errorf("%w: la passphrase nueva debe tener al menos 8 caracteres", ErrInvalidInput)
+	}
+	if err := guardHost(ctx, OpDatasetChange, "", name); err != nil {
+		return err
 	}
 	if err := s.verifyDatasetKey(ctx, name, currentPassphrase); err != nil {
 		if errors.Is(err, ErrWrongKey) {
@@ -774,6 +800,9 @@ func (s *Service) DatasetPatch(ctx context.Context, actor, name string,
 	if len(props) == 0 {
 		return nil
 	}
+	if err := guardHost(ctx, OpDatasetChange, "", name); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "dataset.patch", name, map[string]any{"props": props}, false)
 	for _, p := range props {
 		if _, err := executil.Run(ctx, 15*time.Second, "zfs", "set", p, name); err != nil {
@@ -787,6 +816,9 @@ func (s *Service) DatasetPatch(ctx context.Context, actor, name string,
 func (s *Service) DatasetDelete(ctx context.Context, actor, name string, recursive bool) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
+	}
+	if err := guardHost(ctx, OpDatasetRemove, "", name); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "dataset.delete", name,
 		map[string]any{"recursive": recursive}, true)
@@ -814,6 +846,9 @@ func (s *Service) SnapshotCreate(ctx context.Context, actor, dataset, name strin
 		args = append(args, "-r")
 	}
 	args = append(args, full)
+	if err := guardSnapshotCreate(ctx, dataset, recursive); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "snapshot.create", full, map[string]any{"recursive": recursive}, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", args...); err != nil {
 		return fmt.Errorf("crear snapshot: %w", err)
@@ -826,6 +861,9 @@ func (s *Service) SnapshotDelete(ctx context.Context, actor, full string) error 
 	ds, snap, ok := strings.Cut(full, "@")
 	if !ok || !reDataset.MatchString(ds) || !reSnapName.MatchString(snap) {
 		return ErrInvalidName
+	}
+	if err := guardHost(ctx, OpSnapshotDestroy, "", ds); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "snapshot.delete", full, nil, true)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "destroy", full); err != nil {
@@ -842,6 +880,9 @@ func (s *Service) SnapshotRollback(ctx context.Context, actor, full string) erro
 	ds, snap, ok := strings.Cut(full, "@")
 	if !ok || !reDataset.MatchString(ds) || !reSnapName.MatchString(snap) {
 		return ErrInvalidName
+	}
+	if err := guardHost(ctx, OpRollback, "", ds); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "snapshot.rollback", full, nil, true)
 	if _, err := executil.Run(ctx, 60*time.Second, "zfs", "rollback", "-r", full); err != nil {
@@ -1027,6 +1068,9 @@ func (s *Service) DatasetPromote(ctx context.Context, actor, name string) error 
 	if err := checkMountDanger(ctx, name); err != nil {
 		return err
 	}
+	if err := guardHost(ctx, OpDatasetRemove, "", name); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "dataset.promote", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "promote", name); err != nil {
 		return fmt.Errorf("promocionar dataset: %w", err)
@@ -1045,6 +1089,12 @@ func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName str
 	}
 	// ZFS remounts on rename, and a new parent means a new inherited path (§1).
 	if err := checkRenameMount(ctx, oldName, newName); err != nil {
+		return err
+	}
+	if err := guardHost(ctx, OpDatasetRemove, "", oldName); err != nil {
+		return err
+	}
+	if err := guardRenameTarget(ctx, newName); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, "dataset.rename", oldName,
@@ -1084,6 +1134,9 @@ func (s *Service) DatasetMount(ctx context.Context, actor, name string) error {
 func (s *Service) DatasetUnmount(ctx context.Context, actor, name string) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
+	}
+	if err := guardHost(ctx, OpDatasetUnmount, "", name); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "dataset.unmount", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "unmount", name); err != nil {

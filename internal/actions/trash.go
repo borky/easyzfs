@@ -162,6 +162,9 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 	if InTrash(name) {
 		return fmt.Errorf("%w: ya está en la papelera; bórralo desde allí", ErrInvalidInput)
 	}
+	if err := guardHost(ctx, OpDatasetRemove, "", name); err != nil {
+		return err
+	}
 	s.trashMu.Lock()
 	defer s.trashMu.Unlock()
 

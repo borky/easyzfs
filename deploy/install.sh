@@ -981,7 +981,7 @@ require_sudo_regex() {
 # internal/actions/sudoers_test.go checks. In sudoers, ',', ':', '=' and '\'
 # in arguments are escaped with '\'.
 pinned_sudoers() {
-  local zpool="$1" zfs="$2" smartctl="$3" lsblk="$4" crontab="$5" hdparm="$6" udisksctl="$7" dd="$8" fuser="$9"
+  local zpool="$1" zfs="$2" smartctl="$3" lsblk="$4" crontab="$5" hdparm="$6" udisksctl="$7" dd="$8" fuser="$9" cat="${10}"
   local P='[A-Za-z0-9][A-Za-z0-9_.-]*'                  # pool (rePool)
   local D='[A-Za-z0-9][A-Za-z0-9_./-]*'                 # dataset (reDataset)
   local N='[A-Za-z0-9][A-Za-z0-9_.\:-]*'                # snapshot name (reSnapName)
@@ -1042,6 +1042,7 @@ $u ${dd} ^if\=${K} of\=/dev/null bs\=1M count\=2048\$
 $u ${hdparm} ^-y ${K}\$
 $u ${udisksctl} ^power-off -b ${K}\$
 $u ${fuser} ^-sm? /[A-Za-z0-9_./-]+\$
+$u ${cat} /etc/pve/storage.cfg
 $u ${lsblk} ^-J( -[bd])? -o [A-Z\,]+( ${K})?\$
 $u ${crontab} -l
 $u ${SYSD_HELPER}
@@ -1063,8 +1064,11 @@ write_sudoers() {
   local dd_path; dd_path="$(command -v dd 2>/dev/null || echo /usr/bin/dd)"
   # fuser (psmisc): the recycle bin checks nothing is still using a dataset.
   local fuser_path; fuser_path="$(command -v fuser 2>/dev/null || echo /usr/bin/fuser)"
+  # cat: /etc/pve/storage.cfg (root:www-data 0640) names the datasets Proxmox
+  # uses as storage; pinned to exactly that file.
+  local cat_path; cat_path="$(command -v cat 2>/dev/null || echo /usr/bin/cat)"
   if sudo_has_regex; then
-    content="$(pinned_sudoers "$zpool_path" "$zfs_path" "$smartctl_path" "$lsblk_path" "$crontab_path" "$hdparm_path" "$udisksctl_path" "$dd_path" "$fuser_path")"
+    content="$(pinned_sudoers "$zpool_path" "$zfs_path" "$smartctl_path" "$lsblk_path" "$crontab_path" "$hdparm_path" "$udisksctl_path" "$dd_path" "$fuser_path" "$cat_path")"
   elif [ "$OPT_READONLY" = "1" ]; then
     : # require_sudo_regex below stops the install with its own message
   elif [ "$OPT_UNPINNED" = "1" ]; then
@@ -1085,7 +1089,7 @@ write_sudoers() {
     # A whole-argument regex (^…$) needs sudo 1.9.10; ':' is escaped because
     # sudoers treats it as a separator.
     require_sudo_regex
-    content="${SVC_USER} ALL=(root) NOPASSWD: ${smartctl_path} ^-j -a /dev/[A-Za-z0-9._-]+\$, ${zpool_path} events -f, ${zpool_path} ^history -i [A-Za-z0-9._-]+\$, ${zfs_path} ^diff -FHt [A-Za-z0-9._/@\\:-]+ [A-Za-z0-9._/@\\:-]+\$, ${crontab_path} -l"
+    content="${SVC_USER} ALL=(root) NOPASSWD: ${smartctl_path} ^-j -a /dev/[A-Za-z0-9._-]+\$, ${zpool_path} events -f, ${zpool_path} ^history -i [A-Za-z0-9._-]+\$, ${zfs_path} ^diff -FHt [A-Za-z0-9._/@\\:-]+ [A-Za-z0-9._/@\\:-]+\$, ${crontab_path} -l, ${cat_path} /etc/pve/storage.cfg"
   fi
   # The collectors run smartctl through sudo for every disk on every poll;
   # the app keeps its own audit log, so sudo's per-command log and PAM session

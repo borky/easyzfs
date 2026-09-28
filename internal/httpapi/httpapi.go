@@ -49,6 +49,7 @@ type Server struct {
 	perf         collectors.PerfProvider
 	caps         collectors.CapProvider
 	diskUse      collectors.DiskUseProvider
+	host         collectors.HostStorageProvider
 	act          *actions.Service
 	sched        *scheduler.Scheduler
 	jstore       *scheduler.Store
@@ -89,6 +90,7 @@ type Deps struct {
 	Perf         collectors.PerfProvider
 	Caps         collectors.CapProvider
 	DiskUse      collectors.DiskUseProvider
+	Host         collectors.HostStorageProvider
 	Actions      *actions.Service
 	Sched        *scheduler.Scheduler
 	Jobs         *scheduler.Store
@@ -114,7 +116,7 @@ func NewServer(d Deps) *Server {
 		cfg: d.Cfg, db: d.DB, auth: d.Auth, users: d.Users, apiKeys: d.APIKeys,
 		alerter: d.Alerter, settings: d.Settings,
 		pools: d.Pools, disks: d.Disks, sysTimers: d.SysTimers,
-		perf: d.Perf, caps: d.Caps, diskUse: d.DiskUse,
+		perf: d.Perf, caps: d.Caps, diskUse: d.DiskUse, host: d.Host,
 		act: d.Actions, sched: d.Sched, jstore: d.Jobs, h: d.Hub, push: d.Push,
 		channels: d.Channels, channelStore: d.ChannelStore,
 		mailer: d.Mailer,
@@ -418,6 +420,9 @@ func (s *Server) refreshAfterMutation(next http.Handler) http.Handler {
 			if rc, ok := s.diskUse.(interface{ RefreshSoon() }); ok {
 				rc.RefreshSoon()
 			}
+			if rc, ok := s.host.(interface{ RefreshSoon() }); ok {
+				rc.RefreshSoon()
+			}
 		}
 	})
 }
@@ -502,6 +507,8 @@ func actionErr(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, actions.ErrSnapshotNotFound), errors.Is(err, actions.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, actions.ErrHostStorage):
+		writeErr(w, http.StatusForbidden, "host_storage", err.Error())
 	case errors.Is(err, actions.ErrConflict):
 		writeErr(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, actions.ErrRiskAck):

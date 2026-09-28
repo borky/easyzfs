@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"easyzfs/internal/actions"
 	"easyzfs/internal/longops"
 )
 
@@ -51,6 +52,15 @@ func (s *Server) rewriteDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if !requireConfirm(w, body.Confirm, name) {
 		return
+	}
+	// Rewriting the running OS or a guest disk under a live VM is not a
+	// maintenance task EasyZFS should start (analysis §21). A mock
+	// deployment has no host to read.
+	if !s.cfg.Mock {
+		if err := actions.CheckHostDataset(r.Context(), actions.OpDatasetRemove, name); err != nil {
+			actionErr(w, err)
+			return
+		}
 	}
 	// El dataset debe existir, ser filesystem y estar montado (rewrite actúa
 	// sobre el árbol de ficheros del mountpoint).

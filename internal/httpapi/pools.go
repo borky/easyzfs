@@ -43,6 +43,11 @@ func (s *Server) listPools(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if hv := s.hostView(); hv != nil {
+		for i := range pools {
+			pools[i].Host, pools[i].HostReason = hv.PoolKind(pools[i].Name)
+		}
+	}
 	writeJSON(w, http.StatusOK, pools)
 }
 

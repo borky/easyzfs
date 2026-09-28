@@ -145,14 +145,43 @@ One thing the import cannot report: on a host with no NFS server tooling, OpenZF
 `zfs share` answers that and the import shows no warning although no export
 exists. A plain `zpool import` could not have exported it either.
 
+**§19.6, §21 — done** (`feat(host)`): the app recognises the host's own
+storage and keeps its hands off it.
+
+- **Read from the live host, every time, never from what EasyZFS created or
+  recorded.** On Proxmox the pools exist before EasyZFS is installed.
+  - The installer made `rpool`, with the OS on `rpool/ROOT/pve-1`.
+  - The admin made the data pools, registered as Proxmox storage.
+- **The OS pool** is whichever pool's dataset is mounted at `/`, from
+  mountinfo, so no pool name is assumed. It stays view-only apart from
+  maintenance (scrub, trim, clear, SMART, snapshots). Replacing one of its
+  disks needs Proxmox's own procedure (partitions copied, `proxmox-boot-tool`),
+  which `zpool replace` does not do.
+- **System datasets** are that pool's root, its boot-environment container, and
+  anything mounted outside the pool's tree (`/var/lib/vz`). They cannot be
+  destroyed, renamed, unmounted, changed or rolled back.
+- **Guest disks** are recognised by Proxmox's names (`vm-N-disk-N`, `subvol-…`,
+  …) on any pool, and are managed from Proxmox.
+- **Proxmox storage** is the `zfspool` datasets in `/etc/pve/storage.cfg` (read
+  through one pinned `sudo cat`) and any dataset holding guest disks. It
+  cannot be destroyed, renamed, unmounted or moved, and a pool holding it
+  cannot be exported or destroyed. Its disks can still be replaced: for a data
+  pool that is the repair that matters.
+- **No recursive snapshot sweeps up guest disks.** That covers scheduled
+  snapshot jobs too: `qm rollback` refuses while a snapshot it does not know
+  sits on the disk.
+- Each rule is enforced in the actions, which read the host again and refuse
+  when they cannot. The UI marks each item and leaves out what would be
+  refused.
+- Verified on the Proxmox VE 8.4 VM, with a VM disk and a container subvolume
+  named as Proxmox names them, and the VM left as it was.
+
 **Still open.**
 
-- **§19.6, §21 — host storage is not marked as such.** The rules above stop a
-  dataset landing on a system path, but the UI still shows `rpool` exactly like
-  a data pool: nothing says "this pool holds the running Proxmox OS" and
-  nothing restricts destroying it. The safety model §21 asks for — OS storage
-  view-only, data pools fully managed — would need the app to recognise the
-  boot pool, which it does not.
+- **Replication source.** A replication job's snapshot on a guest disk is not
+  refused (replicating VM disks off-host is a real use). The runner keeps its
+  two latest `ezrepl-*` snapshots on the source, so Proxmox cannot roll back a
+  VM whose disk is being replicated.
 
 ### Destructive actions only after the safety steps
 

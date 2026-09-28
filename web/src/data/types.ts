@@ -251,6 +251,10 @@ export interface Pool {
   checkpoint: boolean;  // checkpoint activo en el pool
   // Vdevs raidz del pool ("raidz2-0"…), objetivo de RAID-Z expansion (lote D)
   raidz_vdevs?: string[];
+  /** The host's own storage, read from the live system (not from what EasyZFS created):
+   *  'system' = the running OS is on it; 'storage' = holds Proxmox storage or guest disks. */
+  host?: 'system' | 'storage';
+  host_reason?: string;
 }
 
 // Pool conocido que ya no aparece en zpool list (GET /api/pools/missing, #136).
@@ -302,6 +306,9 @@ export interface Dataset {
   mountpoint: string;
   encryption: string;  // valor efectivo: "off" | "aes-256-gcm" | …
   keystatus: string;   // "available" | "unavailable" | "-"
+  /** 'system' = part of the running OS; 'guest' = a Proxmox VM/CT disk; 'storage' = Proxmox storage. */
+  host?: 'system' | 'guest' | 'storage';
+  host_reason?: string;
 }
 
 // Una propiedad de dataset (GET /api/datasets/{name}/properties).

@@ -69,6 +69,10 @@ export default function Datasets() {
               const canRewrite = isAdmin && !!caps?.rewrite && d.type === 'fs' &&
                 !!d.mountpoint && d.mountpoint !== '—' && d.mountpoint !== '-' && d.mountpoint !== 'none' && d.mountpoint !== 'legacy';
               const encrypted = !!d.encryption && d.encryption !== 'off' && d.encryption !== '-';
+              // Host storage (analysis §21): what the server would refuse is
+              // not offered. 'storage' keeps ordinary property changes.
+              const hosted = !!d.host;
+              const osOrGuest = d.host === 'system' || d.host === 'guest';
               const unlocked = d.keystatus === 'available';
               return (
               <tr className="clickable" key={d.name}
@@ -95,6 +99,13 @@ export default function Datasets() {
                   {rewriting && (
                     <Badge tone="info" style={{ marginLeft: 8 }}>{t('ds_rewrite_running')}</Badge>
                   )}
+                  {d.host && (
+                    <span title={d.host_reason}>
+                      <Badge tone="info" style={{ marginLeft: 8 }}>
+                        {t(d.host === 'system' ? 'host_badge_system' : d.host === 'guest' ? 'host_badge_guest' : 'host_badge_storage')}
+                      </Badge>
+                    </span>
+                  )}
                 </td>
                 <td style={{ color: 'var(--text2)' }}>{d.type === 'volume' ? t('ds_vol') : t('ds_fs')}</td>
                 <td>{d.compression}</td>
@@ -103,7 +114,7 @@ export default function Datasets() {
                 <td className="num">{d.quota_bytes ? fmtBytes(d.quota_bytes) : <span className="dim">—</span>}</td>
                 <td className="mono dim hide-md" style={{ fontSize: 12 }}>{d.mountpoint || '—'}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  {encrypted && isAdmin && (<>
+                  {encrypted && isAdmin && !osOrGuest && (<>
                     {!unlocked && (
                       <button className="btn sm" title={t('ds_unlock_hint')}
                         onClick={(e) => { e.stopPropagation(); openModal('unlockds', { ds: d }); }}>
@@ -121,16 +132,18 @@ export default function Datasets() {
                       {t('ds_changekey')}
                     </button>{' '}
                   </>)}
-                  <button className="btn sm" onClick={(e) => { e.stopPropagation(); openModal('newsnap', { dataset: d.name }); }}>
-                    {t('ds_snapshot')}
-                  </button>{' '}
-                  {canRewrite && !rewriting && (
+                  {d.host !== 'guest' && (
+                    <button className="btn sm" onClick={(e) => { e.stopPropagation(); openModal('newsnap', { dataset: d.name }); }}>
+                      {t('ds_snapshot')}
+                    </button>
+                  )}{' '}
+                  {canRewrite && !rewriting && !hosted && (
                     <button className="btn sm" title={t('ds_rewrite_hint')}
                       onClick={(e) => { e.stopPropagation(); openModal('rewrite', { ds: d }); }}>
                       {t('ds_rewrite')}
                     </button>
                   )}{' '}
-                  {isAdmin && (
+                  {isAdmin && !hosted && (
                     <button className="btn sm danger" onClick={(e) => { e.stopPropagation(); openModal('delds', { name: d.name }); }}>
                       {t('delete')}
                     </button>
@@ -141,19 +154,19 @@ export default function Datasets() {
                       {t('ds_mount')}
                     </button>
                   )}
-                  {isAdmin && (
+                  {isAdmin && !hosted && (
                     <button className="btn sm" title={t('ds_unmount')}
                       onClick={(e) => { e.stopPropagation(); dsAct(() => getProvider().unmountDataset(d.name)); }}>
                       {t('ds_unmount')}
                     </button>
                   )}
-                  {isAdmin && (
+                  {isAdmin && !hosted && (
                     <button className="btn sm" title={t('ds_rename')}
                       onClick={(e) => { e.stopPropagation(); openModal('renameds', { name: d.name }); }}>
                       {t('ds_rename')}
                     </button>
                   )}
-                  {isAdmin && (
+                  {isAdmin && !hosted && (
                     <button className="btn sm" title={t('ds_promote_hint')}
                       onClick={(e) => { e.stopPropagation(); dsAct(() => getProvider().promoteDataset(d.name)); }}>
                       {t('ds_promote')}

@@ -171,6 +171,11 @@ docs/api-contract.md the front↔back contract — source of truth for the API
    `confirm` when destructive, write `audit_log`. A disk about to be handed to
    ZFS or powered off goes through `requireFreeDisk` (live `lsblk`, never the
    cache); a property with real blast radius gets a `PropRisk` entry.
+   Every action that changes a pool or dataset calls `guardHost`
+   (`internal/actions/hoststorage.go`) before it runs anything: the running
+   OS, Proxmox storage and guest disks are recognised from the live host, and
+   on Proxmox those pools predate the install, so never infer them from what
+   EasyZFS created.
    Deleting a dataset from the UI goes through the recycle bin
    (`DatasetTrash`, `internal/actions/trash.go`), and anything that takes
    redundancy away checks the pool first (`vdevActionRisk`). Anything that can

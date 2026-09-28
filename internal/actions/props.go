@@ -453,6 +453,9 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 	if !spec.valid(value) {
 		return fmt.Errorf("%w: valor inválido para %s (%s)", ErrInvalidInput, property, spec.describeKind())
 	}
+	if err := guardHost(ctx, propHostOp(property), "", name); err != nil {
+		return err
+	}
 	if spec.kind == propPath {
 		if err := checkMountpoint(ctx, value, name); err != nil {
 			return err
@@ -490,6 +493,9 @@ func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property 
 	}
 	if _, ok := propValidators[property]; !ok {
 		return fmt.Errorf("%w: propiedad no editable (%s)", ErrInvalidInput, property)
+	}
+	if err := guardHost(ctx, propHostOp(property), "", name); err != nil {
+		return err
 	}
 	// Refuse before asking, as DatasetPropSet does: acknowledging the risk is
 	// not enough when the result is a system path, so there is nothing to ask
@@ -583,3 +589,15 @@ func (s *Service) volsizeShrinks(ctx context.Context, name, value string) bool {
 	return err != nil || want < cur
 }
 
+
+// propHostOp — the host-storage class of changing property: where a dataset
+// mounts is refused on Proxmox storage too (its containers' subvolumes are
+// found by that path); any other property only on system datasets and guest
+// disks.
+func propHostOp(property string) HostOp {
+	switch property {
+	case "mountpoint", "canmount", "readonly":
+		return OpDatasetMountCfg
+	}
+	return OpDatasetChange
+}

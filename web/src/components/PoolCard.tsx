@@ -125,6 +125,12 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
     (pool.raidz_vdevs ?? []).length > 0 && free.length > 0 && !expanding;
 
   const ledCls = ok ? 'g' : pool.status === 'DEGRADED' ? 'a' : 'r';
+  // The host's own storage (analysis §21), read from the live system: the
+  // pool the running OS is on keeps only maintenance; one holding Proxmox
+  // storage cannot be exported or destroyed. The server refuses the same.
+  const hostSys = pool.host === 'system';
+  const lockedTitle = pool.host_reason ?? '';
+
   return (
     <div className="card">
       <div className="pool-head">
@@ -134,6 +140,11 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
             {pool.name} <Badge tone={ok ? 'ok' : 'warn'}>{statusLabel(pool.status, t)}</Badge>
             {/* warn, not info: a checkpoint blocks zpool replace and hot spares */}
             {pool.checkpoint && <Badge tone="warn">{t('ck_badge')}</Badge>}
+            {pool.host && (
+              <span title={pool.host_reason}>
+                <Badge tone="info">{t(hostSys ? 'host_badge_system' : 'host_badge_storage')}</Badge>
+              </span>
+            )}
           </div>
           <div className="pool-raid">{pool.topo} <TopoHelp topo={pool.topo} /></div>
         </div>
@@ -203,7 +214,7 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
               old: shortDev(faulted),
             })}
           </span>
-          <button className="btn sm warn" title={t('pool_rebuild_hint')}
+          <button className="btn sm warn" title={hostSys ? lockedTitle : t('pool_rebuild_hint')} disabled={hostSys}
             onClick={() => openModal('replace', { pool: pool.name, oldDev: faulted.dev, newDev: free[0].dev })}>
             {t('pool_rebuild_btn')}
           </button>
@@ -241,11 +252,11 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
                 {t('vdev_joining')} · {Math.round(pool.scrub.pct)}%
               </span>
             ) : (<>
-            <button className="btn sm" disabled={!isAdmin}
-              title={!isAdmin ? t('no_permission') : t('pool_replace_disk', { dev: shortDev(v) })}
+            <button className="btn sm" disabled={!isAdmin || hostSys}
+              title={!isAdmin ? t('no_permission') : hostSys ? lockedTitle : t('pool_replace_disk', { dev: shortDev(v) })}
               onClick={() => openModal('replace', { pool: pool.name, oldDev: v.dev })}>{t('pool_replace')}</button>
             {v.status === 'ONLINE' && (
-              <button className="btn sm" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : t('vdev_offline_hint')}
+              <button className="btn sm" disabled={!isAdmin || hostSys} title={!isAdmin ? t('no_permission') : hostSys ? lockedTitle : t('vdev_offline_hint')}
                 onClick={() => vdevAct(v.dev, 'offline')}>{t('vdev_offline')}</button>
             )}
             {v.status === 'OFFLINE' && (
@@ -253,7 +264,7 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
                 onClick={() => vdevAct(v.dev, 'online')}>{t('vdev_online')}</button>
             )}
             {isMirror && (
-              <button className="btn sm danger" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : t('vdev_detach_hint')}
+              <button className="btn sm danger" disabled={!isAdmin || hostSys} title={!isAdmin ? t('no_permission') : hostSys ? lockedTitle : t('vdev_detach_hint')}
                 onClick={() => openModal('detach', { pool: pool.name, dev: v.dev, path: v.path })}>{t('vdev_detach')}</button>
             )}
             </>)}
@@ -267,6 +278,7 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
         })}
       </div>
 
+      {hostSys && <p className="desc" style={{ padding: '0 16px' }}>{t('host_system_note')}</p>}
       {err && <p className="form-err" style={{ padding: '0 16px' }} role="alert">{err}</p>}
       {risk && (
         <div className="form-err" style={{ padding: '0 16px' }} role="alert">
@@ -288,13 +300,13 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
           onClick={() => openModal('history', { pool: pool.name })}>{t('pool_history')}</button>
         <button className="btn sm" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : t('ck_title')}
           onClick={() => openModal('checkpoint', { pool: pool.name, active: pool.checkpoint })}>{t('pool_checkpoint')}</button>
-        <button className="btn sm" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : t('pool_add_vdev_hint')}
+        <button className="btn sm" disabled={!isAdmin || hostSys} title={!isAdmin ? t('no_permission') : hostSys ? lockedTitle : t('pool_add_vdev_hint')}
           onClick={() => openModal('addvdev', { pool: pool.name })}>{t('pool_add_vdev')}</button>
         {canExpand && (
-          <button className="btn sm" title={t('xpd_hint')}
+          <button className="btn sm" title={hostSys ? lockedTitle : t('xpd_hint')} disabled={hostSys}
             onClick={() => openModal('expand', { pool })}>{t('xpd_btn')}</button>
         )}
-        <button className="btn sm" disabled={!isAdmin} title={!isAdmin ? t('no_permission') : t('pool_export_hint')}
+        <button className="btn sm" disabled={!isAdmin || !!pool.host} title={!isAdmin ? t('no_permission') : pool.host ? lockedTitle : t('pool_export_hint')}
           onClick={() => openModal('export', { pool: pool.name })}>
           {t('pool_export')}
         </button>

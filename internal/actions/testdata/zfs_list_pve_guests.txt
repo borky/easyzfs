@@ -1,0 +1,8 @@
+rpool	filesystem	/rpool
+rpool/ROOT	filesystem	/rpool/ROOT
+rpool/ROOT/pve-1	filesystem	/
+rpool/data	filesystem	/rpool/data
+rpool/data/media	filesystem	/rpool/data/media
+rpool/data/subvol-101-disk-0	filesystem	/rpool/data/subvol-101-disk-0
+rpool/data/vm-100-disk-0	volume	-
+rpool/var-lib-vz	filesystem	/var/lib/vz
