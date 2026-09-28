@@ -1068,6 +1068,11 @@ func (s *Service) DatasetMount(ctx context.Context, actor, name string) error {
 	}
 	s.audit(ctx, actor, "dataset.mount", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "mount", name); err != nil {
+		// Asked to be mounted and it is: that is the state the caller wants,
+		// not a 500 (seen on Proxmox with rpool/var-lib-vz).
+		if strings.Contains(err.Error(), "already mounted") {
+			return nil
+		}
 		return fmt.Errorf("montar dataset: %w", err)
 	}
 	return nil

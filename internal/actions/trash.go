@@ -128,7 +128,10 @@ func (s *Service) zfsGetRows(ctx context.Context, args ...string) ([]propRow, er
 // setMountpoints puts each row's recorded mountpoint back, parents first
 // (a child mounted before its parent would be hidden under it).
 func setMountpoints(ctx context.Context, rows []propRow, received map[string]bool) []string {
-	sort.Slice(rows, func(i, j int) bool { return len(rows[i].name) < len(rows[j].name) })
+	// By mountpoint, as mountTree and 'zpool import' order it: nesting
+	// follows the paths, not the dataset names (tank/a at /mnt/d/s sits
+	// inside tank/bbbb at /mnt/d).
+	sort.Slice(rows, func(i, j int) bool { return rows[i].value < rows[j].value })
 	var problems []string
 	for _, r := range rows {
 		var err error

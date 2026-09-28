@@ -443,3 +443,24 @@ func TestPurgeDropsVanishedEntries(t *testing.T) {
 		t.Fatalf("stale row kept: %v", list)
 	}
 }
+
+// Mountpoints go back parents first by path, not by dataset name: tank/a is
+// mounted inside tank/bbbb here, and setting it first would leave it hidden
+// under its parent's mount.
+func TestSetMountpointsOrdersByPath(t *testing.T) {
+	f := newFakeZFS("tank", "tank/a", "tank/bbbb")
+	useFakeZFS(t, f)
+	setMountpoints(context.Background(), []propRow{
+		{name: "tank/a", value: "/mnt/d/s"},
+		{name: "tank/bbbb", value: "/mnt/d"},
+	}, nil)
+	var order []string
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "set mountpoint=") {
+			order = append(order, c)
+		}
+	}
+	if len(order) != 2 || order[0] != "set mountpoint=/mnt/d tank/bbbb" {
+		t.Fatalf("order = %q, want the parent path first", order)
+	}
+}
