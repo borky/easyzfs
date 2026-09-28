@@ -287,8 +287,14 @@ func (s *Server) deleteDataset(w http.ResponseWriter, r *http.Request) {
 	if !requireConfirm(w, body.Confirm, name) {
 		return
 	}
+	// What is in the bin goes through /api/trash, under the bin's lock; a
+	// plain destroy here could race a restore.
+	if actions.InTrash(name) {
+		writeErr(w, http.StatusBadRequest, "invalid_input", "está en la papelera: restáuralo o bórralo desde la papelera")
+		return
+	}
 	var err error
-	if body.Permanent || actions.InTrash(name) {
+	if body.Permanent {
 		err = s.act.DatasetDelete(r.Context(), actor(r), name, body.Recursive)
 	} else {
 		err = s.act.DatasetTrash(r.Context(), actor(r), name, body.Recursive)

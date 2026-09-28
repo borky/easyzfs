@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ type fakeDS struct {
 	canmount   string
 	keystatus  string
 	mounted    bool
+	volume     bool
 }
 
 type fakeZFS struct {
@@ -89,6 +92,16 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 					if d.keystatus != "" {
 						val = d.keystatus
 					}
+				case "mounted":
+					val = "no"
+					if d.mounted && !d.volume {
+						val = "yes"
+					}
+				case "type":
+					val = "filesystem"
+					if d.volume {
+						val = "volume"
+					}
 				}
 				if withName {
 					fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", n, prop, val, src)
@@ -152,9 +165,58 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 }
 
 func useFakeZFS(t *testing.T, f *fakeZFS) {
-	saved := runZFS
+	saved, savedUse, savedDir := runZFS, inUse, zvolDir
 	runZFS = f.run
-	t.Cleanup(func() { runZFS = saved })
+	inUse = func(context.Context, string, bool) (bool, error) { return false, nil }
+	zvolDir = t.TempDir()
+	t.Cleanup(func() { runZFS, inUse, zvolDir = saved, savedUse, savedDir })
+}
+
+// In use — a VM on a zvol, a container on a subvolume — is refused, as
+// destroy refused it with "busy"; so is not being able to tell.
+func TestTrashRefusesWhatIsInUse(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name string
+		busy string // path reported busy
+		fail bool   // the check itself fails
+		want bool   // trash refused
+	}{
+		{"idle", "", false, false},
+		{"mounted filesystem busy", "/inherited", false, true},
+		{"zvol open", "zd0", false, true},
+		{"cannot tell", "", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			svc, _ := newTestService(t)
+			f := newFakeZFS("tank", "tank/data", "tank/data/vm-100-disk-0")
+			f.ds["tank/data/vm-100-disk-0"].volume = true
+			useFakeZFS(t, f)
+			// the zvol's device node
+			must := func(err error) {
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			dev := filepath.Join(t.TempDir(), "zd0")
+			must(os.WriteFile(dev, nil, 0o644))
+			must(os.MkdirAll(filepath.Join(zvolDir, "tank", "data"), 0o755))
+			must(os.Symlink(dev, filepath.Join(zvolDir, "tank", "data", "vm-100-disk-0")))
+			inUse = func(_ context.Context, path string, _ bool) (bool, error) {
+				if c.fail {
+					return false, errors.New("sudo: a password is required")
+				}
+				return c.busy != "" && strings.HasSuffix(path, c.busy), nil
+			}
+			err := svc.DatasetTrash(ctx, "tester", "tank/data", true)
+			if refused := errors.Is(err, ErrConflict); refused != c.want {
+				t.Fatalf("err = %v, want refused=%v", err, c.want)
+			}
+			if c.want && f.ds["tank/data"] == nil {
+				t.Fatal("refused, yet moved")
+			}
+		})
+	}
 }
 
 func TestTrashAndRestore(t *testing.T) {

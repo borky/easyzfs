@@ -516,6 +516,13 @@ export class MockProvider implements DataProvider {
         p.vdevs.filter((x) => x.dev !== dev && x.role === 'mirror' && x.status === 'ONLINE' && (x.group ?? '') === (v.group ?? '')).length < 2) {
       throw new ApiError(409, 'risk_ack_required', 'es un mirror de dos discos: al retirar uno, el pool se queda sin redundancia');
     }
+    const parity = /^raidz(\d)$/.exec(v.role)?.[1];
+    if (!ack && action === 'offline' && parity) {
+      const missing = p.vdevs.filter((x) => x.dev !== dev && x.role === v.role && (x.group ?? '') === (v.group ?? '') && x.status !== 'ONLINE').length;
+      if (missing + 1 >= Number(parity)) {
+        throw new ApiError(409, 'risk_ack_required', `${v.group ?? v.role} se queda sin paridad: sin redundancia, un fallo más pierde los datos`);
+      }
+    }
     if (action === 'detach') {
       if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
       p.vdevs = p.vdevs.filter((x) => x.dev !== dev);

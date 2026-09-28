@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +42,30 @@ var (
 	// Mapped to 409.
 	ErrConflict = errors.New("conflicto")
 )
+
+// inUse — whether any process has path open: a zvol's device (mount=false)
+// or a mounted filesystem (mount=true, 'fuser -m'). fuser reports processes
+// of every user only as root, hence sudo. Exit 0 = in use, exit 1 with
+// nothing on stderr = free; anything else (sudo refusing, no fuser) is an
+// error, which the caller treats as "cannot tell". Test seam.
+var inUse = func(ctx context.Context, path string, mount bool) (bool, error) {
+	flag := "-s"
+	if mount {
+		flag = "-sm"
+	}
+	_, err := executil.RunTolerant(ctx, 15*time.Second, "fuser", flag, path)
+	if err == nil {
+		return true, nil
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 1 && len(strings.TrimSpace(string(ee.Stderr))) == 0 {
+		return false, nil
+	}
+	return false, err
+}
+
+// zvolDir — test seam.
+var zvolDir = "/dev/zvol"
 
 // runZFS — test seam over the privileged zfs runner.
 var runZFS = func(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
@@ -135,16 +161,53 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 	s.trashMu.Lock()
 	defer s.trashMu.Unlock()
 
-	// Every dataset in the tree, with where its mountpoint comes from.
-	rows, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume", "mountpoint", name)
+	// Every dataset in the tree, with where its mountpoint comes from, and
+	// whether it is mounted or a volume (for the in-use check).
+	all, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume", "mountpoint,mounted,type", name)
 	if err != nil {
 		return fmt.Errorf("leer %s: %w", name, err)
+	}
+	var rows []propRow
+	info := map[string]map[string]string{}
+	for _, r := range all {
+		if info[r.name] == nil {
+			info[r.name] = map[string]string{}
+		}
+		info[r.name][r.prop] = r.value
+		if r.prop == "mountpoint" {
+			rows = append(rows, r)
+		}
 	}
 	if len(rows) == 0 {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 	if len(rows) > 1 && !recursive {
 		return fmt.Errorf("%w: %s tiene datasets hijos; márcalo como recursivo para moverlos también", ErrInvalidInput, name)
+	}
+	// Something still using it (a VM on a zvol, a container on a subvolume)
+	// is refused, as destroy refused it with "busy": moved to the bin it
+	// would keep running on a disk the purge destroys once it stops.
+	for _, r := range rows {
+		path, mount := "", false
+		switch {
+		case info[r.name]["type"] == "volume":
+			dev, err := filepath.EvalSymlinks(filepath.Join(zvolDir, r.name))
+			if err != nil {
+				continue // no device node (volmode=none, or not created yet)
+			}
+			path = dev
+		case info[r.name]["mounted"] == "yes":
+			path, mount = r.value, true
+		default:
+			continue
+		}
+		busy, err := inUse(ctx, path, mount)
+		if err != nil {
+			return fmt.Errorf("%w: no se pudo comprobar si %s está en uso (%v); no se mueve a la papelera", ErrConflict, r.name, err)
+		}
+		if busy {
+			return fmt.Errorf("%w: %s está en uso (¿una VM o un contenedor en marcha?); detenlo antes de borrarlo", ErrConflict, r.name)
+		}
 	}
 	st := trashState{Mountpoints: map[string]string{}, Received: map[string]bool{}}
 	var own []propRow // mountpoints that would survive the move: local or received

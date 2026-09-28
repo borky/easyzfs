@@ -462,6 +462,9 @@ deps_debian() {
     missing+=(zfsutils-linux)
   fi
   command -v smartctl >/dev/null 2>&1 || missing+=(smartmontools)
+  # fuser: the recycle bin refuses a dataset something still uses. Proxmox
+  # ships it; a minimal Debian may not. Read-only installs never need it.
+  [ "$OPT_READONLY" = "1" ] || command -v fuser >/dev/null 2>&1 || missing+=(psmisc)
   command -v lsblk    >/dev/null 2>&1 || missing+=(util-linux)
   command -v curl     >/dev/null 2>&1 || missing+=(curl)
   [ -e /etc/ssl/certs/ca-certificates.crt ] || missing+=(ca-certificates)
@@ -978,7 +981,7 @@ require_sudo_regex() {
 # internal/actions/sudoers_test.go checks. In sudoers, ',', ':', '=' and '\'
 # in arguments are escaped with '\'.
 pinned_sudoers() {
-  local zpool="$1" zfs="$2" smartctl="$3" lsblk="$4" crontab="$5" hdparm="$6" udisksctl="$7" dd="$8"
+  local zpool="$1" zfs="$2" smartctl="$3" lsblk="$4" crontab="$5" hdparm="$6" udisksctl="$7" dd="$8" fuser="$9"
   local P='[A-Za-z0-9][A-Za-z0-9_.-]*'                  # pool (rePool)
   local D='[A-Za-z0-9][A-Za-z0-9_./-]*'                 # dataset (reDataset)
   local N='[A-Za-z0-9][A-Za-z0-9_.\:-]*'                # snapshot name (reSnapName)
@@ -1035,6 +1038,7 @@ $u ${smartctl} ^-t (short|long) ${K}\$
 $u ${dd} ^if\=${K} of\=/dev/null bs\=1M count\=2048\$
 $u ${hdparm} ^-y ${K}\$
 $u ${udisksctl} ^power-off -b ${K}\$
+$u ${fuser} ^-sm? /[A-Za-z0-9_./-]+\$
 $u ${lsblk} ^-J( -[bd])? -o [A-Z\,]+( ${K})?\$
 $u ${crontab} -l
 $u ${SYSD_HELPER}
@@ -1054,8 +1058,10 @@ write_sudoers() {
   udisksctl_path="$(command -v udisksctl 2>/dev/null || echo /usr/bin/udisksctl)"
   hdparm_path="$(command -v hdparm 2>/dev/null || echo /usr/sbin/hdparm)"
   local dd_path; dd_path="$(command -v dd 2>/dev/null || echo /usr/bin/dd)"
+  # fuser (psmisc): the recycle bin checks nothing is still using a dataset.
+  local fuser_path; fuser_path="$(command -v fuser 2>/dev/null || echo /usr/bin/fuser)"
   if sudo_has_regex; then
-    content="$(pinned_sudoers "$zpool_path" "$zfs_path" "$smartctl_path" "$lsblk_path" "$crontab_path" "$hdparm_path" "$udisksctl_path" "$dd_path")"
+    content="$(pinned_sudoers "$zpool_path" "$zfs_path" "$smartctl_path" "$lsblk_path" "$crontab_path" "$hdparm_path" "$udisksctl_path" "$dd_path" "$fuser_path")"
   elif [ "$OPT_READONLY" = "1" ]; then
     : # require_sudo_regex below stops the install with its own message
   elif [ "$OPT_UNPINNED" = "1" ]; then

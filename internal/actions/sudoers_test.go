@@ -39,7 +39,7 @@ func TestSudoersPropsMatchValidators(t *testing.T) {
 func TestStaticSudoersMatchesInstaller(t *testing.T) {
 	script := `eval "$(sed -n '/^pinned_sudoers() {/,/^}/p' ../../deploy/install.sh)"
 SVC_USER=easyzfs SYSD_HELPER=/usr/local/libexec/easyzfs-sysd
-pinned_sudoers /usr/sbin/zpool /usr/sbin/zfs /usr/sbin/smartctl /usr/bin/lsblk /usr/bin/crontab /usr/sbin/hdparm /usr/bin/udisksctl /usr/bin/dd`
+pinned_sudoers /usr/sbin/zpool /usr/sbin/zfs /usr/sbin/smartctl /usr/bin/lsblk /usr/bin/crontab /usr/sbin/hdparm /usr/bin/udisksctl /usr/bin/dd /usr/bin/fuser`
 	gen, err := exec.Command("bash", "-c", script).Output()
 	if err != nil {
 		t.Fatal(err)

@@ -693,7 +693,8 @@ func (c *ZpoolCollector) parseStatusText(out string, p *model.Pool) {
 	curRole := "stripe"
 	inConfig := false
 	replIndent := -1 // indentación del contenedor 'replacing-N' activo (-1 = no)
-	group, groupIndent := "", -1 // the redundant vdev being listed (see model.Vdev.Group)
+	// The redundant vdev being listed (see model.Vdev.Group).
+	group, groupIndent := "", -1
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "config:") {
 			inConfig = true
@@ -703,6 +704,11 @@ func (c *ZpoolCollector) parseStatusText(out string, p *model.Pool) {
 			m := vdevLineRe.FindStringSubmatch(line)
 			if m != nil {
 				indent, name, state := len(m[1]), m[2], m[3]
+				// Before the replacing-N skip: a top-level replacing-N is a
+				// sibling that ends the previous vdev's list too.
+				if groupIndent >= 0 && indent <= groupIndent {
+					group, groupIndent = "", -1
+				}
 				if strings.HasPrefix(name, "replacing-") {
 					replIndent = indent
 					continue
@@ -710,9 +716,6 @@ func (c *ZpoolCollector) parseStatusText(out string, p *model.Pool) {
 				replacing := replIndent >= 0 && indent > replIndent
 				if replIndent >= 0 && indent <= replIndent {
 					replIndent = -1
-				}
-				if groupIndent >= 0 && indent <= groupIndent {
-					group, groupIndent = "", -1 // a sibling: that vdev's list ended
 				}
 				if r := vdevRole(name, ""); r != "" {
 					curRole = r
