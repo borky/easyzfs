@@ -113,6 +113,12 @@ type HostView struct {
 	// guestRefs — dataset → the guests whose config references it
 	// ("VM 100", "CT 101"), from /etc/pve (pveconfig.go).
 	guestRefs map[string][]string
+	// bindRefs — dataset → the containers that bind-mount a path in it
+	// (mp0: /tank/media, lxc.mount.entry). Not guest disks: Proxmox keeps no
+	// snapshots of a bind mount, so snapshots, rollback and property changes
+	// stay allowed, but destroying, renaming or unmounting it pulls data out
+	// from under a running container — the rules of HostStorage.
+	bindRefs map[string][]string
 }
 
 type dsEntry struct{ typ, mountpoint string }
@@ -124,7 +130,7 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 		return nil, fmt.Errorf("leer los montajes del host: %w", err)
 	}
 	h := &HostView{RootDataset: root, OSPools: osPools, StorageRoots: map[string]string{},
-		datasets: map[string]dsEntry{}, guestRefs: map[string][]string{}}
+		datasets: map[string]dsEntry{}, guestRefs: map[string][]string{}, bindRefs: map[string][]string{}}
 	out, err := listAllDatasets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listar datasets: %w", err)
@@ -145,31 +151,31 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 		if pc, err := readPVEConfig(ctx); err == nil {
 			zfspools, dirs := parseStorageCfg(pc.StorageCfg)
 			// Datasets a guest config references, whatever their names.
-			for ref, who := range guestVolumeRefs(pc.Guests) {
-				storage, vol, _ := strings.Cut(ref, ":")
-				for ds, id := range zfspools {
-					if id == storage {
-						h.guestRefs[ds+"/"+vol] = who
-						if !contains(h.guests, ds+"/"+vol) {
-							h.guests = append(h.guests, ds+"/"+vol)
+			for ref, who := range pc.Refs {
+				ds := h.refDataset(ref, zfspools)
+				if ds == "" {
+					continue
+				}
+				if strings.HasPrefix(ref, "/") && !strings.HasPrefix(ref, "/dev/") {
+					for _, w := range who {
+						if !contains(h.bindRefs[ds], w) {
+							h.bindRefs[ds] = append(h.bindRefs[ds], w)
 						}
 					}
+					continue
+				}
+				h.guestRefs[ds] = append(h.guestRefs[ds], who...)
+				if !contains(h.guests, ds) {
+					h.guests = append(h.guests, ds)
 				}
 			}
-			for ds, id := range zfspools {
-				h.StorageRoots[ds] = id
+			for _, id := range sortedKeys(zfspools) {
+				h.StorageRoots[zfspools[id]] = id
 			}
 			// A dir storage lives in the dataset whose mountpoint holds its
 			// path: the one mounted there, or the deepest one above it.
 			for dir, id := range dirs {
-				best, bestLen := "", -1
-				for name, e := range h.datasets {
-					mp := path.Clean(e.mountpoint)
-					if strings.HasPrefix(e.mountpoint, "/") && (dir == mp || strings.HasPrefix(dir, mp+"/")) && len(mp) > bestLen && mp != "/" {
-						best, bestLen = name, len(mp)
-					}
-				}
-				if best != "" {
+				if best := h.datasetHolding(dir); best != "" {
 					h.StorageRoots[best] = id
 				}
 			}
@@ -179,6 +185,43 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 	}
 	sort.Strings(h.guests)
 	return h, nil
+}
+
+// refDataset — the dataset a guest config reference points at, or "":
+// "<zfspool storage>:<volume>" under that storage's dataset, "/dev/zvol/<ds>"
+// (or one of its partitions) as the zvol itself, and any other absolute path
+// as the dataset whose mountpoint holds it (a bind mount).
+func (h *HostView) refDataset(ref string, zfspools map[string]string) string {
+	if !strings.HasPrefix(ref, "/") {
+		storage, vol, _ := strings.Cut(ref, ":")
+		if ds, ok := zfspools[storage]; ok {
+			return ds + "/" + vol
+		}
+		return ""
+	}
+	if zv, ok := strings.CutPrefix(ref, "/dev/zvol/"); ok {
+		if _, ok := h.datasets[zv]; !ok {
+			if i := strings.LastIndex(zv, "-part"); i > 0 {
+				zv = zv[:i]
+			}
+		}
+		return zv
+	}
+	return h.datasetHolding(ref)
+}
+
+// datasetHolding — the dataset whose mountpoint holds dir: the one mounted
+// there, or the deepest one above it. Never the one mounted at /: a path on
+// the OS root is the OS's, which is already host storage.
+func (h *HostView) datasetHolding(dir string) string {
+	best, bestLen := "", -1
+	for name, e := range h.datasets {
+		mp := path.Clean(e.mountpoint)
+		if strings.HasPrefix(e.mountpoint, "/") && (dir == mp || strings.HasPrefix(dir, mp+"/")) && len(mp) > bestLen && mp != "/" {
+			best, bestLen = name, len(mp)
+		}
+	}
+	return best
 }
 
 // osPoolsFromMountinfo — the ZFS dataset mounted at /, and the pools with a
@@ -222,8 +265,9 @@ func osPoolsFromMountinfo() (root string, pools map[string]bool, err error) {
 	return top["/"], pools, nil
 }
 
-// parseStorageCfg — a Proxmox storage.cfg: zfspool dataset → storage id, and
-// dir storage path → storage id. Options are "key value" separated by any
+// parseStorageCfg — a Proxmox storage.cfg: zfspool storage id → dataset, and
+// dir storage path → storage id. Keyed by id, since two storages may share a
+// dataset (different nodes or content) and a guest names the storage. Options are "key value" separated by any
 // whitespace, as Proxmox's own parser reads them.
 func parseStorageCfg(cfg string) (zfspools, dirs map[string]string) {
 	zfspools, dirs = map[string]string{}, map[string]string{}
@@ -253,7 +297,7 @@ func parseStorageCfg(cfg string) (zfspools, dirs map[string]string) {
 		}
 		switch {
 		case typ == "zfspool" && f[0] == "pool":
-			zfspools[f[1]] = id
+			zfspools[id] = f[1]
 		case typ == "dir" && f[0] == "path":
 			dirs[path.Clean(f[1])] = id
 		}
@@ -284,6 +328,11 @@ func (h *HostView) PoolKind(pool string) (string, string) {
 	for _, g := range h.guests {
 		if under(g, pool) {
 			return HostStorage, fmt.Sprintf("el pool %s contiene discos de máquinas virtuales o contenedores de Proxmox (%s…)", pool, g)
+		}
+	}
+	for _, ds := range sortedKeys(h.bindRefs) {
+		if under(ds, pool) {
+			return HostStorage, fmt.Sprintf("el pool %s contiene %s, que monta %s en Proxmox", pool, ds, strings.Join(h.bindRefs[ds], ", "))
 		}
 	}
 	if h.PVE && h.StorageUnknown {
@@ -348,6 +397,14 @@ func (h *HostView) DatasetKind(name string) (string, string) {
 	for _, g := range h.guests {
 		if strings.HasPrefix(g, name+"/") {
 			return HostStorage, fmt.Sprintf("%s contiene discos de máquinas virtuales o contenedores de Proxmox (%s…)", name, g)
+		}
+	}
+	// A bind-mounted dataset, what is below it (the container sees it
+	// through the mount) and its ancestors (a recursive destroy or a rename
+	// takes it along).
+	for _, ds := range sortedKeys(h.bindRefs) {
+		if under(name, ds) || strings.HasPrefix(ds, name+"/") {
+			return HostStorage, fmt.Sprintf("%s lo monta %s en Proxmox (%s)", name, strings.Join(h.bindRefs[ds], ", "), ds)
 		}
 	}
 	if h.PVE && h.StorageUnknown && strings.Count(name, "/") <= 1 {

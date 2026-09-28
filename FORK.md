@@ -130,19 +130,28 @@ with `make update`. To publish signed releases, sign `checksums.txt` with
 `minisign -S` and put the public key in the helper.
 
 The helper also leaves the reason for a refusal in
-`$DATA_DIR/update/apply-refused` (created with O_EXCL, since the service
-account owns that directory), and `GET /api/update/status` returns it as
-`applyRefused`: without it Settings kept showing a refused update as one
-waiting for its restart. The weekly timer's script used to install a release
+`$DATA_DIR/update/apply-refused`, and `GET /api/update/status` returns it as
+`applyRefused`: without it Settings and the update wizard kept showing a
+refused update as one waiting for its restart. The service account owns that
+directory, so the file is created with `dd conv=excl` (O_EXCL fails on any
+existing path, symlinks included — bash's noclobber would write through a
+symlink to a FIFO or a disk), and the staged files are read with
+`nofollow,nonblock` so a planted FIFO cannot hang root. A refusal older than
+the running daemon is dropped as stale (a plain restart or reboot after a
+refusal also drops it; the update then shows as available again, and the
+next attempt reports the refusal again). The replaced binary is kept as
+`/usr/local/bin/easyzfs.prev`. The weekly timer's script used to install a release
 as root on its checksum alone — a second, weaker path around the helper. It now
 only downloads, and hands the binary to the helper; the installer no longer
-fetches upstream's copy of that script (which still does the old thing) and
-removes a weekly timer it cannot replace with the local one. `minisign` is
+fetches upstream's copy of that script (which still does the old thing),
+installs the timer only when the helper has a trusted key, and otherwise
+removes any weekly timer and script already there. `minisign` is
 installed with the update units. Tests (`internal/updater/applyhelper_test.go`,
 with a stub minisign): no key, no minisign, unsigned, wrong key, garbage
 signature, checksums swapped after signing, wrong arch, symlinked binary, a
-failed install keeping the old binary, and a planted `apply-refused` symlink
-not written through.
+failed install keeping the old binary, a FIFO as the staged binary refused
+without blocking, a planted `apply-refused` symlink not written through, and
+a stale refusal dropped.
 
 **§1, §19.1-2 — done**, see the effective-mountpoint row above. A Proxmox host
 that matters no longer needs read-only mode for this reason.
@@ -306,9 +315,23 @@ snapshot sections and `unused` disks included) is read, and each volume it
 references is mapped through `storage.cfg` to its dataset. That disk is a
 guest disk whatever its name, and the reason names the guest ("lo usa VM 900").
 
+- Guests that use a dataset without a storage volume count too. A raw
+  device (`scsi1: /dev/zvol/tank/vol`, `dev0:`) marks the zvol as a guest
+  disk, and a linked clone (`base-100-disk-0/vm-101-disk-0`) marks the clone.
+  A bind mount (`mp0: /tank/media,mp=/media`, `lxc.mount.entry`) marks the
+  dataset holding that path (never the OS root) as Proxmox *storage*, not a
+  guest disk: Proxmox keeps no snapshots of a bind mount, so snapshot jobs,
+  rollback and property changes keep working, while destroying, renaming or
+  unmounting it (or its pool) is refused. Bind paths through a symlink are
+  resolved as root in the gateway. Storage ids map to datasets by id, so two
+  storages on one dataset both resolve.
+- Known limits: a bind path inside a legacy-mounted dataset, and a raw
+  device written as `/dev/zdN`, map to no dataset.
 - The files are root-only: the service asks the gateway (`priv pvecfg`),
-  which reads exactly those paths, and the old `cat storage.cfg` sudo rule is
-  gone outside read-only mode.
+  which reads exactly those paths and returns only `storage.cfg` and the
+  volume references — not the configs, which hold cloud-init password
+  hashes and SSH keys. The old `cat storage.cfg` sudo rule is gone outside
+  read-only mode.
 - If `/etc/pve` or any guest config cannot be read (pmxcfs down, a
   permission problem), the host is treated as unknown. Every pool and
   top-level dataset then counts as Proxmox storage, and the UI banner says so.

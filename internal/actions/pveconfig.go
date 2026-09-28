@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -31,10 +32,13 @@ import (
 	"easyzfs/internal/executil"
 )
 
-// PVEConfig — storage.cfg and every guest config, as read from /etc/pve.
+// PVEConfig — storage.cfg and the volumes every guest config references, as
+// read from /etc/pve. Only the references leave the gateway: a guest config
+// also holds cloud-init password hashes, SSH keys and raw 'args', none of
+// which the service account needs.
 type PVEConfig struct {
-	StorageCfg string            `json:"storage_cfg"`
-	Guests     map[string]string `json:"guests"` // "qemu-server/100" | "lxc/101" → config text
+	StorageCfg string              `json:"storage_cfg"`
+	Refs       map[string][]string `json:"refs"` // guestVolumeRefs' result
 }
 
 // reGuestConf — a guest config path relative to /etc/pve/nodes/<node>/.
@@ -48,7 +52,8 @@ func ReadPVEConfig(dir string) (*PVEConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &PVEConfig{StorageCfg: string(b), Guests: map[string]string{}}
+	c := &PVEConfig{StorageCfg: string(b), Refs: map[string][]string{}}
+	guests := map[string]string{}
 	nodes, err := os.ReadDir(filepath.Join(dir, "nodes"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -74,7 +79,24 @@ func ReadPVEConfig(dir string) (*PVEConfig, error) {
 				if err != nil {
 					return nil, err
 				}
-				c.Guests[strings.TrimSuffix(rel, ".conf")] = string(b)
+				guests[strings.TrimSuffix(rel, ".conf")] = string(b)
+			}
+		}
+	}
+	c.Refs = guestVolumeRefs(guests)
+	// A bind mount through a symlink (/data → /tank/data) would match no
+	// mountpoint as written: add the resolved path too, read here as root
+	// where every path resolves. Paths through a legacy-mounted dataset
+	// still match nothing (its mountpoint property is not a path).
+	for _, ref := range sortedRefKeys(c.Refs) {
+		if !strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "/dev/") {
+			continue
+		}
+		if r, err := filepath.EvalSymlinks(ref); err == nil && r != ref && r != "/" {
+			for _, w := range c.Refs[ref] {
+				if !contains(c.Refs[r], w) {
+					c.Refs[r] = append(c.Refs[r], w)
+				}
 			}
 		}
 	}
@@ -106,11 +128,14 @@ var readPVEConfig = func(ctx context.Context) (*PVEConfig, error) {
 	return &PVEConfig{StorageCfg: string(b)}, nil
 }
 
-// guestVolumeRefs — "<storage>:<volume>" → the guests that use it, from the
-// guest configs: disk keys (scsi0, virtio1, efidisk0, tpmstate0, rootfs,
-// mp0…), unused disks and saved state, in the current config and in every
-// snapshot section. Only zfspool storages resolve to datasets; the caller
-// maps them.
+// guestVolumeRefs — what the guest configs use → the guests that use it:
+// disk keys (scsi0, virtio1, efidisk0, tpmstate0, rootfs, mp0, dev0…), unused
+// disks, saved state and raw lxc.mount.entry binds, in the current config
+// and in every snapshot section. A reference is either "<storage>:<volume>"
+// (only zfspool storages resolve to datasets; the caller maps them) or an
+// absolute path: a bind mount (mp0: /tank/media,mp=/media) or a raw device
+// (scsi1: /dev/zvol/tank/vol) — a guest using a dataset by path rather than
+// through a storage, which no naming convention would reveal.
 func guestVolumeRefs(guests map[string]string) map[string][]string {
 	refs := map[string][]string{}
 	keys := make([]string, 0, len(guests))
@@ -129,23 +154,43 @@ func guestVolumeRefs(guests map[string]string) map[string][]string {
 			if !ok || strings.HasPrefix(strings.TrimSpace(line), "#") {
 				continue
 			}
-			if !reDiskKey.MatchString(strings.TrimSpace(k)) {
-				continue
-			}
-			vol, _, _ := strings.Cut(strings.TrimSpace(v), ",")
-			if s, name, ok := strings.Cut(vol, ":"); ok && s != "" && name != "" && !strings.Contains(name, "/") {
-				ref := s + ":" + name
-				if !contains(refs[ref], who) {
-					refs[ref] = append(refs[ref], who)
+			k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+			var ref string
+			switch {
+			case k == "lxc.mount.entry":
+				// "<source> <target> none bind[,…] 0 0"
+				if f := strings.Fields(v); len(f) > 0 && strings.HasPrefix(f[0], "/") {
+					ref = path.Clean(f[0])
 				}
+			case reDiskKey.MatchString(k):
+				vol, _, _ := strings.Cut(v, ",")
+				if strings.HasPrefix(vol, "/") {
+					ref = path.Clean(vol)
+				} else if s, name, ok := strings.Cut(vol, ":"); ok && s != "" && name != "" {
+					// A linked clone is "<base>/<clone>": the clone is the
+					// dataset, as Proxmox's ZFSPoolPlugin reads it.
+					ref = s + ":" + name[strings.LastIndex(name, "/")+1:]
+				}
+			}
+			if ref != "" && ref != "/" && !contains(refs[ref], who) {
+				refs[ref] = append(refs[ref], who)
 			}
 		}
 	}
 	return refs
 }
 
+func sortedRefKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // reDiskKey — the config keys whose value is a volume.
-var reDiskKey = regexp.MustCompile(`^(ide|sata|scsi|virtio|efidisk|tpmstate|unused|mp)[0-9]+$|^(rootfs|vmstate)$`)
+var reDiskKey = regexp.MustCompile(`^(ide|sata|scsi|virtio|efidisk|tpmstate|unused|mp|dev)[0-9]+$|^(rootfs|vmstate)$`)
 
 func contains(s []string, v string) bool {
 	for _, x := range s {

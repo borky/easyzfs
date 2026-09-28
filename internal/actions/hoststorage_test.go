@@ -237,7 +237,7 @@ func TestSnapshotAndNameGuards(t *testing.T) {
 
 func TestParseStorageCfg(t *testing.T) {
 	zp, dirs := parseStorageCfg("dir: local\n\tpath /var/lib/vz\n\nzfspool: local-zfs\n\tpool rpool/data\n\tsparse\n\nzfspool: tank-vm\n\tpool\ttank/vmdata\n\tcontent images\n# zfspool: old\n\tpool gone\nzfs: iscsi\n\tpool remote/x\nlvmthin: x\n\tvgname pve\n")
-	if len(zp) != 2 || zp["rpool/data"] != "local-zfs" || zp["tank/vmdata"] != "tank-vm" {
+	if len(zp) != 2 || zp["local-zfs"] != "rpool/data" || zp["tank-vm"] != "tank/vmdata" {
 		t.Fatalf("zfspools = %v", zp)
 	}
 	if dirs["/var/lib/vz"] != "local" || len(dirs) != 1 {

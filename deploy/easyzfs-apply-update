@@ -37,13 +37,15 @@ KEY="${EASYZFS_APPLY_PUBKEY:-$TRUSTED_MINISIGN_KEY}"
 
 # A refusal is also left in apply-refused for the daemon to show: otherwise the
 # UI keeps reporting an update that never happened. The directory belongs to
-# the service account, so the file is created with O_EXCL (noclobber) after
-# removing whatever is there — a planted symlink or file is never written
-# through.
+# the service account, so the file is created with O_CREAT|O_EXCL (dd
+# conv=excl), which fails on anything already there, symlinks included. Not
+# bash's noclobber: that uses O_EXCL only when the path does not exist, and
+# opens an existing non-regular file (a symlink to a FIFO or a disk, planted
+# between the rm and the open) normally, so root would write through it.
 die() {
   echo "easyzfs-apply-update: $*" >&2
   rm -f "${UPD}/apply-refused" 2>/dev/null
-  (set -C; printf '%s\n' "$*" > "${UPD}/apply-refused") 2>/dev/null || true
+  printf '%s\n' "$*" | dd of="${UPD}/apply-refused" conv=excl status=none 2>/dev/null || true
   exit 1
 }
 
@@ -56,7 +58,9 @@ rm -f "${UPD}/.restart-me"
 staged="${UPD}/easyzfs.new"
 tagf="${UPD}/easyzfs.new.tag"
 [ -f "$tagf" ] && [ ! -L "$tagf" ] || die "falta la etiqueta de la release preparada: no se puede verificar, no se instala"
-tag="$(head -c 64 "$tagf" | tr -d '\r\n')"
+# nofollow,nonblock: a symlink or FIFO swapped in after the test above is
+# refused or read as empty, instead of followed or blocking root forever.
+tag="$(dd if="$tagf" bs=64 count=1 iflag=nofollow,nonblock status=none 2>/dev/null | tr -d '\r\n')" || tag=""
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]] || die "etiqueta de release no válida"
 
 case "$ARCH" in
@@ -69,7 +73,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 # iflag=nofollow: a symlink planted in place of the binary is refused, not
 # followed to some file only root can read.
-dd if="$staged" of="$tmp/bin" bs=1M iflag=nofollow status=none 2>/dev/null \
+dd if="$staged" of="$tmp/bin" bs=1M iflag=nofollow,nonblock status=none 2>/dev/null \
   || die "no se pudo leer el binario preparado (¿falta o es un enlace simbólico?)"
 [ -s "$tmp/bin" ] || die "el binario preparado está vacío"
 
@@ -85,8 +89,14 @@ got="$(sha256sum "$tmp/bin" | awk '{print $1}')"
 [ "$want" = "$got" ] || die "el binario preparado no coincide con la release oficial ${tag}: no se instala"
 
 own=(); [ "$(id -u)" = 0 ] && own=(-o root -g root)   # tests run unprivileged
-install -m 0755 "${own[@]}" "$tmp/bin" "${BIN}.new-$$"
-mv -f "${BIN}.new-$$" "$BIN"
+install -m 0755 "${own[@]}" "$tmp/bin" "${BIN}.new-$$" \
+  || { rm -f "${BIN}.new-$$"; die "no se pudo copiar el binario nuevo junto a ${BIN}: no se instala"; }
+# The binary being replaced stays as .prev (a hard link: the rename below
+# gives BIN a new inode and leaves this one alone) for a manual rollback.
+if [ -f "$BIN" ]; then
+  ln -f "$BIN" "${BIN}.prev" || { rm -f "${BIN}.new-$$"; die "no se pudo guardar ${BIN}.prev: no se instala"; }
+fi
+mv -f "${BIN}.new-$$" "$BIN" || { rm -f "${BIN}.new-$$"; die "no se pudo sustituir ${BIN}: sigue el anterior"; }
 rm -f "${UPD}/apply-refused"
 echo "easyzfs-apply-update: instalada la release ${tag} (firma y sha256 verificados)"
 

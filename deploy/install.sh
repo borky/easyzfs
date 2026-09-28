@@ -1531,14 +1531,25 @@ EOF
   # The weekly script hands what it downloads to the apply helper, which
   # verifies the release signature. Upstream's copy of the script installs on
   # a checksum alone, so it is never fetched: without the local copy and the
-  # helper there is no weekly timer.
+  # helper there is no weekly timer. Nor while the helper has no trusted key:
+  # every run would be refused, and the unit would sit in a failed state.
+  # Every branch that does not install the timer removes one left from an
+  # earlier (upstream) install, which would keep installing unsigned
+  # releases as root.
   weekly_src="$(local_deploy_file easyzfs-update-weekly.sh)"
+  local weekly_apply; weekly_apply="$(local_deploy_file easyzfs-apply-update)"
+  local weekly_skip=""
   if [ "$BIN_MODE" != "download" ]; then
-    info "Auto-update semanal NO instalado: el binario es local o compilado (${BIN_MODE}), y el timer lo sustituiría por la última release oficial."
-  elif [ -z "$weekly_src" ] || [ -z "$(local_deploy_file easyzfs-apply-update)" ]; then
-    info "Auto-update semanal NO instalado: faltan easyzfs-update-weekly.sh o easyzfs-apply-update junto al instalador."
-    # One installed earlier from upstream would keep installing unsigned
-    # releases as root every week.
+    weekly_skip="el binario es local o compilado (${BIN_MODE}), y el timer lo sustituiría por la última release oficial"
+  elif [ -z "${DOWNLOADED_TAG:-}" ]; then
+    weekly_skip="no se pudo determinar de qué release oficial viene el binario (¿URL propia?)"
+  elif [ -z "$weekly_src" ] || [ -z "$weekly_apply" ]; then
+    weekly_skip="faltan easyzfs-update-weekly.sh o easyzfs-apply-update junto al instalador"
+  elif [ -z "$(sed -n "s/^TRUSTED_MINISIGN_KEY=[\"']\{0,1\}\([^\"']*\).*/\1/p" "$weekly_apply" | head -n1)" ]; then
+    weekly_skip="easyzfs-apply-update no tiene clave de firma de confianza: toda release se rechazaría"
+  fi
+  if [ -n "$weekly_skip" ]; then
+    info "Auto-update semanal NO instalado: ${weekly_skip}."
     local u
     for u in easyzfs-update-weekly.timer easyzfs-update-weekly.service; do
       if [ -e "/etc/systemd/system/${u}" ]; then
@@ -1546,8 +1557,7 @@ EOF
         run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"
       fi
     done
-  elif [ -z "${DOWNLOADED_TAG:-}" ]; then
-    info "Auto-update semanal NO instalado: no se pudo determinar de qué release oficial viene el binario (¿URL propia?)."
+    if [ -e "$upd_script" ]; then run "${SUDO[@]}" rm -f "$upd_script"; fi
   elif [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] instalaría easyzfs-update-weekly.timer + .service + script (release ${DOWNLOADED_TAG})"
   else

@@ -36,6 +36,7 @@ export function UpdateWizard({ onClose }: UpdateWizardProps) {
   const [step, setStep] = useState<string>('downloading');
   const [pct, setPct] = useState(0);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
   const [ackDown, setAckDown] = useState(false);
 
   const esRef = useRef<EventSource | null>(null);
@@ -85,6 +86,15 @@ export function UpdateWizard({ onClose }: UpdateWizardProps) {
         if (v.uptime_sec < uptimeRef.current || Date.now() > deadline) {
           window.clearInterval(id);
           window.location.reload();
+          return;
+        }
+        // The root helper refused the download (signature, checksum…): no
+        // restart is coming, and the running binary is still the old one.
+        const st = await getProvider().getUpdateStatus();
+        if (st.applyRefused) {
+          window.clearInterval(id);
+          setRefused(st.applyRefused);
+          setPhaseBoth('error');
         }
       } catch {
         /* reiniciando… */
@@ -271,8 +281,9 @@ export function UpdateWizard({ onClose }: UpdateWizardProps) {
 
       {phase === 'error' && (
         <div className="uz-error">
-          <div className="uz-error-title">{t('uz_failed')}</div>
-          {errorCode && <div className="uz-error-code">{errorCode}</div>}
+          <div className="uz-error-title">{refused ? t('ab_upd_refused') : t('uz_failed')}</div>
+          {refused && <div>{t('ab_upd_refused_d')}</div>}
+          {(refused || errorCode) && <div className="uz-error-code">{refused || errorCode}</div>}
           <div className="m-actions">
             <button type="button" className="btn" onClick={onClose}>{t('uz_close')}</button>
           </div>

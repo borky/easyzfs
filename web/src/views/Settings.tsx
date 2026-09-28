@@ -111,6 +111,18 @@ function UpdateCheckRow({ version, channel }: { version: string | undefined; cha
     }
   };
 
+  // A refused update must show up when the page opens, not only after a
+  // manual check: the check button is exactly what a refusal looks like it
+  // no longer needs.
+  useEffect(() => {
+    if (channel !== 'github') return;
+    let alive = true;
+    getProvider().getUpdateStatus()
+      .then((st) => { if (alive && st.applyRefused) setStatus((cur) => cur ?? st); })
+      .catch(() => { /* no status: the check button still works */ });
+    return () => { alive = false; };
+  }, [channel]);
+
   // Until /api/version answers, the channel is unknown: render nothing rather
   // than a check button that, on a local build, would post to a route that
   // does not exist.

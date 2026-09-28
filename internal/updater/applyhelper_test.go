@@ -19,7 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 type applyEnv struct {
@@ -171,6 +173,9 @@ func TestApplyHelperInstallsMatchingRelease(t *testing.T) {
 	if r := e.refusal(t); r != "" {
 		t.Errorf("a successful install left a refusal: %q", r)
 	}
+	if b, err := os.ReadFile(e.bin + ".prev"); err != nil || string(b) != "old binary" {
+		t.Errorf(".prev = %q, %v; want the replaced binary", b, err)
+	}
 	// The private mount namespace goes, comments and the rest stay.
 	b, _ := os.ReadFile(unit)
 	if got := string(b); got != "[Service]\nUser=easyzfs\n# ProtectHome=yes is explained here\nMemoryMax=256M\n" {
@@ -271,6 +276,30 @@ func TestApplyHelperRefuses(t *testing.T) {
 	}
 }
 
+// A FIFO planted as the staged binary is refused at once: root reading it
+// with a blocking open would hang the oneshot unit forever.
+func TestApplyHelperFIFODoesNotHang(t *testing.T) {
+	e := newApplyEnv(t)
+	e.publish("v2.9.30", "genuine release")
+	e.stage(t, "genuine release", "v2.9.30")
+	nb := filepath.Join(e.upd, "easyzfs.new")
+	must(t, os.Remove(nb))
+	must(t, syscall.Mkfifo(nb, 0o644))
+	done := make(chan error, 1)
+	go func() { _, err := e.run(t); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("helper accepted a FIFO")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("helper blocked on a FIFO")
+	}
+	if got := e.installed(t); got != "old binary" {
+		t.Fatalf("installed binary changed to %q", got)
+	}
+}
+
 // Without minisign nothing can be verified, so nothing is installed.
 func TestApplyHelperRefusesWithoutMinisign(t *testing.T) {
 	if _, err := exec.LookPath("minisign"); err == nil {
@@ -344,5 +373,25 @@ func TestRollbackCarriesTheTag(t *testing.T) {
 		case !withTag && !os.IsNotExist(err):
 			t.Errorf("an untagged backup kept the newer tag %q", b)
 		}
+	}
+}
+
+// A refusal from before this process started is stale — something installed
+// and restarted since — and is dropped; one written since is reported.
+func TestApplyRefusedStaleness(t *testing.T) {
+	u := New("2.9.9", t.TempDir(), "")
+	must(t, os.MkdirAll(u.updateDir(), 0o755))
+	f := u.applyRefusedFile()
+	must(t, os.WriteFile(f, []byte("firma no válida\n"), 0o644))
+	if got := u.Status().ApplyRefused; got != "firma no válida" {
+		t.Fatalf("fresh refusal = %q", got)
+	}
+	old := u.started.Add(-time.Minute)
+	must(t, os.Chtimes(f, old, old))
+	if got := u.Status().ApplyRefused; got != "" {
+		t.Fatalf("stale refusal still reported: %q", got)
+	}
+	if _, err := os.Stat(f); !os.IsNotExist(err) {
+		t.Error("stale refusal not removed")
 	}
 }

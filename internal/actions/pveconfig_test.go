@@ -107,7 +107,7 @@ func TestReadPVEConfigFailsOnAnUnreadableGuest(t *testing.T) {
 		t.Fatal("a guest config that cannot be read was skipped: its disks would look like data")
 	}
 	// No nodes directory at all: a fresh install with no guests.
-	if c, err := ReadPVEConfig(pveTree(t, "", nil)); err != nil || len(c.Guests) != 0 {
+	if c, err := ReadPVEConfig(pveTree(t, "", nil)); err != nil || len(c.Refs) != 0 {
 		t.Fatalf("fresh install: %v, %v", c, err)
 	}
 }
@@ -116,7 +116,96 @@ func TestReadPVEConfigFailsOnAnUnreadableGuest(t *testing.T) {
 // nodes restrictions, backup-only dir storage.
 func TestParseStorageCfgEdgeCases(t *testing.T) {
 	zp, dirs := parseStorageCfg("zfspool: a\n\tpool tank/a\n\tnodes pve2\n\tsparse 1\n\ndir: dump\n\tpath /tank/dump\n\tcontent backup\n\tshared 1\n\nzfspool: b\n\tpo")
-	if zp["tank/a"] != "a" || dirs["/tank/dump"] != "dump" || len(zp) != 1 {
+	if zp["a"] != "tank/a" || dirs["/tank/dump"] != "dump" || len(zp) != 1 {
 		t.Fatalf("zfspools %v dirs %v", zp, dirs)
+	}
+	// Two storages on one dataset (per-node or per-content definitions):
+	// a guest may name either.
+	zp, _ = parseStorageCfg("zfspool: vm-a\n\tpool tank/vm\n\tnodes pve\n\nzfspool: vm-b\n\tpool tank/vm\n\tnodes pve2\n")
+	if zp["vm-a"] != "tank/vm" || zp["vm-b"] != "tank/vm" {
+		t.Fatalf("shared dataset: %v", zp)
+	}
+}
+
+// Guests that use a dataset without going through a storage volume, and
+// linked clones: all must still be recognised (review of 7755a22).
+func TestGuestRefsByPathAndClone(t *testing.T) {
+	refs := guestVolumeRefs(map[string]string{
+		"lxc/101":         "rootfs: local-zfs:subvol-101-disk-0,size=8G\nmp0: /tank/media,mp=/media\nlxc.mount.entry: /tank/raw mnt/raw none bind,create=dir 0 0\ndev0: /dev/zvol/tank/lxcdev\n",
+		"qemu-server/102": "scsi0: local-zfs:base-100-disk-0/vm-102-disk-0,size=8G\nscsi1: /dev/zvol/tank/rawvol-part1,size=4G\n",
+	})
+	for ref, who := range map[string]string{
+		"/tank/media": "CT 101", "/tank/raw": "CT 101", "/dev/zvol/tank/lxcdev": "CT 101",
+		"local-zfs:vm-102-disk-0": "VM 102", "/dev/zvol/tank/rawvol-part1": "VM 102",
+	} {
+		if got := refs[ref]; len(got) != 1 || got[0] != who {
+			t.Errorf("%s: %v, want [%s]", ref, got, who)
+		}
+	}
+
+	usePVEHost(t, true, nil, "tank\tfilesystem\t/tank", "tank/media\tfilesystem\t/tank/media",
+		"tank/media/photos\tfilesystem\t/tank/media/photos", "tank/lxcdev\tvolume\t-",
+		"tank/rawvol\tvolume\t-", "tank/raw\tfilesystem\t/tank/raw", "tank/other\tfilesystem\t/tank/other",
+		"tank/vm\tfilesystem\t/tank/vm", "tank/vm/vm-disk-a\tvolume\t-")
+	saved := readPVEConfig
+	readPVEConfig = func(context.Context) (*PVEConfig, error) {
+		return &PVEConfig{
+			StorageCfg: "zfspool: vm-a\n\tpool tank/vm\n\tnodes pve\n\nzfspool: vm-b\n\tpool tank/vm\n\tnodes pve2\n",
+			Refs: map[string][]string{
+				"/tank/media": {"CT 101"}, "/tank/raw/sub": {"CT 101"}, "/dev/zvol/tank/lxcdev": {"CT 101"},
+				"/dev/zvol/tank/rawvol-part1": {"VM 102"}, "vm-b:vm-disk-a": {"VM 103"},
+				"/var/lib/something": {"CT 104"}, // on the OS root: not a dataset of ours
+			},
+		}, nil
+	}
+	t.Cleanup(func() { readPVEConfig = saved })
+	h := loadView(t)
+	for ds, who := range map[string]string{
+		"tank/lxcdev": "CT 101", "tank/rawvol": "VM 102", "tank/vm/vm-disk-a": "VM 103",
+	} {
+		if k, why := h.DatasetKind(ds); k != HostGuest || !strings.Contains(why, who) {
+			t.Errorf("%s = %q (%s), want guest of %s", ds, k, why, who)
+		}
+	}
+	// Bind-mounted data is not a guest disk: Proxmox keeps no snapshots of
+	// it, so snapshot jobs and rollback keep working; only removing it from
+	// under the container is refused.
+	for _, ds := range []string{"tank/media", "tank/media/photos", "tank/raw"} {
+		k, why := h.DatasetKind(ds)
+		if k != HostStorage || !strings.Contains(why, "CT 101") {
+			t.Errorf("%s = %q (%s), want storage bound by CT 101", ds, k, why)
+		}
+		if !allowed(OpSnapshotCreate, k) || !allowed(OpRollback, k) || allowed(OpDatasetRemove, k) {
+			t.Errorf("%s: bind-mounted data must keep snapshots and rollback, and refuse removal", ds)
+		}
+	}
+	if k, _ := h.DatasetKind("tank"); k != HostStorage {
+		t.Errorf("tank (holds a bind-mounted dataset) = %q, want storage", k)
+	}
+	if k, _ := h.DatasetKind("tank/other"); k == HostGuest {
+		t.Error("tank/other is used by no guest")
+	}
+}
+
+// A bind mount through a symlink is also recorded under the path it resolves
+// to, where a dataset's mountpoint can match it.
+func TestReadPVEConfigResolvesBindSymlinks(t *testing.T) {
+	real := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	c, err := ReadPVEConfig(pveTree(t, "", map[string]string{"pve/lxc/105.conf": "mp0: " + link + ",mp=/data\n"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, _ := filepath.EvalSymlinks(real)
+	for _, p := range []string{link, resolved} {
+		if got := c.Refs[p]; len(got) != 1 || got[0] != "CT 105" {
+			t.Errorf("%s: %v, want [CT 105]", p, got)
+		}
 	}
 }

@@ -85,6 +85,11 @@ type Updater struct {
 	restartPathUnit    string
 	restartServiceUnit string
 
+	// started — when this process started. A refusal written before it is
+	// stale: whatever installed the binary running now (make update,
+	// install.sh --update, a later successful apply) restarted the service.
+	started time.Time
+
 	mu               sync.Mutex
 	currentLatest    string // última versión detectada (cache del último Check)
 	currentNotes     string
@@ -109,6 +114,7 @@ func New(current, dataDir, ghToken string) *Updater {
 		restartPathUnit:    restartPathUnit,
 		restartServiceUnit: restartServiceUnit,
 		subs:               make(map[chan Status]struct{}),
+		started:            time.Now(),
 	}
 }
 
@@ -253,13 +259,21 @@ func (u *Updater) statusLocked() Status {
 }
 
 // applyRefused reads the refusal deploy/easyzfs-apply-update leaves behind;
-// "" when the last attempt succeeded or none was made.
+// "" when the last attempt succeeded, none was made, or it predates this
+// process. A refusal never restarts the service, so one written while this
+// process runs describes the binary running now.
 func (u *Updater) applyRefused() string {
 	f, err := os.Open(u.applyRefusedFile())
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return ""
+	} else if st.ModTime().Before(u.started.Add(-time.Second)) { // mtimes use a coarse clock
+		os.Remove(u.applyRefusedFile())
+		return ""
+	}
 	b, _ := io.ReadAll(io.LimitReader(f, 512))
 	return strings.TrimSpace(string(b))
 }

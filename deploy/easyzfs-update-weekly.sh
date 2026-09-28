@@ -2,9 +2,9 @@
 # easyzfs-update-weekly.sh — chequeo y aplicación semanal de actualizaciones.
 #
 # Ejecutado por easyzfs-update-weekly.timer (systemd, cadencia semanal).
-# Downloads the latest STABLE release from GitHub, backs up the current
-# binary and hands the new one to easyzfs-apply-update, which verifies the
-# signature and sha256, installs it and restarts the service.
+# Downloads the latest STABLE release from GitHub and hands it to
+# easyzfs-apply-update, which verifies the signature and sha256, keeps the
+# current binary as .prev, installs the new one and restarts the service.
 #
 # A diferencia del apply in-app (POST /api/update/apply → .restart-me flag →
 # easyzfs-update.path → easyzfs-update.service), este script es AUTÓNOMO:
@@ -46,13 +46,9 @@ BASE="https://github.com/$REPO/releases/download/$VER"
 curl -fL --proto '=https' --max-time 120 "$BASE/$BIN" -o "$TMP_DIR/$APP.new"
 printf '%s\n' "$VER" > "$TMP_DIR/$APP.new.tag"
 
-# 3. Backup del binario actual
-echo "STEP:backup"
-if [ -f "$INSTALL_BIN" ]; then
-  cp "$INSTALL_BIN" "${INSTALL_BIN}.bak-$(date +%Y%m%d-%H%M%S)"
-fi
-
-# 4. Verify, install and restart (the helper restarts the service).
+# 3. Verify, install and restart. The helper keeps the replaced binary as
+# ${INSTALL_BIN}.prev; a dated copy made here, before anything was verified,
+# piled up every week a release was refused.
 echo "STEP:install"
 if ! "$APPLY_HELPER" "$TMP_DIR" "$INSTALL_BIN"; then
   log "la release $VER no pasó la verificación (firma/sha256): no se instala"
