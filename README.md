@@ -174,7 +174,9 @@ curl -fsSL https://raw.githubusercontent.com/gnacho/easyzfs/main/deploy/install.
 
 `deploy/install.sh` automates everything: detects the distro, installs ZFS
 + smartmontools if missing, creates the service account (or root mode with
-`--root-mode`), writes `/etc/easyzfs/env` and the systemd unit, and verifies
+`--root-mode`, which asks for confirmation and, with `--yes`, also needs
+`--i-understand-root-mode`: the web-facing process is then root, with no
+privilege boundary around it), writes `/etc/easyzfs/env` and the systemd unit, and verifies
 startup. Supports `--binary`, `--source`, `--port`, `--yes`
 (non-interactive), `--uninstall` and `DRY_RUN=1` for a no-changes
 rehearsal. [Read it before running](deploy/install.sh): it's plain shell.

@@ -23,6 +23,9 @@
 #   --listen <addr>   Where the web UI listens: 127.0.0.1 (default with --yes), a local IPv4, or all
 #   --port <n>        Puerto de escucha (defecto: 8080)
 #   --root-mode       El servicio corre como root (sin usuario easyzfs/sudoers)
+#   --i-understand-root-mode
+#                     Required with --root-mode --yes: root mode removes the
+#                     privilege boundary, so it is never a silent default
 #   --uninstall       Desinstala unit, binario y sudoers (pregunta por datos)
 #   --update          Updates binary and helper from --binary/--source (make update)
 #   --yes, -y         No interactivo: acepta todos los valores por defecto
@@ -68,6 +71,7 @@ PORT_FROM_FLAG=0
 LISTEN_HOST=""       # 127.0.0.1 | a local IPv4 | all — see choose_listen_host
 LISTEN_FROM_FLAG=0
 OPT_ROOT_MODE=0
+OPT_ROOT_ACK=0      # --i-understand-root-mode
 OPT_DEMO=0
 OPT_READONLY=0     # --read-only: monitoring only, see write_sudoers
 OPT_UNPINNED=0     # --allow-unpinned-sudo: accepted and ignored (nothing unpinned is granted any more)
@@ -166,6 +170,9 @@ Opciones:
   --port <n>        Puerto de escucha (defecto: 8080)
   --demo            Arranca en modo demo (DEMO=1: datos de muestra, mutaciones 403)
   --root-mode       El servicio corre como root (sin usuario easyzfs ni sudoers)
+  --i-understand-root-mode
+                    Obligatorio junto a --root-mode --yes (sin preguntas no se
+                    acepta el modo root sin reconocerlo expresamente)
   --read-only       Solo monitorización con datos reales: la API rechaza todo
                     cambio de almacenamiento y sudoers solo permite lecturas
                     (smartctl, zpool events/history, zfs diff). Sin helper root
@@ -934,6 +941,7 @@ setup_user_and_sudoers() {
       root "root — administración completa sin sudoers (decisión consciente)"
     [ "$choice" = "root" ] && OPT_ROOT_MODE=1
   fi
+  root_mode_gate
   if [ "$OPT_ROOT_MODE" = "1" ]; then
     warn "Modo root: el servicio correrá como root (appliance de administración; sin sudoers)."
     return 0
@@ -949,6 +957,31 @@ setup_user_and_sudoers() {
   fi
   ensure_sudo
   write_sudoers
+}
+
+# root_mode_gate — root mode is an explicit, acknowledged decision (spec P4).
+# In root mode the web-facing process is root: the gateway's checks still run
+# in-process, but nothing outside the process enforces them, so a bug or a
+# compromise of the service is a compromise of the host. With --yes it needs
+# --i-understand-root-mode (parse_args already refused it otherwise);
+# interactively the admin must answer yes to a prompt that defaults to no,
+# and declining falls back to the service account.
+root_mode_gate() {
+  [ "$OPT_ROOT_MODE" = "1" ] || return 0
+  warn "Modo root: el servicio web correrá como root. Las comprobaciones de EasyZFS siguen, pero dentro del mismo proceso: un fallo o una intrusión en el servicio es root en el host (y en Proxmox, en todas sus VMs). Con el usuario 'easyzfs' cada operación de almacenamiento pasa por un gateway root con su propia validación."
+  if [ "$OPT_YES" = "1" ]; then
+    [ "$OPT_ROOT_ACK" = "1" ] || die "--root-mode con --yes requiere --i-understand-root-mode."
+    warn "Modo root reconocido con --i-understand-root-mode."
+    return 0
+  fi
+  if [ "$OPT_ROOT_ACK" = "1" ]; then
+    return 0
+  fi
+  if confirm "¿Instalar de todos modos en modo root? (recomendado: no, usar el usuario 'easyzfs')" 0; then
+    return 0
+  fi
+  OPT_ROOT_MODE=0
+  info "Modo root descartado: se usará el usuario de sistema '${SVC_USER}'."
 }
 
 # sudo_has_regex — whole-argument regular expressions (^…$) in sudoers
@@ -1838,6 +1871,7 @@ parse_args() {
       --read-only) OPT_READONLY=1; shift ;;
       --allow-unpinned-sudo) OPT_UNPINNED=1; shift ;;
       --root-mode) OPT_ROOT_MODE=1; shift ;;
+      --i-understand-root-mode) OPT_ROOT_ACK=1; shift ;;
       --uninstall) OPT_UNINSTALL=1; shift ;;
       --update)    OPT_UPDATE=1; shift ;;
       --yes|-y)    OPT_YES=1; shift ;;
@@ -1845,6 +1879,11 @@ parse_args() {
       *) die "Opción desconocida: $1 (usa --help)" ;;
     esac
   done
+  # Refuse an unacknowledged unattended root install before anything is done
+  # (remediation spec P4); the interactive path asks in root_mode_gate.
+  if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_YES" = "1" ] && [ "$OPT_ROOT_ACK" != "1" ]; then
+    die "--root-mode con --yes requiere también --i-understand-root-mode: en modo root el servicio web tiene privilegios de root y no hay frontera que limite lo que puede hacer."
+  fi
 }
 
 main() {

@@ -342,6 +342,17 @@ guest disk whatever its name, and the reason names the guest ("lo usa VM 900").
 - A two-node cluster could not be tested with one VM; that behaviour comes
   from Proxmox's shared `/etc/pve`.
 
+### Root mode is acknowledged, never silent (spec P4)
+
+The default stays the unprivileged `easyzfs` account behind the gateway.
+`--root-mode` now prints what it gives up (the gateway's checks run inside
+the web-facing root process, so a bug or compromise of the service is root
+on the host) and asks, defaulting to no; declining falls back to the service
+account. Unattended, `--root-mode --yes` is refused before anything is done
+unless `--i-understand-root-mode` is also given. Tests:
+`internal/actions/rootmode_test.go` runs the real installer for the refusal
+and the gate function for each decision.
+
 ### Destructive actions only after the safety steps
 
 Fork-only, built on the fixes above:
