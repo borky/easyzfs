@@ -77,6 +77,14 @@ export interface VersionInfo {
   demo: boolean;
   // EASYZFS_READONLY: real data, storage changes refused (403 read_only).
   read_only?: boolean;
+  /** Host-storage protection (analysis §21); absent until the host was read. */
+  host_storage?: {
+    pve: boolean;
+    /** Proxmox host whose /etc/pve/storage.cfg could not be read: every pool
+     *  and top-level dataset is then treated as Proxmox storage. */
+    storage_cfg_unreadable: boolean;
+    os_pools: string[];
+  };
   capabilities?: Capabilities; // ausente en respuestas viejas del server
   pendingUpdate?: { from: string; to: string } | null;
   // Métricas del host (best effort; ausentes si el server no puede leerlas,

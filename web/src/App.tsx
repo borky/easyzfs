@@ -206,6 +206,7 @@ function Shell() {
   // routes it does not have.
   const [channel, setChannel] = useState<string | null>(null);
   const [readOnly, setReadOnly] = useState(false);
+  const [storageCfgBad, setStorageCfgBad] = useState(false);
   const rel = useReleaseCheck(version || undefined, ready && !!user && !demo && isAdmin && channel === 'github');
   useEffect(() => {
     if (!ready || !user || demo) return;
@@ -213,6 +214,7 @@ function Shell() {
       setVersion(v.version);
       setChannel(v.update_channel ?? 'github');
       setReadOnly(!!v.read_only);
+      setStorageCfgBad(!!v.host_storage?.storage_cfg_unreadable);
       if (v.pendingUpdate?.to) {
         setUpdateToast(t('upd_toast_updated', { v: v.pendingUpdate.to }));
         setTimeout(() => setUpdateToast(''), 5000);
@@ -367,6 +369,19 @@ function Shell() {
             <div className="demobar" role="status">
               <span className="dot" />
               <span>{t('robar')}</span>
+            </div>
+          )}
+          {storageCfgBad && !demo && (
+            <div className="demobar" role="status" style={{ alignItems: 'flex-start' }}>
+              <span className="dot" style={{ marginTop: 6 }} />
+              <div>
+                <span>{t('pvecfg_bar')}</span>
+                <details>
+                  <summary style={{ cursor: 'pointer' }}>{t('pvecfg_what')}</summary>
+                  <p>{t('pvecfg_effects')}</p>
+                  <p>{t('pvecfg_fix')}</p>
+                </details>
+              </div>
             </div>
           )}
           <header className="top">

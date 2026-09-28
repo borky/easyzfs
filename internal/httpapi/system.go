@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"easyzfs/internal/actions"
 	"easyzfs/internal/auth"
 	"easyzfs/internal/db"
 	"easyzfs/internal/model"
@@ -55,6 +57,14 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 		"pendingUpdate": pendingUpdateJSON(s.updater),
 
 		"update_channel": s.updateChannel,
+	}
+	// What the host-storage protection could read (analysis §21): on a
+	// Proxmox host whose storage.cfg is unreadable every pool and top-level
+	// dataset is treated as Proxmox storage, and the UI says so rather than
+	// leaving the admin to find it in the journal. Absent until the first
+	// read of the host.
+	if hv := s.hostView(); hv != nil {
+		out["host_storage"] = hostStorageJSON(hv)
 	}
 	// Métricas del host (best effort: se omiten si no se pueden leer).
 	if l1, l5, l15, ok := loadAvg(); ok {
@@ -483,4 +493,18 @@ func (s *Server) recentActivity(r *http.Request, limit int) ([]activityEntry, er
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// hostStorageJSON — the host_storage object of GET /api/version.
+func hostStorageJSON(hv *actions.HostView) map[string]any {
+	pools := make([]string, 0, len(hv.OSPools))
+	for p := range hv.OSPools {
+		pools = append(pools, p)
+	}
+	sort.Strings(pools)
+	return map[string]any{
+		"pve":                    hv.PVE,
+		"storage_cfg_unreadable": hv.PVE && hv.StorageUnknown,
+		"os_pools":               pools,
+	}
 }

@@ -188,8 +188,9 @@ storage and keeps its hands off it.
     - `dir:` storage, boot pools at `/boot`, and ancestors of outside mounts;
     - create or clone targets with Proxmox names or inside `rpool/ROOT`;
     - discarding an OS pool's checkpoint;
-    - an unreadable `storage.cfg`, which marks every top-level dataset as
-      storage and is logged;
+    - an unreadable `storage.cfg`, which marks every pool and top-level
+      dataset as storage, is logged, and shows a banner in the UI saying what
+      it blocks and how to fix it (`make update`);
     - a failed collector read, which keeps the last view instead of showing
       the host as plain data.
 - Each rule is enforced in the actions, which read the host again and refuse
