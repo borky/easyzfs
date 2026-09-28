@@ -400,7 +400,7 @@ func (p propSpec) describeKind() string {
 	case propBool:
 		return "on|off"
 	case propEnum:
-		return "uno de: " + strings.Join(p.enum, ", ")
+		return fmt.Sprintf("uno de: %s", strings.Join(p.enum, ", "))
 	case propSize:
 		return "tamaño (none o número con sufijo K/M/G/T)"
 	case propSizePow2:

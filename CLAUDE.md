@@ -143,6 +143,14 @@ docs/api-contract.md the front↔back contract — source of truth for the API
 - Spanish that is *not* a comment stays Spanish: API error `message` strings,
   `log.Printf` text, and the `es` half of `web/src/ui/i18n.ts` are existing
   product behaviour and part of the contract.
+- **Every user-visible Spanish string the server writes needs an English
+  entry** in [internal/i18n/catalogue.go](internal/i18n/catalogue.go), keyed
+  by the exact format string. A UI set to English sends `Accept-Language: en`
+  (`?lang=en` on EventSource) and `langMiddleware` translates the prose in
+  JSON bodies and SSE events on the way out; `TestCatalogueCoversTheCode`
+  fails on a new string without an entry. Build messages with `fmt.Sprintf`
+  / `fmt.Errorf`, not `+` concatenation, so each one is a single key. The
+  demo (`web/src/data/mock.ts`) does the same in `web/src/data/demoI18n.ts`.
 - Comments explain *why*, often citing the issue number (`#136`), a dated
   lesson (`bug 3-Ago-2026`), or the constraint that forced the design. Keep
   that density when editing; drop the rationale and the next reader loses it.

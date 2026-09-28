@@ -11,6 +11,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"regexp"
@@ -232,45 +233,47 @@ func (c *EventsCollector) dispatch(ctx context.Context, ev map[string]string) {
 			"ereport.fs.zfs.checksum": "zfs_checksum_error",
 			"ereport.fs.zfs.data":     "zfs_data_error",
 		}[class]
-		what := "E/S"
+		// One whole sentence per kind, not a word spliced into one: the
+		// English UI translates these texts by their format (internal/i18n).
+		format := "Errores de E/S en %s (evento ZFS, pool %s)"
 		if class == "ereport.fs.zfs.checksum" {
-			what = "checksum"
+			format = "Errores de checksum en %s (evento ZFS, pool %s)"
 		} else if class == "ereport.fs.zfs.data" {
-			what = "datos"
+			format = "Errores de datos en %s (evento ZFS, pool %s)"
 		}
 		where := vdev
 		if where == "" {
 			where = pool
 		}
 		c.al.RaiseKind(ctx, "crit", "zed."+class, target,
-			"Errores de "+what+" en "+where+" (evento ZFS, pool "+pool+")",
+			fmt.Sprintf(format, where, pool),
 			kind, params)
 	case "ereport.fs.zfs.deadman", "ereport.fs.zfs.delay":
 		kind := "zfs_io_delay"
-		what := "E/S lenta (delay)"
+		format := "E/S lenta (delay) en %s (evento ZFS, pool %s)"
 		if class == "ereport.fs.zfs.deadman" {
 			kind = "zfs_deadman"
-			what = "E/S colgada (deadman)"
+			format = "E/S colgada (deadman) en %s (evento ZFS, pool %s)"
 		}
 		where := vdev
 		if where == "" {
 			where = pool
 		}
 		c.al.RaiseKind(ctx, "warn", "zed."+class, target,
-			what+" en "+where+" (evento ZFS, pool "+pool+")",
+			fmt.Sprintf(format, where, pool),
 			kind, params)
 	case "sysevent.fs.zfs.resilver_start":
 		c.al.RaiseKind(ctx, "info", "zed."+class, poolTarget,
-			"Resilver iniciado en el pool "+pool,
+			fmt.Sprintf("Resilver iniciado en el pool %s", pool),
 			"resilver_start", params)
 	case "sysevent.fs.zfs.resilver_finish":
 		c.al.RaiseKind(ctx, "info", "zed."+class, poolTarget,
-			"Resilver del pool "+pool+" terminado",
+			fmt.Sprintf("Resilver del pool %s terminado", pool),
 			"resilver_finish", params)
 	case "sysevent.fs.zfs.scrub_finish":
 		if n, _ := strconv.ParseInt(ev["errors"], 10, 64); n > 0 {
 			c.al.RaiseKind(ctx, "warn", "zed."+class, poolTarget,
-				"Scrub de "+pool+" terminó con "+strconv.FormatInt(n, 10)+" errores (evento ZFS)",
+				fmt.Sprintf("Scrub de %s terminó con %d errores (evento ZFS)", pool, n),
 				"scrub_errors", map[string]any{"pool": pool, "errors": n})
 		}
 	case "sysevent.fs.zfs.vdev_statechange":
@@ -284,7 +287,7 @@ func (c *EventsCollector) dispatch(ctx context.Context, ev map[string]string) {
 				where = pool
 			}
 			c.al.RaiseKind(ctx, "crit", "zed."+class, target,
-				"El vdev "+where+" pasó a "+state+" (pool "+pool+")",
+				fmt.Sprintf("El vdev %s pasó a %s (pool %s)", where, state, pool),
 				"vdev_state", map[string]any{"pool": pool, "vdev": vdev, "state": state})
 		}
 	default:

@@ -244,10 +244,10 @@ func (a *Alerter) EvaluatePools(ctx context.Context, pools []model.Pool) {
 				"pool_capacity", map[string]any{"pool": p.Name, "pct": pct, "threshold": st.CapWarnPct})
 		}
 		if p.Status == "DEGRADED" {
-			a.RaiseKind(ctx, "crit", "pool."+p.Name, "pools:"+p.Name, "Pool "+p.Name+" DEGRADED",
+			a.RaiseKind(ctx, "crit", "pool."+p.Name, "pools:"+p.Name, fmt.Sprintf("Pool %s DEGRADED", p.Name),
 				"pool_status", map[string]any{"pool": p.Name, "status": "DEGRADED"})
 		} else if p.Status == "FAULTED" {
-			a.RaiseKind(ctx, "crit", "pool."+p.Name, "pools:"+p.Name, "Pool "+p.Name+" FAULTED",
+			a.RaiseKind(ctx, "crit", "pool."+p.Name, "pools:"+p.Name, fmt.Sprintf("Pool %s FAULTED", p.Name),
 				"pool_status", map[string]any{"pool": p.Name, "status": "FAULTED"})
 		}
 		// kind "trim" no aplica: sus "errores" no son errores de datos.

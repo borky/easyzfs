@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"easyzfs/internal/model"
@@ -78,7 +79,7 @@ func (s *Server) powerOff(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if p := poolForDisk(names, vdevs, dev, aliases...); p != "" {
-		writeErr(w, http.StatusConflict, "dev_in_use", "el disco pertenece al pool '"+p+"'")
+		writeErr(w, http.StatusConflict, "dev_in_use", fmt.Sprintf("el disco pertenece al pool '%s'", p))
 		return
 	}
 	// Whether it is mounted, swap or otherwise busy is checked live by

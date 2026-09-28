@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -279,7 +280,8 @@ func (s *Server) Handler() http.Handler {
 	}))
 
 	root.Handle("/api/", s.auth.Middleware(s.rateGuard(s.csrfGuard(s.demoGuard(s.refreshAfterMutation(a))))))
-	return root
+	// Outermost, so every response, from any handler or guard, is covered.
+	return langMiddleware(root)
 }
 
 // rateGuard — limita mutaciones a 30 por minuto por IP. Solo lectura (GET/HEAD)
@@ -372,7 +374,7 @@ func (s *Server) csrfGuard(next http.Handler) http.Handler {
 			}
 			if origin != host {
 				writeErr(w, http.StatusForbidden, "csrf",
-					"petición rechazada: origen '"+origin+"' no coincide con el host '"+host+"'")
+					fmt.Sprintf("petición rechazada: origen '%s' no coincide con el host '%s'", origin, host))
 				return
 			}
 		}
@@ -479,7 +481,7 @@ func writeErr(w http.ResponseWriter, code int, errCode, msg string) {
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err := dec.Decode(dst); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_json", "body JSON inválido: "+err.Error())
+		writeErr(w, http.StatusBadRequest, "bad_json", fmt.Sprintf("body JSON inválido: %v", err))
 		return false
 	}
 	return true
@@ -489,7 +491,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 func requireConfirm(w http.ResponseWriter, confirm, target string) bool {
 	if confirm != target || target == "" {
 		writeErr(w, http.StatusBadRequest, "confirm_required",
-			"se requiere {\"confirm\":\""+target+"\"} para confirmar la operación")
+			fmt.Sprintf(`se requiere {"confirm":"%s"} para confirmar la operación`, target))
 		return false
 	}
 	return true

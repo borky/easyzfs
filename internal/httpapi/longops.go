@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"easyzfs/internal/actions"
@@ -81,7 +82,7 @@ func (s *Server) rewriteDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.longOps.RunningFor(name) {
 		writeErr(w, http.StatusConflict, "already_running",
-			"ya hay una operación en curso sobre "+name)
+			fmt.Sprintf("ya hay una operación en curso sobre %s", name))
 		return
 	}
 	s.act.AuditOnly(r.Context(), actor(r), "dataset.rewrite", name, map[string]any{"mountpoint": mount})
@@ -95,7 +96,7 @@ func (s *Server) rewriteDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "exec_error",
-			"lanzar rewrite: "+err.Error())
+			fmt.Sprintf("lanzar rewrite: %v", err))
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"op_id": op.ID})

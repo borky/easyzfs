@@ -12,6 +12,7 @@ package httpapi
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -151,7 +152,7 @@ func (s *Server) putPushPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	if !push.TipoValido(req.Tipo) {
 		writeErr(w, http.StatusBadRequest, "invalid_tipo",
-			"tipo de alerta desconocido (válidos: "+strings.Join(push.Tipos, ", ")+")")
+			fmt.Sprintf("tipo de alerta desconocido (válidos: %s)", strings.Join(push.Tipos, ", ")))
 		return
 	}
 	if err := s.push.SetPreference(r.Context(), auth.UserFromContext(r.Context()), req.Tipo, req.Enabled); err != nil {

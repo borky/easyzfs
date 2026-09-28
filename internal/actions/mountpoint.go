@@ -446,7 +446,7 @@ func (s *Service) mountTree(ctx context.Context, root string) []string {
 	rows, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume",
 		"canmount,mountpoint,keystatus,sharenfs,sharesmb", root)
 	if err != nil {
-		return []string{"no se pudo leer el árbol para montarlo: " + err.Error()}
+		return []string{fmt.Sprintf("no se pudo leer el árbol para montarlo: %v", err)}
 	}
 	byName := map[string]map[string]string{}
 	source := map[string]string{}
@@ -486,11 +486,11 @@ func (s *Service) mountTree(ctx context.Context, root string) []string {
 			// a dataset deliberately left unmounted is a state somebody will
 			// have to explain days later.
 			log.Printf("mountpoint: no se monta %s: %v", n, err)
-			warnings = append(warnings, "no se monta "+n+": "+err.Error())
+			warnings = append(warnings, fmt.Sprintf("no se monta %s: %v", n, err))
 			continue
 		}
 		if _, err := runZFS(ctx, 60*time.Second, "mount", n); err != nil && !strings.Contains(err.Error(), "already mounted") {
-			warnings = append(warnings, "montar "+n+": "+err.Error())
+			warnings = append(warnings, fmt.Sprintf("montar %s: %v", n, err))
 			continue
 		}
 		// Put back what 'zfs mount' does not: the NFS/SMB export the dataset

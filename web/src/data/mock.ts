@@ -2,6 +2,7 @@
 // el progreso del scrub de "ssd" y variaciones de temperatura con eventos.
 import type { DataProvider } from './provider';
 import { emitEvent } from './events';
+import { demoText } from './demoI18n';
 import { ApiError } from './types';
 import { computeRecommendations } from './recs';
 import type {
@@ -219,7 +220,7 @@ export class MockProvider implements DataProvider {
         };
         this.alerts.unshift(alert);
         this.activity.unshift({ ts: alert.ts, text: 'Scrub completado en ssd', detail: '0 errores' });
-        emitEvent({ type: 'alert.new', alert });
+        emitEvent(demoText({ type: 'alert.new', alert }));
         emitEvent({ type: 'overview' });
       }
     }, 2000));
@@ -245,7 +246,7 @@ export class MockProvider implements DataProvider {
         acked: false, target: 'disks:nvme1n1',
       };
       this.alerts.unshift(alert);
-      emitEvent({ type: 'alert.new', alert });
+      emitEvent(demoText({ type: 'alert.new', alert }));
     }, 12000));
   }
 

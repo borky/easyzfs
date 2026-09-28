@@ -141,7 +141,7 @@ func setMountpoints(ctx context.Context, rows []propRow, received map[string]boo
 			_, err = runZFS(ctx, 60*time.Second, "set", "mountpoint="+r.value, r.name)
 		}
 		if err != nil {
-			problems = append(problems, "mountpoint de "+r.name+": "+err.Error())
+			problems = append(problems, fmt.Sprintf("mountpoint de %s: %v", r.name, err))
 			log.Printf("papelera: mountpoint de %s: %v", r.name, err)
 		}
 	}
@@ -408,7 +408,7 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 	for rel, mp := range st.Mountpoints {
 		ds := e.Original + rel
 		if !reDataset.MatchString(ds) || (!st.Received[rel] && !reMountpoint.MatchString(mp)) {
-			warnings = append(warnings, "mountpoint de "+ds+" no válido; no se restaura")
+			warnings = append(warnings, fmt.Sprintf("mountpoint de %s no válido; no se restaura", ds))
 			continue
 		}
 		// Putting the value back *mounts* the dataset there and then: zfs
@@ -424,7 +424,7 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 			t := mountTarget{path: path.Clean(mp), recorded: true}
 			if err := res.checkTarget(ctx, ds, t, false); err != nil {
 				log.Printf("papelera: mountpoint de %s no se restaura: %v", ds, err)
-				warnings = append(warnings, "mountpoint de "+ds+" no se restaura: "+err.Error())
+				warnings = append(warnings, fmt.Sprintf("mountpoint de %s no se restaura: %v", ds, err))
 				continue
 			}
 		}

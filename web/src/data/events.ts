@@ -2,6 +2,7 @@
 // En modo HTTP: EventSource a /api/events (SSE).
 // En modo mock: el propio MockProvider emite eventos sintéticos por aquí.
 import type { AppEvent } from './types';
+import { getLang, onLangChange } from '../ui/i18n';
 
 type Listener = (ev: AppEvent) => void;
 
@@ -54,7 +55,8 @@ function clearRetry(): void {
 function openStream(): void {
   if (stopped) return;
   try {
-    es = new EventSource('/api/events');
+    // An EventSource cannot set headers: the language goes in the URL.
+    es = new EventSource(`/api/events?lang=${getLang()}`);
   } catch {
     es = null;
     scheduleRetry();
@@ -110,6 +112,15 @@ async function probeAndRetry(): Promise<void> {
   }
   scheduleRetry();
 }
+
+// The stream's language is fixed when it opens: reopen it on a change, so
+// the events that follow arrive in the new language.
+onLangChange(() => {
+  if (stopped || !es) return;
+  es.close();
+  es = null;
+  openStream();
+});
 
 // Conecta al stream SSE real. Devuelve función de desconexión.
 export function connectSSE(): () => void {

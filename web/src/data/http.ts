@@ -2,6 +2,14 @@
 import type { DataProvider } from './provider';
 import { ApiError } from './types';
 import { notifyAuthExpired } from './events';
+import { getLang } from '../ui/i18n';
+
+// langHeaders — every request carries the UI's language, so the server's
+// messages (errors, reasons, warnings) come back in it. Without it the
+// server answers in Spanish, its default for any other client.
+function langHeaders(h: Record<string, string> = {}): Record<string, string> {
+  return { ...h, 'Accept-Language': getLang() };
+}
 import type {
   ActivityItem, Alert, APIKeyCreated, APIKeyInfo, BackupFile, BackupStatus, ChannelName, ChannelPatch, ChannelsStatus, CreateDatasetReq, CreateJobReq, CreatePoolReq, CreateReplicationReq, CreateSnapshotReq, CreateUserReq,
   Dataset, DatasetProp, DatasetPropsResp, DiffEntry, Disk, DiskSmartLogResp, DiskSmartResp, Job, JobHistoryItem, Lang, LoginResult, LongOp, MissingPool, Overview, Performance, Pool, PoolHistoryEntry, PushAlertTipo, PushPreference, PushQuietHours, PushSubscriptionJSON,
@@ -26,7 +34,7 @@ export function fetchPublicDemo(): Promise<PublicDemo> {
   if (!publicDemoPromise) {
     publicDemoPromise = (async () => {
       try {
-        const res = await fetch(`${BASE}/public/demo`, { credentials: 'same-origin' });
+        const res = await fetch(`${BASE}/public/demo`, { credentials: 'same-origin', headers: langHeaders() });
         if (!res.ok) return { enabled: true, server: false }; // sin respuesta: botón visible, servidor no-demo
         const j = await res.json();
         return { enabled: j?.demo_enabled !== false, server: j?.demo_server === true };
@@ -54,7 +62,7 @@ async function req<T>(method: string, path: string, body?: unknown, reauth?: Rea
   const res = await fetch(BASE + path, {
     method,
     credentials: 'same-origin',
-    headers: payload !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: langHeaders(payload !== undefined ? { 'Content-Type': 'application/json' } : {}),
     body: payload !== undefined ? JSON.stringify(payload) : undefined,
   });
   if (res.status === 204) return undefined as T;
@@ -126,7 +134,7 @@ export class HttpProvider implements DataProvider {
         if (creds.code) headers['X-Reauth-Code'] = encodeURIComponent(creds.code);
       }
       const res = await fetch(`${BASE}/backup/import`, {
-        method: 'POST', credentials: 'same-origin', headers, body: file,
+        method: 'POST', credentials: 'same-origin', headers: langHeaders(headers), body: file,
       });
       if (res.ok) return;
       const j = await res.json().catch(() => undefined);
@@ -162,7 +170,7 @@ export class HttpProvider implements DataProvider {
   setMyAvatar = async (blob: Blob): Promise<void> => {
     const res = await fetch(`${BASE}/me/avatar`, {
       method: 'PUT', credentials: 'same-origin',
-      headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+      headers: langHeaders({ 'Content-Type': blob.type || 'application/octet-stream' }),
       body: blob,
     });
     if (!res.ok) {

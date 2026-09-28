@@ -1485,6 +1485,13 @@ export function t(key: I18nKey, vars?: Record<string, string | number>): string 
   return s;
 }
 
+// getLang — the language the UI is showing now ('auto' resolved). The data
+// layer sends it with every request: the server translates the text it
+// writes (errors, reasons, warnings, alerts) to match.
+export function getLang(): 'es' | 'en' {
+  return currentLang;
+}
+
 // Suscripción para re-render al cambiar de idioma
 export function onLangChange(fn: () => void): () => void {
   subs.add(fn);

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModalBox } from './Modal';
 import { useApp } from '../ui/store';
+import { getLang } from '../ui/i18n';
 import { getProvider } from '../data';
 import { IconCheck, IconDownload, IconRefresh } from './icons';
 import type { UpdateStatus } from '../data/types';
@@ -140,7 +141,7 @@ export function UpdateWizard({ onClose }: UpdateWizardProps) {
 
   const startStream = useCallback(() => {
     try {
-      const es = new EventSource('/api/update/stream');
+      const es = new EventSource(`/api/update/stream?lang=${getLang()}`);
       esRef.current = es;
       es.addEventListener('update', (ev) => {
         try {

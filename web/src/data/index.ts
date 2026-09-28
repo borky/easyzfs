@@ -4,6 +4,7 @@
 import type { DataProvider } from './provider';
 import { HttpProvider } from './http';
 import { MockProvider } from './mock';
+import { wrapDemoProvider } from './demoI18n';
 import { connectSSE, disconnectSSE } from './events';
 
 const DEMO_KEY = 'zfc-demo';
@@ -36,7 +37,7 @@ function setProvider(p: DataProvider, isDemoMode: boolean) {
 
 async function startMock(): Promise<void> {
   const m = new MockProvider();
-  setProvider(m, true);
+  setProvider(wrapDemoProvider(m), true);
   // Sesión local "demo" (no toca el backend). Permite elegir el usuario
   // demo (p.ej. 'maria' para probar el rol no-admin) vía localStorage.
   await m.login(localStorage.getItem('zfc-demo-user') || DEMO_USER, '');

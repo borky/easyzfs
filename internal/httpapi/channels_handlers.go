@@ -6,6 +6,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -132,7 +133,7 @@ func (s *Server) getChannels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) putChannel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !editableChannel(name) {
-		writeErr(w, http.StatusNotFound, "unknown_channel", "canal desconocido: "+name)
+		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("canal desconocido: %s", name))
 		return
 	}
 	var p channelPatch
@@ -285,7 +286,7 @@ func MailerFromConfig(cfg channels.Config) *notifier.Mailer {
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !editableChannel(name) {
-		writeErr(w, http.StatusNotFound, "unknown_channel", "canal desconocido: "+name)
+		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("canal desconocido: %s", name))
 		return
 	}
 	if name == "webhook" {
@@ -405,12 +406,12 @@ func validateChannel(name string, cfg channels.Config) (string, string) {
 func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !testableChannel(name) {
-		writeErr(w, http.StatusNotFound, "unknown_channel", "canal desconocido: "+name)
+		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("canal desconocido: %s", name))
 		return
 	}
 	if s.channels == nil || !s.channels.Configured(name) {
 		writeErr(w, http.StatusBadRequest, "channel_not_configured",
-			"el canal "+name+" no está configurado")
+			fmt.Sprintf("el canal %s no está configurado", name))
 		return
 	}
 	lang := "es"

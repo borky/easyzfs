@@ -231,6 +231,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setLang = useCallback((m: LangMode) => {
     setLangMode(m);
+    // Text the server wrote (reasons, warnings, alert messages) is in the
+    // language it was fetched in: fetch it again in the new one.
+    setDataVersion((v) => v + 1);
     // Espejo en BD (fuente de verdad); silencioso si no hay sesión real
     const s = stateRef.current;
     if (s.user && !s.demo) getProvider().setMyLanguage(m).catch(() => {});
