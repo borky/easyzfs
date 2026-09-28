@@ -248,6 +248,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "session_error", "no se pudo crear la sesión")
 		return
 	}
+	cookie.Secure = s.auth.SecureRequest(r)
 	http.SetCookie(w, cookie)
 	writeJSON(w, http.StatusOK, map[string]string{"user": body.User, "role": role})
 }
@@ -304,6 +305,7 @@ func (s *Server) finishLogin2FA(w http.ResponseWriter, r *http.Request, user str
 		writeErr(w, http.StatusInternalServerError, "session_error", "no se pudo crear la sesión")
 		return
 	}
+	cookie.Secure = s.auth.SecureRequest(r)
 	role, _ := s.users.RoleOf(r.Context(), user)
 	http.SetCookie(w, cookie)
 	writeJSON(w, http.StatusOK, map[string]string{"user": user, "role": role})
@@ -327,7 +329,9 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.CookieName); err == nil {
 		s.auth.DestroySession(r.Context(), c.Value)
 	}
-	http.SetCookie(w, s.auth.ExpiredCookie())
+	c := s.auth.ExpiredCookie()
+	c.Secure = s.auth.SecureRequest(r)
+	http.SetCookie(w, c)
 	w.WriteHeader(http.StatusNoContent)
 }
 

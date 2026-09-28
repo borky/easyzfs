@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
@@ -295,5 +296,46 @@ func TestMiddlewareAPIKeyReadOnly(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 401 {
 		t.Fatalf("sin credenciales: %d, esperado 401", rec.Code)
+	}
+}
+
+// The session cookie is Secure whenever the browser reached us over HTTPS
+// (remediation spec P8), and a proxy's header counts only with TRUST_PROXY.
+func TestSecureRequest(t *testing.T) {
+	cases := []struct {
+		name          string
+		secure, trust bool
+		tls           bool
+		hdr           map[string]string
+		want          bool
+	}{
+		{"plain http", false, false, false, nil, false},
+		{"COOKIE_SECURE", true, false, false, nil, true},
+		{"tls on the connection", false, false, true, nil, true},
+		{"proxy header, untrusted", false, false, false, map[string]string{"X-Forwarded-Proto": "https"}, false},
+		{"proxy header, trusted", false, true, false, map[string]string{"X-Forwarded-Proto": "https"}, true},
+		// The client wrote the first value; the trusted proxy the last one.
+		{"client-supplied http before the proxy's https", false, true, false, map[string]string{"X-Forwarded-Proto": "http, https"}, true},
+		{"client-supplied https before the proxy's http", false, true, false, map[string]string{"X-Forwarded-Proto": "https, http"}, false},
+		{"Forwarded chain, last hop https", false, true, false, map[string]string{"Forwarded": "for=198.51.100.7;proto=http, for=192.0.2.1;proto=https"}, true},
+		{"trusted proxy over http", false, true, false, map[string]string{"X-Forwarded-Proto": "http"}, false},
+		{"Forwarded proto", false, true, false, map[string]string{"Forwarded": `for=192.0.2.1;proto="https";host=nas`}, true},
+		{"Forwarded without proto", false, true, false, map[string]string{"Forwarded": "for=192.0.2.1"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := &Manager{secure: c.secure}
+			m.SetTrustProxy(c.trust)
+			r := httptest.NewRequest("POST", "/api/login", nil)
+			if c.tls {
+				r.TLS = &tls.ConnectionState{}
+			}
+			for k, v := range c.hdr {
+				r.Header.Set(k, v)
+			}
+			if got := m.SecureRequest(r); got != c.want {
+				t.Errorf("SecureRequest = %v, want %v", got, c.want)
+			}
+		})
 	}
 }

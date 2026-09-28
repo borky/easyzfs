@@ -231,7 +231,8 @@ func main() {
 	// Replicación ZFS send/recv (lote C): store propio + ejecución vía longops.
 	longOps := longops.New(h)
 	replRunner := replication.NewRunner(replication.NewStore(database), longOps, h, jobStore, cfg.DataDir(), cfg.Mock)
-	if !cfg.ReadOnly {
+	runSched, runRepl, runPurge := backgroundJobs(cfg)
+	if runRepl {
 		go replRunner.Run(ctx)
 	}
 
@@ -267,6 +268,7 @@ func main() {
 	keyStore := apikeys.NewStore(database)
 	authManager := auth.NewManager(database, cfg.SessionSecret, cfg.CookieSecure)
 	authManager.SetAPIKeys(keyStore)
+	authManager.SetTrustProxy(cfg.TrustProxy)
 
 	srv := httpapi.NewServer(httpapi.Deps{
 		Cfg: cfg, DB: database, Auth: authManager,
@@ -301,17 +303,14 @@ func main() {
 	for _, c := range cols {
 		go c.Run(ctx)
 	}
-	// Read-only: no scheduled job (snapshots, scrubs, SMART tests) and no
-	// replication runs; nothing changes storage unless a person does it.
-	if cfg.ReadOnly {
-		log.Println("modo solo lectura: tareas programadas y replicación desactivadas")
-	} else {
+	if !runSched {
+		log.Println("modo solo lectura o demo: tareas programadas y replicación desactivadas")
+	}
+	if runSched {
 		go sched.Run(ctx)
-		// The recycle bin's purge destroys datasets on its own schedule; a
-		// mock or demo deployment has nothing real to purge.
-		if !cfg.Mock && !cfg.Demo {
-			go act.RunTrashPurger(ctx)
-		}
+	}
+	if runPurge {
+		go act.RunTrashPurger(ctx)
 	}
 
 	go func() {
@@ -373,4 +372,17 @@ func spaHandler(fsys http.FileSystem) http.Handler {
 		f.Close()
 		fileSrv.ServeHTTP(w, r)
 	})
+}
+
+// backgroundJobs — which of the loops that change storage on their own run.
+// Read-only: none; nothing changes storage unless a person does it. Demo:
+// none either — its API refuses to create jobs, but jobs already in the
+// database would still run real zfs commands against the host (spec P8).
+// The recycle bin's purge destroys datasets on its own schedule, and a mock
+// deployment has nothing real to purge.
+func backgroundJobs(cfg *config.Config) (sched, repl, purge bool) {
+	if cfg.ReadOnly || cfg.Demo {
+		return false, false, false
+	}
+	return true, true, !cfg.Mock
 }

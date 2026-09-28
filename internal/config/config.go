@@ -25,6 +25,10 @@ type Config struct {
 	Mock          bool   // MOCK=1 → colectores mock (datos reales mutan y fallarán)
 	AdminPassword string // ADMIN_PASSWORD para bootstrap del primer admin
 	CookieSecure  bool   // COOKIE_SECURE=1 → atributo Secure (tras proxy TLS)
+	// TrustProxy — TRUST_PROXY=1: a reverse proxy in front sets
+	// X-Forwarded-Proto/Forwarded, and a request it received over HTTPS gets
+	// a Secure session cookie without COOKIE_SECURE (remediation spec P8).
+	TrustProxy bool
 	RetentionDays int    // RETENTION_DAYS series (def 30)
 
 	VAPIDPublicKey  string // VAPID_PUBLIC_KEY (Web Push; la genera el instalador)
@@ -102,6 +106,7 @@ func Load() *Config {
 		Mock:          envBool("MOCK"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		CookieSecure:  envBool("COOKIE_SECURE"),
+		TrustProxy:    envBool("TRUST_PROXY"),
 		RetentionDays: envInt("RETENTION_DAYS", 30),
 
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),

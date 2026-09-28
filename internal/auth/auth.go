@@ -38,6 +38,55 @@ type Manager struct {
 	secret []byte
 	secure bool
 	keys   *apikeys.Store // opcional: API keys de solo lectura (#87)
+	// trustProxy — honour X-Forwarded-Proto/Forwarded when deciding whether
+	// a request arrived over HTTPS (TRUST_PROXY=1).
+	trustProxy bool
+}
+
+// lastListElem — the last element of a comma-separated header that may span
+// several header lines; "" when there is none.
+func lastListElem(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		parts := strings.Split(lines[i], ",")
+		for j := len(parts) - 1; j >= 0; j-- {
+			if v := strings.TrimSpace(parts[j]); v != "" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// SetTrustProxy — see Manager.trustProxy.
+func (m *Manager) SetTrustProxy(v bool) { m.trustProxy = v }
+
+// SecureRequest reports whether a cookie set in reply to r must carry the
+// Secure attribute: always with COOKIE_SECURE, and otherwise whenever the
+// browser reached us over HTTPS — TLS on this connection, or a trusted
+// proxy saying so. Without it, a login through an HTTPS proxy handed out a
+// session cookie the browser would also send over plain HTTP. The value
+// read is the last one, the hop nearest to us, which the trusted proxy
+// wrote: earlier ones may come from the client, which appended to (or
+// passed through) the header could otherwise ask for a non-Secure cookie.
+func (m *Manager) SecureRequest(r *http.Request) bool {
+	if m.secure || r.TLS != nil {
+		return true
+	}
+	if !m.trustProxy {
+		return false
+	}
+	if p := lastListElem(r.Header.Values("X-Forwarded-Proto")); p != "" {
+		return strings.EqualFold(p, "https")
+	}
+	if f := lastListElem(r.Header.Values("Forwarded")); f != "" {
+		for _, kv := range strings.Split(f, ";") {
+			k, v, _ := strings.Cut(strings.TrimSpace(kv), "=")
+			if strings.EqualFold(k, "proto") {
+				return strings.EqualFold(strings.Trim(v, `"`), "https")
+			}
+		}
+	}
+	return false
 }
 
 // NewManager crea el gestor de sesiones.
