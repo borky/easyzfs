@@ -126,6 +126,11 @@ func (s *Service) PoolCreate(ctx context.Context, actor, name, topo string, disk
 	}
 	cli = append(cli, name)
 	cli = append(cli, args...)
+	// The pool's root dataset mounts at /<pool> the moment the pool exists,
+	// and rePool happily allows a name like "etc" or "home" (§1).
+	if err := newMountResolver().checkTarget(ctx, name, mountTarget{path: "/" + name}, true); err != nil {
+		return err
+	}
 	// Live, uncached check of every disk just before ZFS takes it over.
 	for _, d := range disks {
 		if err := requireFreeDisk(ctx, d); err != nil {
@@ -157,16 +162,22 @@ func (s *Service) PoolImportList(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// PoolImport — 'zpool import <name>'.
-func (s *Service) PoolImport(ctx context.Context, actor, name string) error {
+// PoolImport — 'zpool import -N <name>', then mount what the import would
+// have mounted. A plain import mounts every dataset of the pool wherever the
+// pool says, and a pool is not a trusted document: it may record
+// mountpoint=/etc, from a foreign disk or from a mistake made on another
+// machine. -N imports without mounting anything, so mountTree can check each
+// effective mountpoint first and leave the ones it refuses unmounted (§1).
+// The warnings name those; the pool itself is imported when err is nil.
+func (s *Service) PoolImport(ctx context.Context, actor, name string) (warnings []string, err error) {
 	if !rePool.MatchString(name) {
-		return ErrInvalidName
+		return nil, ErrInvalidName
 	}
 	s.audit(ctx, actor, "pool.import", name, nil, false)
-	if _, err := executil.Run(ctx, 60*time.Second, "zpool", "import", name); err != nil {
-		return fmt.Errorf("importar pool: %w", err)
+	if _, err := executil.Run(ctx, 60*time.Second, "zpool", "import", "-N", name); err != nil {
+		return nil, fmt.Errorf("importar pool: %w", err)
 	}
-	return nil
+	return s.mountTree(ctx, name), nil
 }
 
 // PoolExport — 'zpool export [-f] <name>'; destroy=true → 'zpool destroy' (requiere confirm).
@@ -619,6 +630,17 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 		defer executil.Zero(keyBuf)
 	}
 	args = append(args, full)
+	// A filesystem inherits its parent's mountpoint and 'zfs create' mounts it
+	// straight away: nothing was ever set, so checkMountpoint never saw it.
+	// This is the path that shadowed /etc on the Proxmox test VM (§1).
+	// A volume has no mountpoint at all.
+	if typ != "volume" {
+		// -p also creates and mounts every missing ancestor, so each one is
+		// checked, not just the leaf.
+		if err := checkEffectiveMountpointTree(ctx, full); err != nil {
+			return err
+		}
+	}
 	s.audit(ctx, actor, "dataset.create", full, map[string]any{
 		"type": typ, "compression": compression, "atime": atime,
 		"quota_bytes": quota, "volsize_bytes": volsize, "encrypted": encrypted, // NUNCA la passphrase
@@ -635,8 +657,10 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 	return nil
 }
 
-// DatasetLoadKey — 'zfs load-key <name>' con la passphrase por stdin
-// (sin -n: carga la clave y monta). Desbloquea datasets cifrados.
+// DatasetLoadKey — 'zfs load-key <name>' con la passphrase por stdin (sin -n,
+// que solo comprueba). Desbloquea datasets cifrados. It does not mount them:
+// checked on the VM, a dataset comes back keystatus=available and mounted=no,
+// so the mount goes through DatasetMount and its mountpoint check (§1).
 func (s *Service) DatasetLoadKey(ctx context.Context, actor, name, passphrase string) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
@@ -953,6 +977,22 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 			return err
 		}
 		args = append(args, "-o", "mountpoint="+mountpoint)
+	} else {
+		// A clone does not carry the origin's mountpoint: it gets the one its
+		// own position gives it, inherited or derived from the pool's name
+		// (checked on the VM), and 'zfs clone' mounts it. Same exposure as
+		// create (§1). A clone of a zvol snapshot is a zvol and mounts
+		// nothing, so the path its position would give it is fiction — don't
+		// refuse a legitimate clone over it.
+		vol, err := s.isVolume(ctx, ds)
+		if err != nil {
+			return err
+		}
+		if !vol {
+			if err := checkEffectiveMountpoint(ctx, target); err != nil {
+				return err
+			}
+		}
 	}
 	args = append(args, snapshotFull, target)
 	s.audit(ctx, actor, "snapshot.clone", target,
@@ -963,12 +1003,29 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 	return nil
 }
 
+// isVolume — whether the dataset is a zvol, read live. A volume has no
+// mountpoint at all, so the effective-mountpoint rules do not apply to it.
+func (s *Service) isVolume(ctx context.Context, dataset string) (bool, error) {
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "type", dataset)
+	if err != nil {
+		return false, fmt.Errorf("%w: no se puede leer el tipo de %s: %v", ErrInvalidInput, dataset, err)
+	}
+	return strings.TrimSpace(string(out)) == "volume", nil
+}
+
 // DatasetPromote — 'zfs promote <name>'. Invierte la relación de clonación:
 // el dataset promocionado se convierte en el origen (padre) y el dataset que
 // lo clonó pasa a ser su hijo. No destructivo, pero irreversible.
 func (s *Service) DatasetPromote(ctx context.Context, actor, name string) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
+	}
+	// Promote mounts nothing and moves no dataset in the namespace, so where
+	// this one sits does not change. It does make the arrangement permanent,
+	// so a dataset a later import would mount over a system path is refused;
+	// the allowlist is not applied, because promote is not choosing the place.
+	if err := checkMountDanger(ctx, name); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "dataset.promote", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "promote", name); err != nil {
@@ -986,6 +1043,10 @@ func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName str
 	if InTrash(oldName) || InTrash(newName) { // restore it from the bin instead
 		return fmt.Errorf("%w: %s está reservado para la papelera; usa Restaurar", ErrInvalidInput, TrashDir)
 	}
+	// ZFS remounts on rename, and a new parent means a new inherited path (§1).
+	if err := checkRenameMount(ctx, oldName, newName); err != nil {
+		return err
+	}
 	s.audit(ctx, actor, "dataset.rename", oldName,
 		map[string]any{"new": newName}, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "rename", oldName, newName); err != nil {
@@ -999,6 +1060,11 @@ func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName str
 func (s *Service) DatasetMount(ctx context.Context, actor, name string) error {
 	if !reDataset.MatchString(name) {
 		return ErrInvalidName
+	}
+	// 'zfs mount' mounts wherever the property says, inherited or received
+	// included, and nothing had ever checked that value (§1).
+	if err := checkEffectiveMountpoint(ctx, name); err != nil {
+		return err
 	}
 	s.audit(ctx, actor, "dataset.mount", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "mount", name); err != nil {

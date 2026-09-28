@@ -99,12 +99,29 @@ var systemMountpoints = []string{
 	"/etc", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/usr",
 	"/boot", "/dev", "/proc", "/sys", "/run", "/root",
 	"/var/spool/cron", "/var/lib/dpkg", "/var/lib/easyzfs", "/opt/easyzfs",
+	// Neither is ever a ZFS dataset, and shadowing either breaks the host:
+	// pmxcfs keeps the Proxmox cluster config under the first, and systemd's
+	// own state (machine-id, units it generated) under the second.
+	"/var/lib/pve-cluster", "/var/lib/systemd",
 }
 
 // exactMountpoints — refused as a mountpoint themselves, but mounting below
 // them is normal (/var/lib/docker, /var/log/archive…), so only the exact path
-// is denied. /home, /opt, /srv, /mnt and /tmp stay allowed entirely.
+// is denied. /opt is covered by the ancestor rule below (/opt/easyzfs sits in
+// systemMountpoints). /tmp is absent on purpose: shadowing it hides no
+// credentials and some hosts legitimately put it on ZFS. That only ever
+// matters for a mountpoint already recorded on a dataset — an explicit /tmp is
+// outside the allowlist, and so is a derived one.
 var exactMountpoints = []string{"/var", "/var/lib", "/var/log"}
+
+// derivedExactMountpoints — refused only where the app is *deriving* the place
+// (mountpoint.go's allowlist half). Mounting on /mnt or /home itself hides
+// everything below, and a pool named "home" would land there: poolTrees
+// returns /home for it, and the allowlist admits a pool's own tree root.
+// A path *recorded* on a dataset is exempt, because the standard root-on-ZFS
+// layout puts a real dataset at /home and refusing to mount it would break a
+// working host.
+var derivedExactMountpoints = []string{"/mnt", "/media", "/srv", "/home"}
 
 // ProtectMountpoint adds a path, and everything below it, to the refused
 // mountpoints. main registers the configured data directory with it. A
@@ -164,7 +181,7 @@ var mountTrustedUID = 0
 // /<pool>: its root may carry mountpoint=/data, and its children then live
 // under /data. A variable so tests need no zfs.
 var poolRootMountpoint = func(ctx context.Context, pool string) string {
-	out, err := executil.Run(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "mountpoint", pool)
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "mountpoint", pool)
 	if err != nil {
 		return ""
 	}
@@ -220,18 +237,35 @@ func trustedDir(dir string) error {
 	return nil
 }
 
-// checkMountpointPath walks p from base down. Every directory it passes
-// through must be trusted, and no existing component may be a symlink. It
-// stops at the first component that does not exist yet: zfs will create the
-// rest as root, and the trusted parent means nobody else can get there first.
-// A component that cannot be inspected (EACCES for the service account) is
-// refused: root's mount would enter it all the same.
-func checkMountpointPath(base, p string) error {
+// checkMountpointPath walks p from base down. No existing component may be a
+// symlink, and with trustDirs every directory it passes through must also be
+// owned by root and writable by nobody else. It stops at the first component
+// that does not exist yet: zfs will create the rest as root. A component that
+// cannot be inspected (EACCES for the service account) is refused either way:
+// root's mount would enter it all the same.
+//
+// trustDirs closes the race the symlink check leaves open — somebody who can
+// write to a directory on the way can swap the next component for a symlink
+// between here and the moment root mounts. It is demanded only of a mountpoint
+// somebody *asks* for (checkMountpoint), where it has been the rule since the
+// explicit-mountpoint allowlist landed and where an admin choosing an unusual
+// path can choose a root-owned one.
+//
+// It is NOT demanded of the mountpoint a dataset simply ends up with
+// (mountpoint.go), whoever derived it. A share directory chowned to its users
+// (`chown -R nas:nas /tank/media`, the ordinary Samba setup) or left
+// group-writable is not root-owned, and every dataset created, imported or
+// restored below one would be refused — on paths that had no check at all
+// before, so refusing them would be a plain regression for the sake of a race
+// the symlink check already covers in the non-racing case.
+func checkMountpointPath(base, p string, trustDirs bool) error {
 	cur := base
 	rel := strings.TrimPrefix(strings.TrimPrefix(p, base), "/")
 	for _, part := range strings.Split(rel, "/") {
-		if err := trustedDir(cur); err != nil {
-			return err
+		if trustDirs {
+			if err := trustedDir(cur); err != nil {
+				return err
+			}
 		}
 		next := filepath.Join(cur, part)
 		fi, err := os.Lstat(next)
@@ -254,9 +288,10 @@ func checkMountpointPath(base, p string) error {
 // layer: a pool may legally be named "etc"), and the path-trust walk. The
 // error says why, so the admin is not left guessing.
 //
-// Known limit: only an explicit mountpoint passes through here. One that is
-// inherited, e.g. by a dataset created beneath a root-on-ZFS dataset mounted
-// at /, does not.
+// This is the value somebody *asks* for, which also reaches zfs's argv, hence
+// reMountpoint. The value a dataset ends up with when nobody asks — inherited,
+// received or derived from the pool's name — goes through mountpoint.go
+// instead; that one never reaches argv, so it is not held to the regex.
 func checkMountpoint(ctx context.Context, v, dataset string) error {
 	if v == "none" || v == "legacy" {
 		return nil
@@ -274,7 +309,7 @@ func checkMountpoint(ctx context.Context, v, dataset string) error {
 	if deniedMountpoint(clean) {
 		return fmt.Errorf("%w: mountpoint en una ruta de sistema: %s", ErrInvalidInput, clean)
 	}
-	if err := checkMountpointPath("/", clean); err != nil {
+	if err := checkMountpointPath("/", clean, true); err != nil {
 		return fmt.Errorf("%w: mountpoint no seguro: %v", ErrInvalidInput, err)
 	}
 	return nil
@@ -423,6 +458,14 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 			return err
 		}
 	}
+	// canmount=on is what makes a recorded mountpoint take effect at the next
+	// import, so it is a mount decision even though nothing mounts right now.
+	// Turning it on for a dataset sitting on a system path is refused (§1).
+	if property == "canmount" && value == "on" {
+		if err := checkMountDanger(ctx, name); err != nil {
+			return err
+		}
+	}
 	risk := PropRisk(property, value)
 	if property == "volsize" && s.volsizeShrinks(ctx, name, value) {
 		risk = "volsize_shrink"
@@ -447,6 +490,22 @@ func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property 
 	}
 	if _, ok := propValidators[property]; !ok {
 		return fmt.Errorf("%w: propiedad no editable (%s)", ErrInvalidInput, property)
+	}
+	// Refuse before asking, as DatasetPropSet does: acknowledging the risk is
+	// not enough when the result is a system path, so there is nothing to ask
+	// about. Dropping the mountpoint hands the dataset its parent's path and
+	// zfs remounts it there at once; canmount's default is "on", so inheriting
+	// it reaches the same state the canmount=on guard refuses — a dataset the
+	// next import will mount at whatever it has recorded (§1).
+	switch property {
+	case "mountpoint":
+		if err := checkInheritedMountpoint(ctx, name); err != nil {
+			return err
+		}
+	case "canmount":
+		if err := checkMountDanger(ctx, name); err != nil {
+			return err
+		}
 	}
 	if risk := inheritRisk[property]; risk != "" && !ackRisk {
 		return fmt.Errorf("%w: %s", ErrRiskAck, riskText[risk])

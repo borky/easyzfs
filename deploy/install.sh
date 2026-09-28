@@ -1004,7 +1004,10 @@ $u ${zpool} ^(replace|attach) ${P} ${V} ${V}\$
 $u ${zpool} ^(offline|online|detach) ${P} ${V}\$
 $u ${zpool} ^clear ${P}( ${V})?\$
 $u ${zpool} import
-$u ${zpool} ^(import|destroy|trim) ${P}\$
+$u ${zpool} ^(destroy|trim) ${P}\$
+# -N only: a plain 'zpool import <pool>' mounts every dataset at whatever the
+# pool records, /etc included, and nothing in the code does that any more.
+$u ${zpool} ^import -N ${P}\$
 $u ${zpool} ^export (-f )?${P}\$
 $u ${zpool} ^scrub (-p |-s )?${P}\$
 $u ${zpool} ^checkpoint (-d )?${P}\$
@@ -1026,7 +1029,7 @@ $u ${zfs} ^rollback -r ${S}\$
 $u ${zfs} ^diff -FHt ${S} ${S}\$
 $u ${zfs} ^clone (-o mountpoint\=${VAL} )?${S} ${D}\$
 $u ${zfs} ^rename ${D} ${D}\$
-$u ${zfs} ^(promote|mount|unmount) ${D}\$
+$u ${zfs} ^(promote|mount|unmount|share) ${D}\$
 $u ${zfs} ^bookmark ${S} ${BM}\$
 $u ${zfs} ^send -v( -w)?( -i ${BM})? ${S}\$
 $u ${zfs} ^recv -s ${D}\$

@@ -1,0 +1,15 @@
+# Real output of
+#   zfs get -H -o name,property,value,source mountpoint,canmount -r rpool
+# on the Proxmox VE 8.4 test VM (ZFS 2.2.7), root on rpool/ROOT/pve-1.
+# This is the layout the /etc incident came from: a dataset created under
+# rpool/ROOT/pve-1 inherits a path below /.
+rpool	mountpoint	/rpool	default
+rpool	canmount	on	default
+rpool/ROOT	mountpoint	/rpool/ROOT	default
+rpool/ROOT	canmount	on	default
+rpool/ROOT/pve-1	mountpoint	/	local
+rpool/ROOT/pve-1	canmount	on	default
+rpool/data	mountpoint	/rpool/data	default
+rpool/data	canmount	on	default
+rpool/var-lib-vz	mountpoint	/var/lib/vz	local
+rpool/var-lib-vz	canmount	on	default

@@ -19,6 +19,8 @@ type fakeDS struct {
 	received   string // received mountpoint, "" = none
 	canmount   string
 	keystatus  string
+	sharenfs   string // "" = off (what zfs reports when nothing is shared)
+	sharesmb   string
 	mounted    bool
 	volume     bool
 }
@@ -78,7 +80,10 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 				val, src := "", "default"
 				switch prop {
 				case "mountpoint":
-					val, src = "/inherited", "inherited from x"
+					// The pool's own default, as zfs reports it when nobody
+					// has set anything: /<dataset name>, source "default"
+					// (real output in testdata/zfs_get_mountpoint_pve.txt).
+					val, src = "/"+n, "default"
 					switch {
 					case d.mountpoint != "":
 						val, src = d.mountpoint, "local"
@@ -101,6 +106,14 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 					val = "filesystem"
 					if d.volume {
 						val = "volume"
+					}
+				case "sharenfs", "sharesmb":
+					val = "off"
+					if prop == "sharenfs" && d.sharenfs != "" {
+						val = d.sharenfs
+					}
+					if prop == "sharesmb" && d.sharesmb != "" {
+						val = d.sharesmb
 					}
 				}
 				if withName {
@@ -153,6 +166,10 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 		}
 	case "mount":
 		f.ds[last].mounted = true
+	case "share":
+		if f.ds[last] == nil {
+			return nil, errors.New("dataset does not exist")
+		}
 	case "destroy":
 		if _, ok := f.ds[last]; !ok {
 			return nil, errors.New("dataset does not exist")
@@ -183,7 +200,7 @@ func TestTrashRefusesWhatIsInUse(t *testing.T) {
 		want bool   // trash refused
 	}{
 		{"idle", "", false, false},
-		{"mounted filesystem busy", "/inherited", false, true},
+		{"mounted filesystem busy", "/tank/data", false, true},
 		{"zvol open", "zd0", false, true},
 		{"cannot tell", "", true, true},
 	} {

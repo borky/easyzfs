@@ -1,0 +1,47 @@
+# Real output of
+#   zfs get -H -o name,property,value,source mountpoint,canmount -r <ds>
+# on the Proxmox VE 8.4 test VM (ZFS 2.2.7), for one dataset with a local
+# mountpoint, its inheriting child, and the replica of both produced by
+#   zfs send -R <ds>@s1 | zfs recv -u <dest>
+# The four sources ZFS reports are all here: local, default, "inherited
+# from <dataset>" and received. Snapshots and volumes report "-".
+#
+# Note what the replica came out with: the *source's* path, with source
+# "received". That is what -R put in the stream. EasyZFS's own replication
+# sends without -p and without -R, so its streams carry no properties at all
+# and its destinations come out at their own default (see the last block); a
+# received mountpoint on one of its destinations therefore came from somebody
+# else's stream, which is what the local-destination check looks for.
+rpool/data/ezsrc	mountpoint	/rpool/data/ezmp	local
+rpool/data/ezsrc	canmount	on	default
+rpool/data/ezsrc@s1	mountpoint	-	-
+rpool/data/ezsrc@s1	canmount	-	-
+rpool/data/ezsrc/child	mountpoint	/rpool/data/ezmp/child	inherited from rpool/data/ezsrc
+rpool/data/ezsrc/child	canmount	on	default
+rpool/data/ezsrc/child@s1	mountpoint	-	-
+rpool/data/ezsrc/child@s1	canmount	-	-
+rpool/data/ezdst	mountpoint	/rpool/data/ezmp	received
+rpool/data/ezdst	canmount	on	default
+rpool/data/ezdst@s1	mountpoint	-	-
+rpool/data/ezdst@s1	canmount	-	-
+rpool/data/ezdst/child	mountpoint	/rpool/data/ezmp/child	inherited from rpool/data/ezdst
+rpool/data/ezdst/child	canmount	on	default
+rpool/data/ezdst/child@s1	mountpoint	-	-
+rpool/data/ezdst/child@s1	canmount	-	-
+
+# A volume has no mountpoint at all:
+#   zfs get -H -o name,property,value,source mountpoint,canmount,type rpool/data/ezvol
+rpool/data/ezvol	mountpoint	-	-
+rpool/data/ezvol	canmount	-	-
+rpool/data/ezvol	type	volume	-
+
+# A clone does not carry the origin's mountpoint; it takes the one its own
+# position gives it:
+#   zfs clone rpool/data/ezsrc@s1 rpool/data/ezparent/ezclone
+rpool/data/ezparent/ezclone	mountpoint	/rpool/data/ezparent/ezclone	default
+
+# And a plain send|recv, which is the shape internal/replication uses (no -p,
+# no -R), carries no mountpoint either — so the destination lands at its own
+# default wherever it is received:
+#   zfs send rpool/data/ezsrc2@s1 | zfs recv -s rpool/data/ezdst2
+rpool/data/ezdst2	mountpoint	/rpool/data/ezdst2	default

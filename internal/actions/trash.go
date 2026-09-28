@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -397,49 +398,41 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 
 	var rows []propRow
 	received := map[string]bool{}
+	res := newMountResolver()
 	for rel, mp := range st.Mountpoints {
 		ds := e.Original + rel
 		if !reDataset.MatchString(ds) || (!st.Received[rel] && !reMountpoint.MatchString(mp)) {
 			warnings = append(warnings, "mountpoint de "+ds+" no válido; no se restaura")
 			continue
 		}
+		// Putting the value back *mounts* the dataset there and then: zfs
+		// remounts a filesystem whose mountpoint was none as soon as it
+		// becomes a path (checked on the VM, mounted no → yes). So the check
+		// has to happen here, before the set, not in the mountTree pass below
+		// — that one would find it already mounted and report otherwise.
+		// Both branches: 'zfs inherit -S' puts a received value back just as
+		// 'zfs set' puts a local one back. The value stored here is the
+		// effective one and it is recorded on the dataset, hence the danger
+		// rules only.
+		if strings.HasPrefix(mp, "/") {
+			t := mountTarget{path: path.Clean(mp), recorded: true}
+			if err := res.checkTarget(ctx, ds, t, false); err != nil {
+				log.Printf("papelera: mountpoint de %s no se restaura: %v", ds, err)
+				warnings = append(warnings, "mountpoint de "+ds+" no se restaura: "+err.Error())
+				continue
+			}
+		}
 		rows = append(rows, propRow{name: ds, value: mp})
 		received[ds] = st.Received[rel]
 	}
 	warnings = append(warnings, setMountpoints(ctx, rows, received)...)
 
-	// Datasets that inherit their mountpoint come back unmounted: mount what
+	// Datasets that inherit their mountpoint come back unmounted (the ones
+	// with a recorded value are already mounted by the loop above): mount what
 	// the pool would mount at import (canmount=on, a real mountpoint, key
-	// loaded). This puts back what existed before the dataset was trashed;
-	// like DatasetMount it does not check the effective mountpoint (the
-	// open §1 item in FORK.md).
-	// -t filesystem alone fails outright on a volume ("not applicable");
-	// volumes come back with mountpoint "-" and are skipped below.
-	props, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume", "canmount,mountpoint,keystatus", e.Original)
-	if err != nil {
-		return append(warnings, "no se pudo leer el árbol para montarlo: "+err.Error()), nil
-	}
-	byName := map[string]map[string]string{}
-	var names []string
-	for _, r := range props {
-		if byName[r.name] == nil {
-			byName[r.name] = map[string]string{}
-			names = append(names, r.name)
-		}
-		byName[r.name][r.prop] = r.value
-	}
-	sort.Slice(names, func(i, j int) bool { return len(names[i]) < len(names[j]) })
-	for _, n := range names {
-		p := byName[n]
-		if p["canmount"] != "on" || p["mountpoint"] == "none" || p["mountpoint"] == "legacy" || p["mountpoint"] == "-" ||
-			p["keystatus"] == "unavailable" {
-			continue
-		}
-		if _, err := runZFS(ctx, 60*time.Second, "mount", n); err != nil && !strings.Contains(err.Error(), "already mounted") {
-			warnings = append(warnings, "montar "+n+": "+err.Error())
-		}
-	}
-	return warnings, nil
+	// loaded), minus anything the effective-mountpoint rules refuse, which
+	// mountTree reports instead of mounting (§1).
+	return append(warnings, s.mountTree(ctx, e.Original)...), nil
 }
 
 // TrashPurge — destroys one trashed dataset for good.

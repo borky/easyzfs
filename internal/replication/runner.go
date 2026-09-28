@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"easyzfs/internal/actions"
 	"easyzfs/internal/executil"
 	"easyzfs/internal/hub"
 	"easyzfs/internal/longops"
@@ -205,6 +206,17 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 	if r.mock {
 		return r.mockRun(ctx, j)
 	}
+	// A local destination is on this host, so where it will be mounted is ours
+	// to answer for: 'zfs recv' creates the dataset and mounts it. Normally
+	// that is the path its own position gives it, but a destination that
+	// already exists can hold a mountpoint *received* from a stream — ours
+	// carry no properties, another sender's may — and that is the one worth
+	// catching before the receive repeats it (§1).
+	if j.DestType != "ssh" {
+		if err := actions.CheckEffectiveMountpoint(ctx, j.DestDataset); err != nil {
+			return err
+		}
+	}
 	snap := SnapPrefix + time.Now().Format("20060102-150405")
 	fullSnap := j.Source + "@" + snap
 	if _, err := executil.Run(ctx, 60*time.Second, "zfs", "snapshot", fullSnap); err != nil {
@@ -317,6 +329,14 @@ func (r *Runner) stages(j *Job, fullSnap string, incremental bool) []longops.Sta
 		send = append(send, "-i", j.Source+"#"+BookmarkName)
 	}
 	send = append(send, fullSnap)
+	// No -p and no -R above, so this stream carries no properties at all and
+	// the destination cannot inherit the source's mountpoint: checked on the
+	// VM, a plain 'zfs send | zfs recv' leaves the destination at its own
+	// default. An earlier version of this fix added 'recv -x mountpoint' on
+	// the strength of an experiment run with 'send -R', which this code never
+	// issues — a flag with nothing to exclude, and one more argv shape to keep
+	// pinned in sudoers. What a destination *can* already hold is a received
+	// mountpoint put there by somebody else's stream; run() checks for that.
 	recv := longops.Stage{Name: "zfs", Args: []string{"recv", "-s", j.DestDataset}, Sudo: true}
 	if j.DestType == "ssh" {
 		args := append(r.sshArgs(j), j.User+"@"+j.Host, "zfs", "recv", "-s", j.DestDataset)

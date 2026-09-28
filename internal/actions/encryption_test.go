@@ -33,6 +33,8 @@ func newKeyTestService(t *testing.T) (*Service, string, string) {
 		}
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stubPoolRoot(t, "")
+	stubDefaultMountpoints(t)
 
 	d, err := db.Open(filepath.Join(dir, "test.db"))
 	if err != nil {

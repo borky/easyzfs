@@ -190,11 +190,13 @@ export class HttpProvider implements DataProvider {
   getPools = () => get<Pool[]>('/pools');
   getMissingPools = () => get<MissingPool[]>('/pools/missing');
   createPool = (r: CreatePoolReq) => post<void>('/pools', r);
-  importPool = async (name?: string): Promise<string[]> => {
-    const r = await post<{ importable?: string[] } | string[]>('/pools/import', name ? { name } : {});
-    // Con nombre el backend responde 202 sin cuerpo (r = undefined); sin nombre
-    // devuelve {importable:[...]}. No asumir que r existe.
-    return Array.isArray(r) ? r : (r?.importable ?? []);
+  importPool = async (name?: string): Promise<{ importable: string[]; warnings: string[] }> => {
+    const r = await post<{ importable?: string[]; warnings?: string[] } | string[]>('/pools/import', name ? { name } : {});
+    // Sin nombre el backend devuelve {importable:[...]}; con nombre,
+    // {warnings:[...]} (lo que la importación dejó sin montar). Un backend
+    // anterior respondía 202 sin cuerpo, así que r puede no existir.
+    if (Array.isArray(r)) return { importable: r, warnings: [] };
+    return { importable: r?.importable ?? [], warnings: r?.warnings ?? [] };
   };
   scrubAction = (pool: string, action: 'start' | 'pause' | 'stop') =>
     post<void>(`/pools/${enc(pool)}/scrub`, { action });

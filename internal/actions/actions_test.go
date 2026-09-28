@@ -37,6 +37,10 @@ func newTestService(t *testing.T) (*Service, string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	stubPoolRoot(t, "")
 	stubBlankDisks(t)
+	// Every dataset at /<its own name>, source default: the ordinary case, so
+	// that the effective-mountpoint check (mountpoint.go) is not what these
+	// tests are about. Tests that do care install their own table afterwards.
+	stubDefaultMountpoints(t)
 
 	d, err := db.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -344,7 +348,7 @@ func TestMountpointPathTrust(t *testing.T) {
 		{"open", true},      // the mountpoint dir itself may be open; its parent is trusted
 		{"groupw/x", false}, // parent writable by the group
 	} {
-		err := checkMountpointPath(base, filepath.Join(base, c.rel))
+		err := checkMountpointPath(base, filepath.Join(base, c.rel), true)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: err=%v, want ok=%v", c.rel, err, c.ok)
 		}
@@ -357,7 +361,7 @@ func TestMountpointPathTrust(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { os.Chmod(priv, 0o755) })
-		if err := checkMountpointPath(base, filepath.Join(priv, "x")); err == nil {
+		if err := checkMountpointPath(base, filepath.Join(priv, "x"), true); err == nil {
 			t.Error("a component behind an unreadable directory was accepted")
 		}
 	}
@@ -369,7 +373,7 @@ func TestMountpointPathTrustRequiresOwner(t *testing.T) {
 	mountTrustedUID = os.Getuid() + 1
 	t.Cleanup(func() { mountTrustedUID = saved })
 	base := t.TempDir()
-	if err := checkMountpointPath(base, filepath.Join(base, "x")); err == nil {
+	if err := checkMountpointPath(base, filepath.Join(base, "x"), true); err == nil {
 		t.Error("a directory owned by someone other than the trusted owner was accepted")
 	}
 }

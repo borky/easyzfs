@@ -378,11 +378,14 @@ function ImportPoolModal({ preset, onClose }: { preset?: string; onClose: () => 
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // El pool ya está importado y el modal sigue abierto para leer los avisos:
+  // reintentar solo daría "pool already exists".
+  const [imported, setImported] = useState(false);
 
   useEffect(() => {
     let alive = true;
     getProvider().importPool()
-      .then((names) => { if (alive) setList(names); })
+      .then(({ importable }) => { if (alive) setList(importable); })
       .catch((e) => { if (alive) { setList([]); setErr(errorMessage(e, t)); } });
     return () => { alive = false; };
   }, [t]);
@@ -392,8 +395,19 @@ function ImportPoolModal({ preset, onClose }: { preset?: string; onClose: () => 
     if (!sel) return;
     setBusy(true); setErr('');
     try {
-      await getProvider().importPool(sel);
-      refresh(); onClose();
+      const { warnings } = await getProvider().importPool(sel);
+      refresh();
+      // El pool queda importado en cualquier caso. Si algún dataset se quedó
+      // sin montar (punto de montaje efectivo rechazado, §1), el modal se
+      // mantiene abierto con el motivo: es demasiado largo para un toast y el
+      // usuario tiene que leerlo.
+      if (warnings.length > 0) {
+        setErr(t('imp_unmounted') + ' ' + warnings.join('; '));
+        notify(t('imp_unmounted'), 'warn');
+        setBusy(false); setImported(true);
+        return;
+      }
+      onClose();
       notify(t('toast_pool_imported'), 'ok');
     } catch (ex) { const msg = errorMessage(ex, t); setErr(msg); notify(msg, 'err'); setBusy(false); }
   };
@@ -433,9 +447,11 @@ function ImportPoolModal({ preset, onClose }: { preset?: string; onClose: () => 
         </>)}
         {err && <p className="form-err" role="alert">{err}</p>}
         <div className="m-actions">
-          <button type="button" className="btn" onClick={onClose}>{t('cancel')}</button>
-          <SubmitBtn label={t('imp_btn')} busy={busy}
-            disabled={!isAdmin || !sel || confirm.trim() !== sel} />
+          <button type="button" className="btn" onClick={onClose}>{imported ? t('close') : t('cancel')}</button>
+          {!imported && (
+            <SubmitBtn label={t('imp_btn')} busy={busy}
+              disabled={!isAdmin || !sel || confirm.trim() !== sel} />
+          )}
         </div>
       </form>
     </ModalBox>

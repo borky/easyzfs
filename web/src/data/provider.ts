@@ -70,7 +70,12 @@ export interface DataProvider {
   getPools(): Promise<Pool[]>;
   getMissingPools(): Promise<MissingPool[]>;
   createPool(r: CreatePoolReq): Promise<void>;
-  importPool(name?: string): Promise<string[]>;
+  /**
+   * Sin nombre: los pools importables. Con nombre: importa el pool y devuelve
+   * en `warnings` lo que la importación dejó sin montar, porque el punto de
+   * montaje efectivo del dataset no pasó las comprobaciones (§1).
+   */
+  importPool(name?: string): Promise<{ importable: string[]; warnings: string[] }>;
   scrubAction(pool: string, action: 'start' | 'pause' | 'stop'): Promise<void>;
   exportPool(name: string, confirm: string, force: boolean, destroy: boolean): Promise<void>;
   /** checkpoint: take a pool checkpoint first (opt-in; it blocks replace until discarded). */

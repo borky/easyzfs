@@ -86,11 +86,17 @@ func (s *Server) importPool(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"importable": names})
 		return
 	}
-	if err := s.act.PoolImport(r.Context(), actor(r), body.Name); err != nil {
+	warnings, err := s.act.PoolImport(r.Context(), actor(r), body.Name)
+	if err != nil {
 		actionErr(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	// 202 with what the import left unmounted: the pool is imported either
+	// way, and a 4xx would have said otherwise.
+	if warnings == nil {
+		warnings = []string{}
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"warnings": warnings})
 }
 
 // scrubPool — POST /api/pools/{name}/scrub {action:start|pause|stop} → 202.

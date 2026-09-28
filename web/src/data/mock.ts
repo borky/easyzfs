@@ -455,7 +455,7 @@ export class MockProvider implements DataProvider {
     this.disks.forEach((d) => { if (r.disks.includes(d.dev)) d.pool = r.name; });
     emitEvent({ type: 'overview' });
   };
-  importPool = async (name?: string) => { await delay(); return name ? [] : ['archivo-antiguo']; };
+  importPool = async (name?: string) => { await delay(); return name ? { importable: [], warnings: [] } : { importable: ['archivo-antiguo'], warnings: [] }; };
   scrubAction = async (pool: string, action: 'start' | 'pause' | 'stop') => {
     await delay();
     const p = this.pools.find((x) => x.name === pool);

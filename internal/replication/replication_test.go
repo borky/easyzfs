@@ -120,6 +120,12 @@ case "$cmd" in
     sed -i "\|^$1\$|d" "$FAKE_STATE/snaps" 2>/dev/null ;;
   list)
     cat "$FAKE_STATE/snaps" 2>/dev/null ;;
+  get)
+    # The effective-mountpoint check on a local destination (actions.§1):
+    # every dataset sits at /<its own name>, source default, as zfs reports a
+    # pool nobody has reconfigured.
+    ds="${!#}"
+    if [[ "$*" == *"value,source"* ]]; then printf '/%s\tdefault\n' "$ds"; else printf '/%s\n' "$ds"; fi ;;
 esac
 exit 0
 `

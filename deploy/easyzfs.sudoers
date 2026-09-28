@@ -23,7 +23,10 @@ easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(replace|attach) [A-Za-z0-9][A-Za-
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(offline|online|detach) [A-Za-z0-9][A-Za-z0-9_.-]* (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^clear [A-Za-z0-9][A-Za-z0-9_.-]*( (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*)?$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool import
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(import|destroy|trim) [A-Za-z0-9][A-Za-z0-9_.-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(destroy|trim) [A-Za-z0-9][A-Za-z0-9_.-]*$
+# -N only: a plain 'zpool import <pool>' mounts every dataset at whatever the
+# pool records, /etc included, and nothing in the code does that any more.
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^import -N [A-Za-z0-9][A-Za-z0-9_.-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^export (-f )?[A-Za-z0-9][A-Za-z0-9_.-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^scrub (-p |-s )?[A-Za-z0-9][A-Za-z0-9_.-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^checkpoint (-d )?[A-Za-z0-9][A-Za-z0-9_.-]*$
@@ -45,7 +48,7 @@ easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rollback -r [A-Za-z0-9][A-Za-z0-9_./
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^diff -FHt [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^clone (-o mountpoint\=[A-Za-z0-9_./-]+ )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rename [A-Za-z0-9][A-Za-z0-9_./-]* [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^(promote|mount|unmount) [A-Za-z0-9][A-Za-z0-9_./-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^(promote|mount|unmount|share) [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^bookmark [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*\#ezrepl-last$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^send -v( -w)?( -i [A-Za-z0-9][A-Za-z0-9_./-]*\#ezrepl-last)? [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^recv -s [A-Za-z0-9][A-Za-z0-9_./-]*$
