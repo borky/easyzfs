@@ -3,11 +3,12 @@
 # Generated from pinned_sudoers in deploy/install.sh; regenerate rather than
 # edit, so the two cannot drift.
 #
-# Every zpool/zfs/smartctl/dd/hdparm/udisksctl argument is pinned to the
-# shapes the service sends (whole-argument regexes, sudo >= 1.9.10). An
-# unrestricted zpool/zfs grant made the service account root in all but name
-# ('zfs program', 'zfs allow', 'zpool import -d', file vdevs, altroot,
-# 'zpool status -c'). See the comment on pinned_sudoers for what remains.
+# Storage tools (zfs, zpool, smartctl, dd, hdparm, udisksctl) are reached
+# only through 'easyzfs priv', the privileged gateway in the root-owned
+# binary: it checks each command against a closed grammar and the host/guest,
+# mountpoint and disk rules before running it. None of the tools is granted
+# directly, so the service account cannot skip those checks. See the comment
+# on pinned_sudoers for the rest.
 #
 # The collectors call sudo thousands of times a day and EasyZFS keeps its own
 # audit table, so allowed commands and PAM sessions are not logged; refused
@@ -17,49 +18,7 @@
 #   install -m 0440 -o root -g root deploy/easyzfs.sudoers /etc/sudoers.d/easyzfs
 #   visudo -cf /etc/sudoers.d/easyzfs
 Defaults:easyzfs !pam_session, !log_allowed
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^create (-o ashift\=[0-9]+ )?[A-Za-z0-9][A-Za-z0-9_.-]*( (mirror|raidz[123]))?( (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*)+$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^add [A-Za-z0-9][A-Za-z0-9_.-]*( (mirror|raidz[123]))?( (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*)+$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(replace|attach) [A-Za-z0-9][A-Za-z0-9_.-]* (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]* (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(offline|online|detach) [A-Za-z0-9][A-Za-z0-9_.-]* (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^clear [A-Za-z0-9][A-Za-z0-9_.-]*( (/dev/disk/by-id/)?[A-Za-z0-9][A-Za-z0-9_.\:-]*)?$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool import
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(destroy|trim) [A-Za-z0-9][A-Za-z0-9_.-]*$
-# -N only: a plain 'zpool import <pool>' mounts every dataset at whatever the
-# pool records, /etc included, and nothing in the code does that any more.
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^import -N [A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^export (-f )?[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^scrub (-p |-s )?[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^checkpoint (-d )?[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^set autotrim\=(on|off) [A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool events -f
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^history -i [A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(list|get|status|iostat)( (-[A-Zabd-z]+|--json|[A-Za-z0-9_./@][A-Za-z0-9_.\,/@\:-]*))*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool --version
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^create -p -o compression\=(lz4|zstd|off)( -o atime\=(on|off|relatime))?( -o quota\=[0-9]+)?( -V [0-9]+)?( -o encryption\=aes-256-gcm -o keyformat\=passphrase -o keylocation\=prompt)? [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^create -o mountpoint\=none -o canmount\=off [A-Za-z0-9][A-Za-z0-9_.-]*/easyzfs-trash$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^load-key (-n -L prompt )?[A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^unload-key [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^change-key -o keyformat\=passphrase [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^set (compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize)\=[A-Za-z0-9_./-]+ [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^inherit (-S )?(compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize) [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^destroy (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*(@[A-Za-z0-9][A-Za-z0-9_.\:-]*|\#ezrepl-last)?$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^snapshot (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*( [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*)*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rollback -r [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^diff -FHt [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^clone (-o mountpoint\=[A-Za-z0-9_./-]+ )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rename [A-Za-z0-9][A-Za-z0-9_./-]* [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^(promote|mount|unmount|share) [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^bookmark [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]* [A-Za-z0-9][A-Za-z0-9_./-]*\#ezrepl-last$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^send -v( -w)?( -i [A-Za-z0-9][A-Za-z0-9_./-]*\#ezrepl-last)? [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^recv -s [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rewrite -r -x /[A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^(list|get)( (-[A-Zabd-z]+|--json|[A-Za-z0-9_./@][A-Za-z0-9_.\,/@\:-]*))*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs version
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/smartctl ^-j -a /dev/[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/smartctl ^-t (short|long) /dev/[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/bin/dd ^if\=/dev/[A-Za-z0-9][A-Za-z0-9_.-]* of\=/dev/null bs\=1M count\=2048$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/hdparm ^-y /dev/[A-Za-z0-9][A-Za-z0-9_.-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/bin/udisksctl ^power-off -b /dev/[A-Za-z0-9][A-Za-z0-9_.-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/local/bin/easyzfs priv *
 easyzfs ALL=(root) NOPASSWD: /usr/bin/fuser ^-sm? /[A-Za-z0-9_./-]+$
 easyzfs ALL=(root) NOPASSWD: /usr/bin/cat /etc/pve/storage.cfg
 easyzfs ALL=(root) NOPASSWD: /usr/bin/lsblk ^-J( -[bd])? -o [A-Z\,]+( /dev/[A-Za-z0-9][A-Za-z0-9_.-]*)?$

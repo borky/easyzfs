@@ -97,7 +97,7 @@ var reMountpoint = regexp.MustCompile(`^/[a-zA-Z0-9_./\-]+$`)
 // too, since DB_PATH can move it (see ProtectMountpoint).
 var systemMountpoints = []string{
 	"/etc", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/usr",
-	"/boot", "/dev", "/proc", "/sys", "/run", "/root",
+	"/boot", "/efi", "/dev", "/proc", "/sys", "/run", "/root",
 	"/var/spool/cron", "/var/lib/dpkg", "/var/lib/easyzfs", "/opt/easyzfs",
 	// Neither is ever a ZFS dataset, and shadowing either breaks the host:
 	// pmxcfs keeps the Proxmox cluster config under the first, and systemd's

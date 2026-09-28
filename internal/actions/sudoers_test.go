@@ -1,49 +1,48 @@
-// sudoers_test.go — deploy/install.sh pins every zfs/zpool argument shape in
-// sudoers (pinned_sudoers). A property added to propValidators but not to the
-// installer's list would be refused by sudo at runtime, with nothing in CI to
-// say so; this test is that something.
+// sudoers_test.go — deploy/install.sh writes the service's sudo grant
+// (pinned_sudoers). Storage tools reach root only through the privileged
+// gateway; a direct rule for any of them would let a compromised service
+// account skip the gateway's checks, with nothing in CI to say so.
 package actions
 
 import (
 	"os"
 	"os/exec"
-	"regexp"
-	"sort"
 	"strings"
 	"testing"
 )
 
-func TestSudoersPropsMatchValidators(t *testing.T) {
-	b, err := os.ReadFile("../../deploy/install.sh")
+// pinnedSudoers runs the installer's generator with the default paths.
+func pinnedSudoers(t *testing.T) string {
+	t.Helper()
+	script := `eval "$(sed -n '/^pinned_sudoers() {/,/^}/p' ../../deploy/install.sh)"
+SVC_USER=easyzfs SYSD_HELPER=/usr/local/libexec/easyzfs-sysd
+pinned_sudoers /usr/local/bin/easyzfs /usr/bin/lsblk /usr/bin/crontab /usr/bin/fuser /usr/bin/cat`
+	gen, err := exec.Command("bash", "-c", script).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := regexp.MustCompile(`(?m)^\s*local PROPS='\(([a-z|]+)\)'$`).FindSubmatch(b)
-	if m == nil {
-		t.Fatal("PROPS not found in pinned_sudoers")
+	return string(gen)
+}
+
+// No storage tool is granted directly: only the gateway reaches them.
+func TestSudoersGrantNoStorageToolDirectly(t *testing.T) {
+	gen := pinnedSudoers(t)
+	for _, tool := range []string{"/zfs", "/zpool", "/smartctl", "/dd ", "/hdparm", "/udisksctl"} {
+		for _, l := range strings.Split(gen, "\n") {
+			if strings.Contains(l, "NOPASSWD:") && strings.Contains(l, tool) {
+				t.Errorf("direct grant of %s: %s", tool, l)
+			}
+		}
 	}
-	inSudoers := strings.Split(string(m[1]), "|")
-	var inGo []string
-	for k := range propValidators {
-		inGo = append(inGo, k)
-	}
-	sort.Strings(inSudoers)
-	sort.Strings(inGo)
-	if strings.Join(inSudoers, ",") != strings.Join(inGo, ",") {
-		t.Errorf("sudoers PROPS %v != propValidators %v", inSudoers, inGo)
+	if !strings.Contains(gen, "NOPASSWD: /usr/local/bin/easyzfs priv *") {
+		t.Errorf("no gateway rule:\n%s", gen)
 	}
 }
 
 // The static deploy/easyzfs.sudoers (manual installs) must grant exactly what
 // the installer grants.
 func TestStaticSudoersMatchesInstaller(t *testing.T) {
-	script := `eval "$(sed -n '/^pinned_sudoers() {/,/^}/p' ../../deploy/install.sh)"
-SVC_USER=easyzfs SYSD_HELPER=/usr/local/libexec/easyzfs-sysd
-pinned_sudoers /usr/sbin/zpool /usr/sbin/zfs /usr/sbin/smartctl /usr/bin/lsblk /usr/bin/crontab /usr/sbin/hdparm /usr/bin/udisksctl /usr/bin/dd /usr/bin/fuser /usr/bin/cat`
-	gen, err := exec.Command("bash", "-c", script).Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	gen := []byte(pinnedSudoers(t))
 	static, err := os.ReadFile("../../deploy/easyzfs.sudoers")
 	if err != nil {
 		t.Fatal(err)

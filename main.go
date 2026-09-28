@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -30,10 +31,12 @@ import (
 	"easyzfs/internal/collectors"
 	"easyzfs/internal/config"
 	"easyzfs/internal/db"
+	"easyzfs/internal/executil"
 	"easyzfs/internal/httpapi"
 	"easyzfs/internal/hub"
 	"easyzfs/internal/longops"
 	"easyzfs/internal/notifier"
+	"easyzfs/internal/priv"
 	"easyzfs/internal/push"
 	"easyzfs/internal/replication"
 	"easyzfs/internal/scheduler"
@@ -61,6 +64,12 @@ var (
 var distFS embed.FS
 
 func main() {
+	// 'easyzfs priv …' — the privileged gateway, run as root by sudo. It
+	// shares the binary so its checks are the service's own code, and it
+	// must be dispatched before anything else: no config, no database.
+	if len(os.Args) > 1 && os.Args[1] == "priv" {
+		os.Exit(priv.Main(os.Args[2:]))
+	}
 	// -generate-vapid: imprime un par de claves VAPID para /etc/easyzfs/env
 	// (lo usa deploy/install.sh) y sale 0. No toca BD ni configuración.
 	genVapid := flag.Bool("generate-vapid", false, "genera un par de claves VAPID (Web Push) y sale")
@@ -86,6 +95,23 @@ func main() {
 	defer stop()
 
 	cfg := config.Load()
+
+	// Storage tools run through the privileged gateway (internal/priv):
+	// unprivileged, via sudo to this binary; as root, with the same checks
+	// in-process. Read-only mode keeps sudo's few pinned reads instead: its
+	// sudoers file grants no gateway.
+	if executil.SudoEnabled() {
+		if !cfg.ReadOnly {
+			if bin, err := os.Executable(); err == nil {
+				if r, err := filepath.EvalSymlinks(bin); err == nil {
+					bin = r
+				}
+				executil.PrivBin = bin
+			}
+		}
+	} else {
+		executil.PrivGate = actions.PrivCheck
+	}
 
 	database, err := db.Open(cfg.DBPath)
 	if err != nil {

@@ -509,6 +509,10 @@ func actionErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, actions.ErrHostStorage):
 		writeErr(w, http.StatusForbidden, "host_storage", err.Error())
+	case errors.Is(err, actions.ErrNotAllowed):
+		// The privileged gateway refused a shape outside its grammar: a bug
+		// or a tampered request, never something the UI offers.
+		writeErr(w, http.StatusForbidden, "not_allowed", err.Error())
 	case errors.Is(err, actions.ErrHostUnknown):
 		writeErr(w, http.StatusConflict, "host_unknown", err.Error())
 	case errors.Is(err, actions.ErrConflict):

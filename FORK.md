@@ -206,6 +206,39 @@ storage and keeps its hands off it.
   two latest `ezrepl-*` snapshots on the source, so Proxmox cannot roll back a
   VM whose disk is being replicated.
 
+### The privileged gateway (remediation spec P0, P1, P7)
+
+`easyzfs_proxmox_remediation_requirements.md` (untracked) asked for the checks
+to hold at the privileged boundary too, not only in the service. The sudoers
+file had pinned argument *shapes*, but still let the service account run
+`zfs set mountpoint=/etc …`, `zfs mount`, `zfs destroy` and the rest itself,
+so a compromised service process could skip every Go-side check.
+
+- **`easyzfs priv <tool> …`** (`internal/priv`) is now the only way the
+  service reaches `zfs`, `zpool`, `smartctl`, `dd`, `hdparm` or `udisksctl`
+  with root rights; sudoers grants it and none of the tools.
+- **As root**, it matches the argv against a closed grammar
+  (`internal/actions/privgate.go`), then re-runs the action's own checks right
+  before the command: name whitelists, host/guest storage, effective
+  mountpoints (inherited, received, `none`/`legacy`, symlinks), and live disk
+  and pool state. Only then does it `exec` the tool, so exit codes, output and
+  SIGTERM relay are the tool's own.
+- **Service side:** `executil` routes those tools through it automatically.
+  In root mode the same checks run in-process. The service keeps its own
+  copies for quick, well-worded 4xx answers.
+- **Verified on the Proxmox VE 8.4 VM with real sudo:**
+  - the service account's direct `zfs`/`zpool`/`smartctl` calls are refused;
+  - through the gateway, `mountpoint=/etc`, mounting the root filesystem,
+    `zfs program`, `zpool import -d`, `status -c` and destroying `rpool` or
+    `rpool/data` are refused;
+  - the dataset, recycle-bin, §1 and replication-cancel scenarios all pass
+    through it.
+- **Not covered by the gateway:**
+  - a custom `DB_PATH` data directory. The gateway runs with sudo's cleaned
+    environment and protects the default `/var/lib/easyzfs` only.
+  - `zfs recv`. It still writes whatever the stream holds into an allowed
+    destination.
+
 ### Destructive actions only after the safety steps
 
 Fork-only, built on the fixes above:
