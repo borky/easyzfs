@@ -188,6 +188,20 @@ var migrations = []string{
 	  first_seen_at TEXT NOT NULL,
 	  last_seen_at  TEXT NOT NULL
 	);`,
+	// v24: recycle bin. Deleting a dataset from the UI renames it into
+	// <pool>/easyzfs-trash; this row is what lets it be restored (original
+	// name, and in state the mountpoints and readonly value it had) or
+	// purged after actions.TrashDays. Without the row nothing would ever
+	// destroy a trashed dataset.
+	`CREATE TABLE IF NOT EXISTS trash (
+	  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	  pool       TEXT NOT NULL,
+	  original   TEXT NOT NULL,
+	  trashed    TEXT NOT NULL UNIQUE,
+	  trashed_at TEXT NOT NULL,
+	  state      TEXT NOT NULL DEFAULT '{}',
+	  actor      TEXT NOT NULL DEFAULT ''
+	);`,
 }
 
 // Open abre la BD con WAL, busy_timeout y una sola conexión escritora.

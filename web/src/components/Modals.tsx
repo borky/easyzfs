@@ -12,6 +12,7 @@ import { SYS_SCHED_DEFAULT, buildSysSchedule, parseSysSchedule } from '../ui/sys
 import type { SysSchedState } from '../ui/syssched';
 import type { Dataset, DatasetProp, Disk, DiskSmartLogResp, DiskSmartResp, Job, Pool, PropGroup, ReplicationJob, SystemTimer, Topo } from '../data/types';
 import type { I18nKey } from '../ui/i18n';
+import { isTrash } from '../ui/trash';
 
 // ---------- utilidades comunes ----------
 // propRisk — mirrors actions.PropRisk: the high-impact values that need a
@@ -88,6 +89,7 @@ export function ModalHost() {
     case 'propsds': return <DatasetPropsModal ds={p.ds as Dataset} onClose={closeModal} />;
     case 'diskdetail': return <DiskDetailModal disk={p.disk as Disk} onClose={closeModal} />;
     case 'delds': return <DeleteDatasetModal name={p.name as string} onClose={closeModal} />;
+    case 'purgetrash': return <PurgeTrashModal id={p.id as number} original={p.original as string} onClose={closeModal} onDone={p.onDone as (() => void) | undefined} />;
     case 'renameds': return <RenameDatasetModal name={p.name as string} onClose={closeModal} />;
     case 'rewrite': return <RewriteModal ds={p.ds as Dataset} onClose={closeModal} />;
     case 'unlockds': return <UnlockDatasetModal ds={p.ds as Dataset} onClose={closeModal} />;
@@ -904,20 +906,34 @@ function DiskDetailModal({ disk, onClose }: { disk: Disk; onClose: () => void })
 }
 
 // ---------- eliminar dataset (confirmación escrita) ----------
+// By default the dataset goes to the recycle bin (<pool>/easyzfs-trash) and
+// is destroyed after the retention period; "permanent" skips the bin. The
+// dialog states what is affected before anything is asked for.
 function DeleteDatasetModal({ name, onClose }: { name: string; onClose: () => void }) {
   const { t, refresh, isAdmin, notify } = useApp();
   const [confirm, setConfirm] = useState('');
   const [recursive, setRecursive] = useState(false);
+  const [permanent, setPermanent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const dsList = useLoad(() => getProvider().getDatasets());
+  const snapList = useLoad(() => getProvider().getSnapshots());
+  const inTrash = isTrash(name);
+
+  const self = dsList?.find((d) => d.name === name);
+  const children = (dsList ?? []).filter((d) => d.name.startsWith(name + '/'));
+  const snapCount = (snapList ?? [])
+    .filter((g) => g.dataset === name || g.dataset.startsWith(name + '/'))
+    .reduce((n, g) => n + g.snaps.length, 0);
+  const needRecursive = children.length > 0 && !recursive;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr('');
     try {
-      await getProvider().deleteDataset(name, confirm.trim(), recursive);
+      await getProvider().deleteDataset(name, confirm.trim(), recursive, permanent || inTrash);
       refresh(); onClose();
-      notify(t('toast_ds_deleted'), 'ok');
+      notify(permanent || inTrash ? t('toast_ds_deleted') : t('toast_ds_trashed'), 'ok');
     } catch (ex) { const msg = errorMessage(ex, t); setErr(msg); notify(msg, 'err'); setBusy(false); }
   };
 
@@ -925,18 +941,74 @@ function DeleteDatasetModal({ name, onClose }: { name: string; onClose: () => vo
     <ModalBox onClose={onClose} label={t('dds_title')}>
       <form onSubmit={submit}>
         <h3>{t('dds_title')}</h3>
-        <p className="desc">{t('dds_desc')}</p>
         <p className="desc mono" style={{ marginTop: 8 }}>{name}</p>
-        <label className="checklabel" style={{ marginTop: 16 }}>
+        <div className="card" style={{ padding: 12, marginTop: 12 }}>
+          <strong>{t('dds_impact')}</strong>
+          <ul style={{ margin: '6px 0 0 18px' }}>
+            <li>{t('dds_impact_used')}: <span className="mono">{self ? fmtBytes(self.used_bytes) : '…'}</span></li>
+            <li>{t('dds_impact_children')}: <span className="mono">{dsList ? children.length : '…'}</span>
+              {children.length > 0 && <span className="mono dim"> ({children.slice(0, 5).map((c) => c.name.slice(name.length + 1)).join(', ')}{children.length > 5 ? ', …' : ''})</span>}
+            </li>
+            <li>{t('dds_impact_snaps')}: <span className="mono">{snapList ? snapCount : '…'}</span></li>
+            {self?.mountpoint && self.mountpoint !== '-' && (
+              <li>{t('dds_impact_mount')}: <span className="mono">{self.mountpoint}</span></li>
+            )}
+          </ul>
+        </div>
+        <p className="desc" style={{ marginTop: 12 }}>
+          {inTrash ? t('dds_desc') : permanent ? t('dds_desc') : t('dds_desc_trash')}
+        </p>
+        <label className="checklabel" style={{ marginTop: 12 }}>
           <input type="checkbox" checked={recursive} onChange={(e) => setRecursive(e.target.checked)} />
           {t('dds_recursive')}
         </label>
+        {needRecursive && <p className="form-err">{t('dds_need_recursive')}</p>}
+        {!inTrash && (
+          <label className="checklabel" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />
+            {t('dds_permanent')}
+          </label>
+        )}
         <label htmlFor="dd-confirm">{t('ex_confirm_lbl_dataset')}</label>
         <input id="dd-confirm" placeholder={name} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         {err && <p className="form-err" role="alert">{err}</p>}
         <div className="m-actions">
           <button type="button" className="btn" onClick={onClose}>{t('cancel')}</button>
-          <SubmitBtn label={t('delete')} busy={busy} danger disabled={!isAdmin || confirm.trim() !== name} />
+          <SubmitBtn label={permanent || inTrash ? t('delete') : t('dds_to_trash')} busy={busy} danger
+            disabled={!isAdmin || confirm.trim() !== name || needRecursive} />
+        </div>
+      </form>
+    </ModalBox>
+  );
+}
+
+// ---------- vaciar un elemento de la papelera ----------
+function PurgeTrashModal({ id, original, onClose, onDone }: { id: number; original: string; onClose: () => void; onDone?: () => void }) {
+  const { t, refresh, isAdmin, notify } = useApp();
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setErr('');
+    try {
+      await getProvider().purgeTrash(id, confirm.trim());
+      refresh(); onDone?.(); onClose();
+      notify(t('toast_ds_deleted'), 'ok');
+    } catch (ex) { const msg = errorMessage(ex, t); setErr(msg); notify(msg, 'err'); setBusy(false); }
+  };
+  return (
+    <ModalBox onClose={onClose} label={t('trash_purge_title')}>
+      <form onSubmit={submit}>
+        <h3>{t('trash_purge_title')}</h3>
+        <p className="desc">{t('trash_purge_desc')}</p>
+        <p className="desc mono" style={{ marginTop: 8 }}>{original}</p>
+        <label htmlFor="tp-confirm">{t('ex_confirm_lbl_dataset')}</label>
+        <input id="tp-confirm" placeholder={original} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        {err && <p className="form-err" role="alert">{err}</p>}
+        <div className="m-actions">
+          <button type="button" className="btn" onClick={onClose}>{t('cancel')}</button>
+          <SubmitBtn label={t('delete')} busy={busy} danger disabled={!isAdmin || confirm.trim() !== original} />
         </div>
       </form>
     </ModalBox>

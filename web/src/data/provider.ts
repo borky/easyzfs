@@ -3,7 +3,7 @@ import type {
   ActivityItem, Alert, APIKeyCreated, APIKeyInfo, BackupFile, BackupStatus, ChannelName, ChannelPatch, ChannelsStatus, CreateDatasetReq, CreateJobReq, CreatePoolReq, CreateReplicationReq, CreateSnapshotReq, CreateUserReq,
   Dataset, DatasetProp, DatasetPropsResp, DiffEntry, Disk, DiskSmartLogResp, DiskSmartResp, Job, JobHistoryItem, Lang, LoginResult, LongOp, MissingPool, Overview, Performance, Pool, PoolHistoryEntry, PushAlertTipo, PushPreference, PushQuietHours, PushSubscriptionJSON, SeriesResp,
   Recommendation, ReplicationJob, ReplicationSSHKey, ReplicationTestResult, SessionUser, Settings,
-  SnapshotGroup, SystemTimer, SystemTimersResp, TwoFARecovery, TwoFASetup, TwoFAStatus, UpdateJobReq, UpdateReplicationReq, UpdateStatus, UserInfo, VersionInfo,
+  SnapshotGroup, TrashResp, SystemTimer, SystemTimersResp, TwoFARecovery, TwoFASetup, TwoFAStatus, UpdateJobReq, UpdateReplicationReq, UpdateStatus, UserInfo, VersionInfo,
 } from './types';
 
 export interface DataProvider {
@@ -88,7 +88,11 @@ export interface DataProvider {
   getDatasets(): Promise<Dataset[]>;
   createDataset(r: CreateDatasetReq): Promise<void>;
   updateDataset(name: string, patch: { quota_bytes?: number; compression?: string }): Promise<void>;
-  deleteDataset(name: string, confirm: string, recursive: boolean): Promise<void>;
+  /** Moves the dataset to the recycle bin; with permanent, destroys it now. */
+  deleteDataset(name: string, confirm: string, recursive: boolean, permanent?: boolean): Promise<void>;
+  getTrash(): Promise<TrashResp>;
+  restoreTrash(id: number): Promise<void>;
+  purgeTrash(id: number, confirm: string): Promise<void>;
   rewriteDataset(name: string, confirm: string): Promise<{ op_id: string }>;
   unlockDataset(name: string, key: string): Promise<void>;
   lockDataset(name: string): Promise<void>;

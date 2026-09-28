@@ -4,6 +4,7 @@ package httpapi
 import (
 	"net/http"
 
+	"easyzfs/internal/actions"
 	"easyzfs/internal/model"
 )
 
@@ -276,6 +277,9 @@ func (s *Server) deleteDataset(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Confirm   string `json:"confirm"`
 		Recursive bool   `json:"recursive"`
+		// Permanent skips the recycle bin: 'zfs destroy' right away. The
+		// default moves the dataset to <pool>/easyzfs-trash (trash.go).
+		Permanent bool `json:"permanent"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -283,7 +287,13 @@ func (s *Server) deleteDataset(w http.ResponseWriter, r *http.Request) {
 	if !requireConfirm(w, body.Confirm, name) {
 		return
 	}
-	if err := s.act.DatasetDelete(r.Context(), actor(r), name, body.Recursive); err != nil {
+	var err error
+	if body.Permanent || actions.InTrash(name) {
+		err = s.act.DatasetDelete(r.Context(), actor(r), name, body.Recursive)
+	} else {
+		err = s.act.DatasetTrash(r.Context(), actor(r), name, body.Recursive)
+	}
+	if err != nil {
 		actionErr(w, err)
 		return
 	}

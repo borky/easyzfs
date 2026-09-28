@@ -210,6 +210,9 @@ func (s *Server) Handler() http.Handler {
 	a.HandleFunc("GET /api/datasets/{name}/properties", s.listDatasetProps)
 	a.HandleFunc("PATCH /api/datasets/{name}/rename", s.auth.RequireAdmin(s.renameDataset))
 	a.HandleFunc("DELETE /api/datasets/{name}", s.auth.RequireAdmin(s.requireReauth(s.deleteDataset)))
+	a.HandleFunc("GET /api/trash", s.listTrash)
+	a.HandleFunc("POST /api/trash/{id}/restore", s.auth.RequireAdmin(s.restoreTrash))
+	a.HandleFunc("DELETE /api/trash/{id}", s.auth.RequireAdmin(s.requireReauth(s.purgeTrash)))
 	a.HandleFunc("POST /api/datasets/{name}/promote", s.auth.RequireAdmin(s.promoteDataset))
 	a.HandleFunc("POST /api/datasets/{name}/mount", s.auth.RequireAdmin(s.mountDataset))
 	a.HandleFunc("POST /api/datasets/{name}/unmount", s.auth.RequireAdmin(s.unmountDataset))
@@ -438,7 +441,7 @@ func (w *statusWriter) WriteHeader(code int) {
 func storageRoute(p string) bool {
 	for _, prefix := range []string{
 		"/api/pools", "/api/datasets", "/api/snapshots", "/api/jobs",
-		"/api/replication", "/api/disks", "/api/system-timers", "/api/longops",
+		"/api/replication", "/api/disks", "/api/system-timers", "/api/longops", "/api/trash",
 		"/api/update",
 	} {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") || strings.HasPrefix(p, prefix+"s/") {
@@ -497,8 +500,10 @@ func actionErr(w http.ResponseWriter, err error) {
 	switch {
 	case err == nil:
 		return
-	case errors.Is(err, actions.ErrSnapshotNotFound):
+	case errors.Is(err, actions.ErrSnapshotNotFound), errors.Is(err, actions.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, actions.ErrConflict):
+		writeErr(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, actions.ErrRiskAck):
 		writeErr(w, http.StatusConflict, "risk_ack_required", err.Error())
 	case errors.Is(err, actions.ErrDiskInUse):

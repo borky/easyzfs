@@ -6,7 +6,7 @@ import type {
   ActivityItem, Alert, APIKeyCreated, APIKeyInfo, BackupFile, BackupStatus, ChannelName, ChannelPatch, ChannelsStatus, CreateDatasetReq, CreateJobReq, CreatePoolReq, CreateReplicationReq, CreateSnapshotReq, CreateUserReq,
   Dataset, DatasetProp, DatasetPropsResp, DiffEntry, Disk, DiskSmartLogResp, DiskSmartResp, Job, JobHistoryItem, Lang, LoginResult, LongOp, MissingPool, Overview, Performance, Pool, PoolHistoryEntry, PushAlertTipo, PushPreference, PushQuietHours, PushSubscriptionJSON,
   Recommendation, ReplicationJob, ReplicationSSHKey, ReplicationTestResult, SessionUser, Settings, SeriesResp,
-  SnapshotGroup, SystemTimer, SystemTimersResp, TwoFARecovery, TwoFASetup, TwoFAStatus, UpdateJobReq, UpdateReplicationReq, UpdateStatus, UserInfo, VersionInfo,
+  SnapshotGroup, TrashResp, SystemTimer, SystemTimersResp, TwoFARecovery, TwoFASetup, TwoFAStatus, UpdateJobReq, UpdateReplicationReq, UpdateStatus, UserInfo, VersionInfo,
 } from './types';
 
 const BASE = '/api';
@@ -219,8 +219,11 @@ export class HttpProvider implements DataProvider {
   createDataset = (r: CreateDatasetReq) => post<void>('/datasets', r);
   updateDataset = (name: string, p: { quota_bytes?: number; compression?: string }) =>
     patch<void>(`/datasets/${enc(name)}`, p);
-  deleteDataset = (name: string, confirm: string, recursive: boolean) =>
-    del<void>(`/datasets/${enc(name)}`, { confirm, recursive });
+  deleteDataset = (name: string, confirm: string, recursive: boolean, permanent = false) =>
+    del<void>(`/datasets/${enc(name)}`, { confirm, recursive, permanent });
+  getTrash = () => get<TrashResp>('/trash');
+  restoreTrash = (id: number) => post<void>(`/trash/${id}/restore`, {});
+  purgeTrash = (id: number, confirm: string) => del<void>(`/trash/${id}`, { confirm });
   rewriteDataset = (name: string, confirm: string) =>
     post<{ op_id: string }>(`/datasets/${enc(name)}/rewrite`, { confirm });
   unlockDataset = (name: string, key: string) =>

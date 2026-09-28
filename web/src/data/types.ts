@@ -322,6 +322,20 @@ export interface Snapshot {
   used_bytes: number;
   kind: 'auto' | 'manual';
 }
+// Recycle bin (GET /api/trash): a dataset deleted from the UI is moved to
+// <pool>/easyzfs-trash and destroyed after `days`, unless restored.
+export interface TrashItem {
+  id: number;
+  pool: string;
+  original: string;
+  trashed: string;
+  trashed_at: string;
+  purge_at: string;
+  actor: string;
+  used_bytes: number | null;
+}
+export interface TrashResp { items: TrashItem[]; days: number }
+
 export interface SnapshotGroup {
   dataset: string;
   snaps: Snapshot[];

@@ -33,6 +33,7 @@ easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^history -i [A-Za-z0-9][A-Za-z0-9_.
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool ^(list|get|status|iostat)( (-[A-Zabd-z]+|--json|[A-Za-z0-9_./@][A-Za-z0-9_.\,/@\:-]*))*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zpool --version
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^create -p -o compression\=(lz4|zstd|off)( -o atime\=(on|off|relatime))?( -o quota\=[0-9]+)?( -V [0-9]+)?( -o encryption\=aes-256-gcm -o keyformat\=passphrase -o keylocation\=prompt)? [A-Za-z0-9][A-Za-z0-9_./-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^create -o mountpoint\=none -o canmount\=off [A-Za-z0-9][A-Za-z0-9_.-]*/easyzfs-trash$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^load-key (-n -L prompt )?[A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^unload-key [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^change-key -o keyformat\=passphrase [A-Za-z0-9][A-Za-z0-9_./-]*$

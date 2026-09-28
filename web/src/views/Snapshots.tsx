@@ -8,6 +8,7 @@ import { IconChev } from '../components/icons';
 import { useModal } from '../components/Modal';
 import { subscribeEvents } from '../data/events';
 import { getProvider } from '../data';
+import { isTrash } from '../ui/trash';
 
 export default function Snapshots() {
   const { t, isAdmin, notify } = useApp();
@@ -25,7 +26,8 @@ export default function Snapshots() {
   }), []);
 
   const groups = useMemo(
-    () => (data ?? []).filter((g) => !poolFilter || g.dataset === poolFilter || g.dataset.startsWith(poolFilter + '/')),
+    // Snapshots of trashed datasets go with them: restore the dataset first.
+    () => (data ?? []).filter((g) => !isTrash(g.dataset) && (!poolFilter || g.dataset === poolFilter || g.dataset.startsWith(poolFilter + '/'))),
     [data, poolFilter]);
 
   const toggle = (ds: string) => setOpen((s) => {

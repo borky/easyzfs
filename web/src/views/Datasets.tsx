@@ -2,17 +2,22 @@
 import { useEffect, useState } from 'react';
 import { useData } from '../ui/useData';
 import { useApp, errorMessage } from '../ui/store';
-import { fmtBytes } from '../ui/format';
+import { fmtBytes, fmtDateTime } from '../ui/format';
 import { Badge, Spinner } from '../components/ui';
 import { IconLock, IconUnlock } from '../components/icons';
 import { useModal } from '../components/Modal';
 import { subscribeEvents } from '../data/events';
 import { getProvider } from '../data';
+import { isTrash } from '../ui/trash';
 
 export default function Datasets() {
-  const { t, isAdmin, caps } = useApp();
+  const { t, isAdmin, caps, refresh } = useApp();
   const { openModal } = useModal();
-  const { data, loading } = useData((p) => p.getDatasets());
+  const all = useData((p) => p.getDatasets());
+  const loading = all.loading;
+  // The recycle bin's datasets are shown in their own section, not as data.
+  const data = all.data?.filter((d) => !isTrash(d.name));
+  const trash = useData((p) => p.getTrash());
   const ops = useData((p) => p.getLongOps());
 
   // Operaciones largas en vivo (rewrite…): refresca el indicador por fila
@@ -28,6 +33,10 @@ export default function Datasets() {
     setErr('');
     try { await fn(); } catch (e) { setErr(errorMessage(e, t)); }
   };
+  const restore = (id: number) => dsAct(async () => {
+    await getProvider().restoreTrash(id);
+    trash.reload(); all.reload(); refresh();
+  });
 
   // Glifo de árbol estilo mockup: "├─" para hijos, "└─" para el último hijo
   // de cada padre (la lista ya viene ordenada jerárquicamente del backend).
@@ -160,6 +169,42 @@ export default function Datasets() {
         <button className="btn primary" onClick={() => openModal('newds', { vol: false })}>{t('ds_new')}</button>
         <button className="btn" style={{ marginLeft: 8 }} onClick={() => openModal('newds', { vol: true })}>{t('ds_newvol')}</button>
       </div>
+      {err && <p className="form-err" role="alert">{err}</p>}
+      {(trash.data?.items.length ?? 0) > 0 && (
+        <div className="sect">
+          <h3>{t('trash_title')}</h3>
+          <p className="desc">{t('trash_desc').replace('{days}', String(trash.data?.days ?? 7))}</p>
+          <div className="card tblwrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th className="slack">{t('ds_name')}</th><th className="num">{t('ds_used')}</th>
+                  <th className="hide-md">{t('trash_deleted_at')}</th><th>{t('trash_purge_at')}</th><th />
+                </tr>
+              </thead>
+              <tbody>
+                {trash.data!.items.map((it) => (
+                  <tr key={it.id}>
+                    <td className="mono" style={{ fontWeight: 600 }}>{it.original}</td>
+                    <td className="num">{it.used_bytes == null ? <span className="dim">—</span> : fmtBytes(it.used_bytes)}</td>
+                    <td className="hide-md">{fmtDateTime(it.trashed_at)}</td>
+                    <td>{fmtDateTime(it.purge_at)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {isAdmin && (<>
+                        <button className="btn sm" onClick={() => restore(it.id)}>{t('trash_restore')}</button>{' '}
+                        <button className="btn sm danger"
+                          onClick={() => openModal('purgetrash', { id: it.id, original: it.original, onDone: () => trash.reload() })}>
+                          {t('trash_purge')}
+                        </button>
+                      </>)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

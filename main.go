@@ -270,6 +270,11 @@ func main() {
 		log.Println("modo solo lectura: tareas programadas y replicación desactivadas")
 	} else {
 		go sched.Run(ctx)
+		// The recycle bin's purge destroys datasets on its own schedule; a
+		// mock or demo deployment has nothing real to purge.
+		if !cfg.Mock && !cfg.Demo {
+			go act.RunTrashPurger(ctx)
+		}
 	}
 
 	go func() {

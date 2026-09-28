@@ -1011,6 +1011,7 @@ $u ${zpool} ^history -i ${P}\$
 $u ${zpool} ^(list|get|status|iostat)${RD}\$
 $u ${zpool} --version
 $u ${zfs} ^create -p -o compression\=(lz4|zstd|off)( -o atime\=(on|off|relatime))?( -o quota\=[0-9]+)?( -V [0-9]+)?( -o encryption\=aes-256-gcm -o keyformat\=passphrase -o keylocation\=prompt)? ${D}\$
+$u ${zfs} ^create -o mountpoint\=none -o canmount\=off ${P}/easyzfs-trash\$
 $u ${zfs} ^load-key (-n -L prompt )?${D}\$
 $u ${zfs} ^unload-key ${D}\$
 $u ${zfs} ^change-key -o keyformat\=passphrase ${D}\$

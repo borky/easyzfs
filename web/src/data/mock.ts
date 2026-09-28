@@ -7,7 +7,7 @@ import { computeRecommendations } from './recs';
 import type {
   Alert, BackupFile, BackupStatus, ChannelName, ChannelPatch, ChannelsStatus, CreateDatasetReq, CreateJobReq, CreatePoolReq, CreateSnapshotReq, CreateUserReq,
   Dataset, DatasetProp, DatasetPropsResp, Disk, DiskSmartLogResp, DiskSmartResp, Job, JobHistoryItem, Lang, LoginResult, LongOp, Overview, Performance, Pool, PoolHistoryEntry, PushAlertTipo, SeriesPoint, SeriesResp, SessionUser, Settings, Snapshot, SmartSelftest,
-  SnapshotGroup, SystemTimer, SystemTimersResp, TwoFARecovery, TwoFASetup, TwoFAStatus, UpdateJobReq, UserInfo, VersionInfo,
+  SnapshotGroup, TrashItem, SystemTimer, SystemTimersResp, TwoFARecovery, TwoFASetup, TwoFAStatus, UpdateJobReq, UserInfo, VersionInfo,
   APIKeyCreated, APIKeyInfo,
   CreateReplicationReq, ReplicationJob, ReplicationSSHKey, ReplicationTestResult, UpdateReplicationReq,
 } from './types';
@@ -735,11 +735,46 @@ export class MockProvider implements DataProvider {
       : [];
     return { dev, selftests, error_log: { count: entries.length, entries } };
   };
-  deleteDataset = async (name: string, confirm: string, _r: boolean) => {
+  deleteDataset = async (name: string, confirm: string, _r: boolean, permanent = false) => {
     await delay(300);
     if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
+    const gone = this.datasets.find((d) => d.name === name);
     this.datasets = this.datasets.filter((d) => d.name !== name);
     this.snaps = this.snaps.filter((g) => g.dataset !== name);
+    if (!permanent && gone) {
+      const pool = name.split('/')[0];
+      const now = new Date();
+      this.trash.unshift({
+        id: ++this.trashSeq, pool, original: name,
+        trashed: `${pool}/easyzfs-trash/${name.slice(pool.length + 1).replace(/\//g, '_')}-${now.toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
+        trashed_at: now.toISOString(), purge_at: new Date(now.getTime() + 7 * 864e5).toISOString(),
+        actor: 'demo', used_bytes: gone.used_bytes, ds: gone,
+      });
+    }
+  };
+
+  // ---- Papelera (recycle bin) ----
+  private trashSeq = 0;
+  private trash: (TrashItem & { ds: Dataset })[] = [];
+  getTrash = async () => {
+    await delay();
+    return { items: this.trash.map(({ ds: _ds, ...it }) => ({ ...it })), days: 7 };
+  };
+  restoreTrash = async (id: number) => {
+    await delay(300);
+    const it = this.trash.find((x) => x.id === id);
+    if (!it) throw new ApiError(404, 'not_found', 'no existe en la papelera');
+    if (this.datasets.some((d) => d.name === it.original)) throw new ApiError(409, 'conflict', `ya existe ${it.original}`);
+    this.datasets.push(it.ds);
+    this.datasets.sort((a, b) => a.name.localeCompare(b.name));
+    this.trash = this.trash.filter((x) => x.id !== id);
+  };
+  purgeTrash = async (id: number, confirm: string) => {
+    await delay(300);
+    const it = this.trash.find((x) => x.id === id);
+    if (!it) throw new ApiError(404, 'not_found', 'no existe en la papelera');
+    if (confirm !== it.original) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
+    this.trash = this.trash.filter((x) => x.id !== id);
   };
 
   // ---- Operaciones largas (zfs rewrite simulado; runner del backend) ----
