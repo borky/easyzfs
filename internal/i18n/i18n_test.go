@@ -43,6 +43,7 @@ func TestKeysMatchWholeWords(t *testing.T) {
 		"desmontar tank/a: busy":         "desmontar tank/a: busy", // not "de" + "mount tank/a…"
 		"no se monta tank/a: busy":       "tank/a is not mounted: busy",
 		"leer el estado de sdb: timeout": "read the state of sdb: timeout",
+		"no disponible;no disponible":    "not available;not available",
 	} {
 		if got := English(es); got != want {
 			t.Errorf("English(%q) = %q, want %q", es, got, want)

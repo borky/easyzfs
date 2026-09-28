@@ -17,8 +17,6 @@ const EXACT: Record<string, string> = {
   '0 errores': '0 errors',
   'completado sin errores': 'completed without errors',
   'cancelado por el usuario al 31%': 'cancelled by the user at 31%',
-  'Backup nocturno (crontab de root)': 'Nightly backup (root crontab)',
-  'Trim semanal (zfsutils)': 'Weekly trim (zfsutils)',
   'test iniciado': 'test started',
   'disco apagado': 'disk powered off',
   // alerts

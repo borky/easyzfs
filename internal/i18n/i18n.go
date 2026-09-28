@@ -241,7 +241,15 @@ func English(s string) string {
 	cacheMu.Unlock()
 	out := s
 	for _, e := range entries {
-		out = e.apply(out)
+		// Again until nothing changes (bounded): a match consumes the
+		// boundary character after it, so "x;x" needs a second pass.
+		for range 4 {
+			next := e.apply(out)
+			if next == out {
+				break
+			}
+			out = next
+		}
 	}
 	cacheMu.Lock()
 	if len(cache) >= cacheMax {
