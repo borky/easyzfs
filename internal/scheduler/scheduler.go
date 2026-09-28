@@ -288,10 +288,12 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 	switch j.Tipo {
 	case "snapshot":
 		name := model.AutoSnapPrefix + time.Now().Format("20060102-1504")
-		// Proxmox guest disks are left out (actions.SnapshotTree), and the
-		// prune below runs even when the snapshot fails: automatic snapshots
-		// already on a guest disk otherwise stayed there for good, blocking
-		// that VM's rollback in Proxmox.
+		// Proxmox guest disks are left out (actions.SnapshotTree). When the
+		// snapshot fails, the prune below still runs, but only on guest
+		// disks: automatic snapshots already there would otherwise stay for
+		// good, blocking that VM's rollback in Proxmox, while thinning the
+		// admin's datasets after a failed run would, run after failed run,
+		// delete every automatic snapshot they have.
 		skipped, createErr := s.actions.SnapshotTree(ctx, "scheduler", j.Target, name)
 		if len(skipped) > 0 {
 			log.Printf("scheduler: snapshot de %s sin %d discos de Proxmox (%s…)", j.Target, len(skipped), skipped[0])
@@ -301,7 +303,7 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 			if err != nil {
 				return err
 			}
-			n, err := s.actions.SnapshotPrune(ctx, "scheduler", j.Target, time.Now().Add(-dur))
+			n, err := s.actions.SnapshotPrune(ctx, "scheduler", j.Target, time.Now().Add(-dur), createErr != nil)
 			if err != nil {
 				return fmt.Errorf("prune: %w", err)
 			}

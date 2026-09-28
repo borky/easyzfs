@@ -910,7 +910,12 @@ func (s *Service) SnapshotRollback(ctx context.Context, actor, full string) erro
 
 // SnapshotPrune — borra snapshots automáticos del dataset más viejos que cutoff.
 // Devuelve cuántos se han borrado. Usado por el scheduler (retención).
-func (s *Service) SnapshotPrune(ctx context.Context, actor, dataset string, cutoff time.Time) (int, error) {
+//
+// guestsOnly limits it to Proxmox guest disks: after a failed snapshot the
+// scheduler still clears automatic snapshots left on guest disks (they block
+// 'qm rollback'), but must not thin the admin's own datasets, or a job that
+// keeps failing would, one retention period later, have deleted them all.
+func (s *Service) SnapshotPrune(ctx context.Context, actor, dataset string, cutoff time.Time, guestsOnly bool) (int, error) {
 	out, err := executil.Run(ctx, 15*time.Second, "zfs", "list", "-Hp", "-r",
 		"-t", "snapshot", "-o", "name,creation", dataset)
 	if err != nil {
@@ -929,6 +934,9 @@ func (s *Service) SnapshotPrune(ctx context.Context, actor, dataset string, cuto
 		// El scheduler crea con -r: podar el dataset y todo su árbol.
 		inTree := ds == dataset || strings.HasPrefix(ds, dataset+"/")
 		if !ok || !inTree || !strings.HasPrefix(snap, model.AutoSnapPrefix) {
+			continue
+		}
+		if guestsOnly && !guestPath(ds) {
 			continue
 		}
 		epoch, _ := strconv.ParseInt(f[1], 10, 64)

@@ -70,6 +70,17 @@ const (
 // given by hand to 'pvesm alloc'.
 var reGuestDisk = regexp.MustCompile(`^(vm|base|subvol|basevol)-\d+-\S+$`)
 
+// guestPath — a guest disk, or anything below one (a component matches).
+func guestPath(name string) bool {
+	name, _, _ = strings.Cut(name, "@")
+	for _, c := range strings.Split(name, "/") {
+		if reGuestDisk.MatchString(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // Test seams.
 var (
 	mountinfoPath   = "/proc/self/mountinfo"
@@ -97,6 +108,7 @@ type HostView struct {
 	// is not would be the unsafe answer.
 	StorageUnknown bool
 	datasets       map[string]dsEntry
+	names          []string // datasets, sorted
 	guests         []string
 }
 
@@ -124,6 +136,7 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 		}
 	}
 	sort.Strings(h.guests)
+	h.names = sortedKeys(h.datasets)
 	if st, err := os.Stat(pveDir); err == nil && st.IsDir() {
 		h.PVE = true
 		if cfg, err := readStorageCfg(ctx); err == nil {
@@ -131,9 +144,18 @@ func LoadHostView(ctx context.Context) (*HostView, error) {
 			for ds, id := range zfspools {
 				h.StorageRoots[ds] = id
 			}
-			for name, e := range h.datasets {
-				if id, ok := dirs[path.Clean(e.mountpoint)]; ok && strings.HasPrefix(e.mountpoint, "/") {
-					h.StorageRoots[name] = id
+			// A dir storage lives in the dataset whose mountpoint holds its
+			// path: the one mounted there, or the deepest one above it.
+			for dir, id := range dirs {
+				best, bestLen := "", -1
+				for name, e := range h.datasets {
+					mp := path.Clean(e.mountpoint)
+					if strings.HasPrefix(e.mountpoint, "/") && (dir == mp || strings.HasPrefix(dir, mp+"/")) && len(mp) > bestLen && mp != "/" {
+						best, bestLen = name, len(mp)
+					}
+				}
+				if best != "" {
+					h.StorageRoots[best] = id
 				}
 			}
 		} else {
@@ -260,8 +282,8 @@ func (h *HostView) PoolKind(pool string) (string, string) {
 func (h *HostView) DatasetKind(name string) (string, string) {
 	name, _, _ = strings.Cut(name, "@")
 	pool, _, _ := strings.Cut(name, "/")
-	if reGuestDisk.MatchString(path.Base(name)) {
-		return HostGuest, fmt.Sprintf("%s es un disco de una máquina virtual o contenedor de Proxmox", name)
+	if guestPath(name) {
+		return HostGuest, fmt.Sprintf("%s es (o está dentro de) un disco de una máquina virtual o contenedor de Proxmox", name)
 	}
 	if h.OSPools[pool] {
 		if name == pool {
@@ -281,12 +303,12 @@ func (h *HostView) DatasetKind(name string) (string, string) {
 		// /var/lib/vz): the dataset, what is below it, and its ancestors,
 		// which a recursive destroy or a rename would take along.
 		for d := name; d != pool && d != "."; d = path.Dir(d) {
-			if e, ok := h.datasets[d]; ok && outsidePoolTree(e.mountpoint, pool) {
+			if e, ok := h.datasets[d]; ok && systemMount(e.mountpoint, pool) {
 				return HostSystem, fmt.Sprintf("%s está montado en %s, fuera del pool: es almacenamiento del sistema", d, e.mountpoint)
 			}
 		}
-		for _, d := range sortedKeys(h.datasets) {
-			if strings.HasPrefix(d, name+"/") && outsidePoolTree(h.datasets[d].mountpoint, pool) {
+		for _, d := range h.names {
+			if strings.HasPrefix(d, name+"/") && systemMount(h.datasets[d].mountpoint, pool) {
 				return HostSystem, fmt.Sprintf("%s contiene %s, montado en %s: es almacenamiento del sistema", name, d, h.datasets[d].mountpoint)
 			}
 		}
@@ -304,7 +326,7 @@ func (h *HostView) DatasetKind(name string) (string, string) {
 			return HostStorage, fmt.Sprintf("%s contiene discos de máquinas virtuales o contenedores de Proxmox (%s…)", name, g)
 		}
 	}
-	if h.PVE && h.StorageUnknown && strings.Count(name, "/") == 1 {
+	if h.PVE && h.StorageUnknown && strings.Count(name, "/") <= 1 {
 		return HostStorage, fmt.Sprintf("no se pudo leer /etc/pve/storage.cfg: %s podría ser almacenamiento de Proxmox", name)
 	}
 	return "", ""
@@ -317,6 +339,15 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// systemMount — a mountpoint that makes a dataset host storage: outside the
+// pool's own tree and outside the places an admin keeps data (/mnt, /media,
+// /srv, /home — the same allowlist as mountpoint.go). /var/lib/vz is;
+// /srv/media, an admin's own share, is not, and must not turn its parents
+// into system datasets.
+func systemMount(mp, pool string) bool {
+	return outsidePoolTree(mp, pool) && !underAllowedRoot(path.Clean(mp), []string{"/" + pool})
 }
 
 // outsidePoolTree — a real mountpoint that is not /<pool> or below it.
@@ -446,8 +477,11 @@ func guardNewName(ctx context.Context, newName string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
 	}
-	if reGuestDisk.MatchString(path.Base(newName)) {
-		return fmt.Errorf("%w: %s tiene nombre de disco de Proxmox (vm-/base-/subvol-/basevol-<id>-…); Proxmox lo tomaría por suyo", ErrHostStorage, newName)
+	// Every component: 'zfs create -p' makes the parents too, so
+	// tank/vm-100-disk-5/x would create a disk Proxmox adopts; and nothing
+	// goes inside a guest's volume (a container's root filesystem).
+	if guestPath(newName) {
+		return fmt.Errorf("%w: %s tiene (o está dentro de) un nombre de disco de Proxmox (vm-/base-/subvol-/basevol-<id>-…); Proxmox lo tomaría por suyo", ErrHostStorage, newName)
 	}
 	pool, _, _ := strings.Cut(newName, "/")
 	if h.OSPools[pool] && newName != pool {
@@ -518,7 +552,7 @@ func (s *Service) SnapshotTree(ctx context.Context, actor, dataset, name string)
 	args := []string{"snapshot", "-r", dataset + "@" + name}
 	if len(skipped) > 0 {
 		if len(targets) == 0 {
-			return skipped, nil
+			return skipped, fmt.Errorf("%w: todo lo que hay bajo %s son discos de Proxmox; no se ha hecho ningún snapshot (haz los de las VMs desde Proxmox)", ErrHostStorage, dataset)
 		}
 		args = append([]string{"snapshot"}, targets...)
 	}

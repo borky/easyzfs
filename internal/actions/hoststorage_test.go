@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // usePVEHost points the host view at the captured files; pve=false models a
@@ -316,5 +317,107 @@ func TestSnapshotTreeSkipsGuests(t *testing.T) {
 	got := strings.Join(ran, " ")
 	if got != "snapshot rpool/data@auto-1 rpool/data/media@auto-1" {
 		t.Fatalf("ran %q", got)
+	}
+}
+
+// N2: a Proxmox name anywhere in the path (zfs create -p makes the parents
+// too), or a place inside a guest's volume, is refused.
+func TestNewNameComponents(t *testing.T) {
+	usePVEHost(t, true, nil)
+	ctx := context.Background()
+	for _, bad := range []string{"tank/vm-100-disk-5/x", "rpool/data/subvol-101-disk-0/x"} {
+		if err := guardNewName(ctx, bad); !errors.Is(err, ErrHostStorage) {
+			t.Errorf("%s: %v, want refused", bad, err)
+		}
+	}
+}
+
+// N3: with storage.cfg unreadable the pool root counts as storage too: its
+// properties reach any storage root below it by inheritance.
+func TestStorageUnknownCoversPoolRoot(t *testing.T) {
+	usePVEHost(t, true, errors.New("denied"), "tank\tfilesystem\t/tank")
+	h := loadView(t)
+	if k, _ := h.DatasetKind("tank"); k != HostStorage {
+		t.Fatalf("tank = %q, want storage", k)
+	}
+	if err := h.check(OpDatasetSensitive, "", "tank"); !errors.Is(err, ErrHostStorage) {
+		t.Fatalf("exec=off on tank: %v", err)
+	}
+}
+
+// N4: an admin's share mounted under /srv does not turn its parents into
+// system storage; /var/lib/vz does.
+func TestAdminShareIsNotSystem(t *testing.T) {
+	usePVEHost(t, true, nil, "rpool/data/media\tfilesystem\t/srv/media")
+	h := loadView(t)
+	if k, _ := h.DatasetKind("rpool/data"); k != HostStorage {
+		t.Fatalf("rpool/data = %q, want storage", k)
+	}
+	if k, _ := h.DatasetKind("rpool/data/media"); k != "" {
+		t.Fatalf("rpool/data/media = %q, want data", k)
+	}
+}
+
+// #7: a dir storage whose path is below a dataset's mountpoint belongs to
+// that dataset.
+func TestDirStorageBelowDataset(t *testing.T) {
+	usePVEHost(t, true, nil, "tank\tfilesystem\t/tank", "tank/backup\tfilesystem\t/tank/backup")
+	saved := readStorageCfg
+	readStorageCfg = func(context.Context) ([]byte, error) {
+		return []byte("dir: dump\n\tpath /tank/backup/dump\n\tcontent backup\n"), nil
+	}
+	t.Cleanup(func() { readStorageCfg = saved })
+	h := loadView(t)
+	if h.StorageRoots["tank/backup"] != "dump" {
+		t.Fatalf("roots = %v", h.StorageRoots)
+	}
+}
+
+// N5: a tree that is all guest disks is not a successful snapshot.
+func TestSnapshotTreeAllGuests(t *testing.T) {
+	usePVEHost(t, true, nil)
+	svc, _ := newTestService(t)
+	if _, err := svc.SnapshotTree(context.Background(), "scheduler", "rpool/data/vm-100-disk-0", "a"); !errors.Is(err, ErrHostStorage) {
+		t.Fatalf("guest target: %v", err)
+	}
+}
+
+// #14: an unreadable host refuses (409 host_unknown, not a claim about the
+// target), while disk work on a data pool, decided from mountinfo alone,
+// still goes through.
+func TestFailClosedButDataPoolDiskWork(t *testing.T) {
+	usePVEHost(t, true, nil)
+	listAllDatasets = func(context.Context) ([]byte, error) { return nil, errors.New("zfs list timed out") }
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+	if err := svc.DatasetDelete(ctx, "t", "tank/media", false); !errors.Is(err, ErrHostUnknown) {
+		t.Fatalf("delete with the host unreadable: %v, want ErrHostUnknown", err)
+	}
+	if err := svc.VdevAction(ctx, "t", "tank", "sdb", "offline", false); errors.Is(err, ErrHostUnknown) || errors.Is(err, ErrHostStorage) {
+		t.Fatalf("offline on a data pool blocked by the listing: %v", err)
+	}
+	if err := svc.VdevAction(ctx, "t", "rpool", "sda3", "offline", false); !errors.Is(err, ErrHostStorage) {
+		t.Fatalf("offline on rpool: %v", err)
+	}
+}
+
+// N1: after a failed snapshot, only automatic snapshots on guest disks are
+// pruned; the admin's own keep theirs.
+func TestPruneGuestsOnly(t *testing.T) {
+	svc, _ := newTestService(t)
+	dir := t.TempDir()
+	log := filepath.Join(dir, "destroyed")
+	zfs := "#!/bin/sh\nif [ \"$1\" = list ]; then printf 'tank/media@easyzfs-auto-1\\t100\\ntank/vm-100-disk-0@easyzfs-auto-1\\t100\\n'; exit 0; fi\n" +
+		"[ \"$1\" = destroy ] && echo \"$2\" >> " + log + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "zfs"), []byte(zfs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	n, err := svc.SnapshotPrune(context.Background(), "scheduler", "tank", time.Now(), true)
+	if err != nil || n != 1 {
+		t.Fatalf("pruned %d, %v; want 1", n, err)
+	}
+	if b, _ := os.ReadFile(log); strings.TrimSpace(string(b)) != "tank/vm-100-disk-0@easyzfs-auto-1" {
+		t.Fatalf("destroyed %q", b)
 	}
 }
