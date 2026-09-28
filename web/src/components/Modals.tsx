@@ -1665,7 +1665,9 @@ function RollbackModal({ full, onClose }: { full: string; onClose: () => void })
   const groups = useLoad(() => getProvider().getSnapshots());
   const all = groups?.find((g) => g.dataset === ds)?.snaps ?? [];
   const target = all.find((x) => x.full === full);
-  const newer = target ? all.filter((x) => x.ts > target.ts).sort((a, b) => a.ts.localeCompare(b.ts)) : [];
+  // >= : snapshots taken in the same second may be newer too (ts has second
+  // resolution); listing one too many is the safe side.
+  const newer = target ? all.filter((x) => x.full !== full && x.ts >= target.ts).sort((a, b) => a.ts.localeCompare(b.ts)) : [];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

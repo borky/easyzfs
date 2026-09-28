@@ -48,17 +48,23 @@ func trashID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-// restoreTrash — POST /api/trash/{id}/restore → 204.
+// restoreTrash — POST /api/trash/{id}/restore → 200 {warnings:[…]}.
 func (s *Server) restoreTrash(w http.ResponseWriter, r *http.Request) {
 	id, ok := trashID(w, r)
 	if !ok {
 		return
 	}
-	if err := s.act.TrashRestore(r.Context(), actor(r), id); err != nil {
+	warnings, err := s.act.TrashRestore(r.Context(), actor(r), id)
+	if err != nil {
 		actionErr(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	// 200 with what did not come back as it was: the dataset is restored
+	// either way, and a 500 would have said otherwise.
+	if warnings == nil {
+		warnings = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"warnings": warnings})
 }
 
 // purgeTrash — DELETE /api/trash/{id} {confirm:"<original name>"} → 204.

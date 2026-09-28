@@ -93,7 +93,8 @@ export interface DataProvider {
   /** Moves the dataset to the recycle bin; with permanent, destroys it now. */
   deleteDataset(name: string, confirm: string, recursive: boolean, permanent?: boolean): Promise<void>;
   getTrash(): Promise<TrashResp>;
-  restoreTrash(id: number): Promise<void>;
+  /** warnings: what did not come back exactly as it was (the dataset is restored). */
+  restoreTrash(id: number): Promise<{ warnings: string[] }>;
   purgeTrash(id: number, confirm: string): Promise<void>;
   rewriteDataset(name: string, confirm: string): Promise<{ op_id: string }>;
   unlockDataset(name: string, key: string): Promise<void>;

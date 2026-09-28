@@ -38,7 +38,7 @@ easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^load-key (-n -L prompt )?[A-Za-z0-9]
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^unload-key [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^change-key -o keyformat\=passphrase [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^set (compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize)\=[A-Za-z0-9_./-]+ [A-Za-z0-9][A-Za-z0-9_./-]*$
-easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^inherit (compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize) [A-Za-z0-9][A-Za-z0-9_./-]*$
+easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^inherit (-S )?(compression|recordsize|atime|relatime|sync|checksum|copies|xattr|acltype|aclinherit|primarycache|secondarycache|logbias|canmount|mountpoint|exec|setuid|devices|readonly|snapdir|quota|reservation|volsize|volblocksize) [A-Za-z0-9][A-Za-z0-9_./-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^destroy (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*(@[A-Za-z0-9][A-Za-z0-9_.\:-]*|\#ezrepl-last)?$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^snapshot (-r )?[A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$
 easyzfs ALL=(root) NOPASSWD: /usr/sbin/zfs ^rollback -r [A-Za-z0-9][A-Za-z0-9_./-]*@[A-Za-z0-9][A-Za-z0-9_.\:-]*$

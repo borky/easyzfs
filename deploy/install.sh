@@ -1016,7 +1016,7 @@ $u ${zfs} ^load-key (-n -L prompt )?${D}\$
 $u ${zfs} ^unload-key ${D}\$
 $u ${zfs} ^change-key -o keyformat\=passphrase ${D}\$
 $u ${zfs} ^set ${PROPS}\=${VAL} ${D}\$
-$u ${zfs} ^inherit ${PROPS} ${D}\$
+$u ${zfs} ^inherit (-S )?${PROPS} ${D}\$
 $u ${zfs} ^destroy (-r )?${D}(@${N}|\#ezrepl-last)?\$
 $u ${zfs} ^snapshot (-r )?${S}\$
 $u ${zfs} ^rollback -r ${S}\$

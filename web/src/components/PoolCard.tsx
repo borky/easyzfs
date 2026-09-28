@@ -132,7 +132,8 @@ export function PoolCard({ pool, onChanged }: { pool: Pool; onChanged: () => voi
         <div className="grow">
           <div className="pool-name">
             {pool.name} <Badge tone={ok ? 'ok' : 'warn'}>{statusLabel(pool.status, t)}</Badge>
-            {pool.checkpoint && <Badge tone="info">{t('ck_badge')}</Badge>}
+            {/* warn, not info: a checkpoint blocks zpool replace and hot spares */}
+            {pool.checkpoint && <Badge tone="warn">{t('ck_badge')}</Badge>}
           </div>
           <div className="pool-raid">{pool.topo} <TopoHelp topo={pool.topo} /></div>
         </div>

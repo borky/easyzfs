@@ -11,7 +11,7 @@ import { getProvider } from '../data';
 import { isTrash } from '../ui/trash';
 
 export default function Datasets() {
-  const { t, isAdmin, caps, refresh } = useApp();
+  const { t, isAdmin, caps, refresh, notify } = useApp();
   const { openModal } = useModal();
   const all = useData((p) => p.getDatasets());
   const loading = all.loading;
@@ -34,8 +34,10 @@ export default function Datasets() {
     try { await fn(); } catch (e) { setErr(errorMessage(e, t)); }
   };
   const restore = (id: number) => dsAct(async () => {
-    await getProvider().restoreTrash(id);
+    const { warnings } = await getProvider().restoreTrash(id);
     trash.reload(); all.reload(); refresh();
+    if (warnings.length > 0) setErr(t('trash_restored_warn') + ' ' + warnings.join('; '));
+    else notify(t('toast_trash_restored'), 'ok');
   });
 
   // Glifo de árbol estilo mockup: "├─" para hijos, "└─" para el último hijo
@@ -188,7 +190,10 @@ export default function Datasets() {
                     <td className="mono" style={{ fontWeight: 600 }}>{it.original}</td>
                     <td className="num">{it.used_bytes == null ? <span className="dim">—</span> : fmtBytes(it.used_bytes)}</td>
                     <td className="hide-md">{fmtDateTime(it.trashed_at)}</td>
-                    <td>{fmtDateTime(it.purge_at)}</td>
+                    <td>
+                      {fmtDateTime(it.purge_at)}
+                      {it.last_error && <div className="form-err" style={{ fontSize: 12 }}>{t('trash_purge_failed')} {it.last_error}</div>}
+                    </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {isAdmin && (<>
                         <button className="btn sm" onClick={() => restore(it.id)}>{t('trash_restore')}</button>{' '}

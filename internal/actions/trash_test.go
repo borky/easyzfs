@@ -14,8 +14,9 @@ import (
 
 type fakeDS struct {
 	mountpoint string // local value, "" = inherited
-	readonly   string // local value, "" = inherited
+	received   string // received mountpoint, "" = none
 	canmount   string
+	keystatus  string
 	mounted    bool
 }
 
@@ -62,29 +63,39 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 			}
 			return []byte("filesystem\n"), nil
 		}
-		prop := args[len(args)-2]
+		props := strings.Split(args[len(args)-2], ",")
+		withName := strings.Contains(cmd, "-o name,property,value,source")
 		var b strings.Builder
 		for _, n := range f.tree(last) {
 			if !strings.Contains(cmd, " -r ") && n != last {
 				continue
 			}
 			d := f.ds[n]
-			val, src := "", "inherited from x"
-			switch prop {
-			case "mountpoint":
-				val = "/inherited"
-				if d.mountpoint != "" {
-					val, src = d.mountpoint, "local"
+			for _, prop := range props {
+				val, src := "", "default"
+				switch prop {
+				case "mountpoint":
+					val, src = "/inherited", "inherited from x"
+					switch {
+					case d.mountpoint != "":
+						val, src = d.mountpoint, "local"
+					case d.received != "":
+						val, src = d.received, "received"
+					}
+				case "canmount":
+					val = d.canmount
+				case "keystatus":
+					val = "-"
+					if d.keystatus != "" {
+						val = d.keystatus
+					}
 				}
-			case "readonly":
-				val = "off"
-				if d.readonly != "" {
-					val, src = d.readonly, "local"
+				if withName {
+					fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", n, prop, val, src)
+				} else {
+					fmt.Fprintf(&b, "%s\t%s\t%s\n", prop, val, src)
 				}
-			case "canmount":
-				val, src = d.canmount, "default"
 			}
-			fmt.Fprintf(&b, "%s\t%s\t%s\n", n, val, src)
 		}
 		if b.Len() == 0 {
 			return nil, errors.New("dataset does not exist")
@@ -109,16 +120,14 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 		if d == nil {
 			return nil, errors.New("dataset does not exist")
 		}
-		switch k {
-		case "mountpoint":
+		if k == "mountpoint" {
 			d.mountpoint = v
 			d.mounted = v != "none"
-		case "readonly":
-			d.readonly = v
 		}
 	case "inherit":
-		if args[1] == "readonly" {
-			f.ds[last].readonly = ""
+		if args[1] == "-S" && args[2] == "mountpoint" {
+			f.ds[last].mountpoint = ""
+			f.ds[last].mounted = f.ds[last].received != ""
 		}
 	case "rename":
 		from, to := args[1], args[2]
@@ -150,9 +159,9 @@ func useFakeZFS(t *testing.T, f *fakeZFS) {
 
 func TestTrashAndRestore(t *testing.T) {
 	svc, _ := newTestService(t)
-	f := newFakeZFS("tank", "tank/media", "tank/media/photos")
+	f := newFakeZFS("tank", "tank/media", "tank/media/photos", "tank/media/backup")
 	f.ds["tank/media/photos"].mountpoint = "/srv/photos"
-	f.ds["tank/media"].readonly = "off"
+	f.ds["tank/media/backup"].received = "/srv/replica" // a replication target
 	useFakeZFS(t, f)
 	ctx := context.Background()
 
@@ -173,34 +182,91 @@ func TestTrashAndRestore(t *testing.T) {
 	if !strings.HasPrefix(e.Trashed, "tank/easyzfs-trash/media-") || !InTrash(e.Trashed) {
 		t.Fatalf("trashed as %q", e.Trashed)
 	}
-	if f.ds["tank/easyzfs-trash"] == nil || f.ds["tank/easyzfs-trash"].mountpoint != "none" {
-		t.Fatal("trash root missing or mountable")
+	if root := f.ds["tank/easyzfs-trash"]; root == nil || root.mountpoint != "none" || root.canmount != "off" {
+		t.Fatalf("trash root missing or mountable: %+v", root)
 	}
-	photos := f.ds[e.Trashed+"/photos"]
-	if photos == nil || photos.mounted || photos.mountpoint != "none" {
-		t.Fatalf("child with its own mountpoint left mounted: %+v", photos)
+	for _, child := range []string{"/photos", "/backup"} {
+		if d := f.ds[e.Trashed+child]; d == nil || d.mounted {
+			t.Fatalf("%s left mounted in the bin: %+v", child, d)
+		}
 	}
-	if f.ds[e.Trashed].readonly != "on" {
-		t.Fatal("trashed dataset not readonly")
+	for _, c := range f.calls {
+		if strings.Contains(c, "readonly") {
+			t.Fatalf("trash touched readonly (breaks in-use zvols): %s", c)
+		}
 	}
 	if got := e.PurgeAt.Sub(e.TrashedAt); got != TrashDays*24*time.Hour {
 		t.Fatalf("purge after %v", got)
 	}
 
-	if err := svc.TrashRestore(ctx, "tester", e.ID); err != nil {
-		t.Fatalf("restore: %v", err)
+	warnings, err := svc.TrashRestore(ctx, "tester", e.ID)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("restore: %v, warnings %v", err, warnings)
 	}
-	if f.ds["tank/media/photos"] == nil || f.ds["tank/media/photos"].mountpoint != "/srv/photos" || !f.ds["tank/media/photos"].mounted {
-		t.Fatalf("child not restored with its mountpoint: %+v", f.ds["tank/media/photos"])
+	if d := f.ds["tank/media/photos"]; d == nil || d.mountpoint != "/srv/photos" || !d.mounted {
+		t.Fatalf("child not restored with its mountpoint: %+v", d)
 	}
-	if f.ds["tank/media"].readonly != "off" || !f.ds["tank/media"].mounted {
-		t.Fatalf("dataset not restored as it was: %+v", f.ds["tank/media"])
+	if d := f.ds["tank/media/backup"]; d == nil || d.mountpoint != "" || d.received != "/srv/replica" || !d.mounted {
+		t.Fatalf("received mountpoint not restored as received: %+v", d)
+	}
+	if !f.ds["tank/media"].mounted {
+		t.Fatalf("dataset not mounted again: %+v", f.ds["tank/media"])
 	}
 	if list, _ := svc.TrashList(ctx); len(list) != 0 {
 		t.Fatalf("row kept after restore: %v", list)
 	}
 	if f.ds["tank/easyzfs-trash"] != nil {
 		t.Fatal("empty recycle bin left on the pool")
+	}
+}
+
+// A dataset someone created as tank/easyzfs-trash by hand is not the bin:
+// nothing is moved into it, and it is never destroyed.
+func TestTrashRefusesForeignRoot(t *testing.T) {
+	svc, _ := newTestService(t)
+	f := newFakeZFS("tank", "tank/easyzfs-trash", "tank/docs")
+	useFakeZFS(t, f)
+	if err := svc.DatasetTrash(context.Background(), "tester", "tank/docs", false); !errors.Is(err, ErrConflict) {
+		t.Fatalf("foreign bin root: %v, want ErrConflict", err)
+	}
+	svc.dropEmptyTrashRoot(context.Background(), "tank")
+	if f.ds["tank/easyzfs-trash"] == nil || f.ds["tank/docs"] == nil {
+		t.Fatal("a dataset that is not the app's bin was touched")
+	}
+}
+
+// If the row cannot be written the dataset goes back where it was: a trashed
+// dataset without a row would be hidden and never restored or purged.
+func TestTrashUndoesWhenTheRowCannotBeWritten(t *testing.T) {
+	svc, _ := newTestService(t)
+	f := newFakeZFS("tank", "tank/docs", "tank/docs/sub")
+	f.ds["tank/docs/sub"].mountpoint = "/srv/sub"
+	useFakeZFS(t, f)
+	if _, err := svc.db.Exec("DROP TABLE trash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DatasetTrash(context.Background(), "tester", "tank/docs", true); err == nil {
+		t.Fatal("trash reported success without its row")
+	}
+	if d := f.ds["tank/docs/sub"]; d == nil || d.mountpoint != "/srv/sub" || !d.mounted {
+		t.Fatalf("not put back as it was: %+v", d)
+	}
+}
+
+// Two datasets mapping to the same bin name in the same second.
+func TestTrashNameCollision(t *testing.T) {
+	svc, _ := newTestService(t)
+	f := newFakeZFS("tank", "tank/a_b", "tank/a", "tank/a/b")
+	useFakeZFS(t, f)
+	ctx := context.Background()
+	if err := svc.DatasetTrash(ctx, "tester", "tank/a_b", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DatasetTrash(ctx, "tester", "tank/a/b", false); err != nil {
+		t.Fatalf("second dataset with the same bin name: %v", err)
+	}
+	if list, _ := svc.TrashList(ctx); len(list) != 2 || list[0].Trashed == list[1].Trashed {
+		t.Fatalf("entries: %+v", list)
 	}
 }
 
@@ -214,7 +280,7 @@ func TestTrashRestoreRefusesTakenName(t *testing.T) {
 	}
 	f.ds["tank/docs"] = &fakeDS{canmount: "on"} // someone made a new one
 	list, _ := svc.TrashList(ctx)
-	if err := svc.TrashRestore(ctx, "tester", list[0].ID); !errors.Is(err, ErrConflict) {
+	if _, err := svc.TrashRestore(ctx, "tester", list[0].ID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("restore over an existing name: %v, want ErrConflict", err)
 	}
 }

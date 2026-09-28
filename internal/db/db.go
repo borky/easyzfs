@@ -202,6 +202,10 @@ var migrations = []string{
 	  state      TEXT NOT NULL DEFAULT '{}',
 	  actor      TEXT NOT NULL DEFAULT ''
 	);`,
+	// v25: why the last automatic purge of a trash entry failed (a clone
+	// elsewhere depends on it, a hold). It was only logged, so the UI kept
+	// showing a purge date in the past with the space still in use.
+	`ALTER TABLE trash ADD COLUMN last_error TEXT NOT NULL DEFAULT '';`,
 }
 
 // Open abre la BD con WAL, busy_timeout y una sola conexión escritora.

@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"easyzfs/internal/executil"
@@ -69,6 +70,9 @@ type DiffEntry struct {
 // Service ejecuta operaciones contra el sistema y las audita.
 type Service struct {
 	db *sql.DB
+	// trashMu serialises the recycle bin: a restore racing the purger's
+	// destroy, or a trash racing the removal of the empty bin.
+	trashMu sync.Mutex
 }
 
 // NewService crea el servicio de acciones.
@@ -579,6 +583,9 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 	if !reDataset.MatchString(full) {
 		return ErrInvalidName
 	}
+	if InTrash(full) { // the recycle bin's names are the app's own (trash.go)
+		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
+	}
 	if compression != "lz4" && compression != "zstd" && compression != "off" {
 		return fmt.Errorf("compresión inválida (lz4|zstd|off)")
 	}
@@ -933,6 +940,9 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 	if !reDataset.MatchString(target) {
 		return ErrInvalidName
 	}
+	if InTrash(target) {
+		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
+	}
 	args := []string{"clone"}
 	if mountpoint != "" {
 		// Same check the properties endpoint applies to this very property
@@ -972,6 +982,9 @@ func (s *Service) DatasetPromote(ctx context.Context, actor, name string) error 
 func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName string) error {
 	if !reDataset.MatchString(oldName) || !reDataset.MatchString(newName) {
 		return ErrInvalidName
+	}
+	if InTrash(oldName) || InTrash(newName) { // restore it from the bin instead
+		return fmt.Errorf("%w: %s está reservado para la papelera; usa Restaurar", ErrInvalidInput, TrashDir)
 	}
 	s.audit(ctx, actor, "dataset.rename", oldName,
 		map[string]any{"new": newName}, false)

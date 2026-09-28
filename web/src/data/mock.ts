@@ -509,6 +509,9 @@ export class MockProvider implements DataProvider {
     if (!ack && action !== 'online' && p.status !== 'ONLINE') {
       throw new ApiError(409, 'risk_ack_required', `el pool está ${p.status}: quitar otro disco ahora puede dejarlo sin redundancia`);
     }
+    if (!ack && action === 'detach' && p.vdevs.filter((x) => x.role === 'mirror').length === 2) {
+      throw new ApiError(409, 'risk_ack_required', 'es un mirror de dos discos: al retirar uno, el pool se queda sin redundancia');
+    }
     const v = p.vdevs.find((x) => x.dev === dev);
     if (!v) throw new ApiError(404, 'not_found', 'Vdev no encontrado');
     if (action === 'detach') {
@@ -743,8 +746,10 @@ export class MockProvider implements DataProvider {
     await delay(300);
     if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
     const gone = this.datasets.find((d) => d.name === name);
-    this.datasets = this.datasets.filter((d) => d.name !== name);
-    this.snaps = this.snaps.filter((g) => g.dataset !== name);
+    const hasChildren = this.datasets.some((d) => d.name.startsWith(name + '/'));
+    if (hasChildren && !_r) throw new ApiError(400, 'invalid_input', `${name} tiene datasets hijos; márcalo como recursivo`);
+    this.datasets = this.datasets.filter((d) => d.name !== name && !d.name.startsWith(name + '/'));
+    this.snaps = this.snaps.filter((g) => g.dataset !== name && !g.dataset.startsWith(name + '/'));
     if (!permanent && gone) {
       const pool = name.split('/')[0];
       const now = new Date();
@@ -752,7 +757,7 @@ export class MockProvider implements DataProvider {
         id: ++this.trashSeq, pool, original: name,
         trashed: `${pool}/easyzfs-trash/${name.slice(pool.length + 1).replace(/\//g, '_')}-${now.toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
         trashed_at: now.toISOString(), purge_at: new Date(now.getTime() + 7 * 864e5).toISOString(),
-        actor: 'demo', used_bytes: gone.used_bytes, ds: gone,
+        actor: 'demo', used_bytes: gone.used_bytes, last_error: '', ds: gone,
       });
     }
   };
@@ -772,6 +777,7 @@ export class MockProvider implements DataProvider {
     this.datasets.push(it.ds);
     this.datasets.sort((a, b) => a.name.localeCompare(b.name));
     this.trash = this.trash.filter((x) => x.id !== id);
+    return { warnings: [] };
   };
   purgeTrash = async (id: number, confirm: string) => {
     await delay(300);

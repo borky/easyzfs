@@ -333,6 +333,8 @@ export interface TrashItem {
   purge_at: string;
   actor: string;
   used_bytes: number | null;
+  /** Why the last automatic purge failed; '' when it has not. */
+  last_error: string;
 }
 export interface TrashResp { items: TrashItem[]; days: number }
 

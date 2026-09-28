@@ -222,7 +222,7 @@ export class HttpProvider implements DataProvider {
   deleteDataset = (name: string, confirm: string, recursive: boolean, permanent = false) =>
     del<void>(`/datasets/${enc(name)}`, { confirm, recursive, permanent });
   getTrash = () => get<TrashResp>('/trash');
-  restoreTrash = (id: number) => post<void>(`/trash/${id}/restore`, {});
+  restoreTrash = (id: number) => post<{ warnings: string[] }>(`/trash/${id}/restore`, {});
   purgeTrash = (id: number, confirm: string) => del<void>(`/trash/${id}`, { confirm });
   rewriteDataset = (name: string, confirm: string) =>
     post<{ op_id: string }>(`/datasets/${enc(name)}/rewrite`, { confirm });
