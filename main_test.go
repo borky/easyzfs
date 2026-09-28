@@ -52,6 +52,15 @@ func TestCgroupMemoryMax(t *testing.T) {
 	if got := cgroupMemoryMax(proc, root); got != 0 {
 		t.Errorf("unlimited: %d, want 0", got)
 	}
+	// A tighter limit higher up (a slice, an LXC container) wins.
+	write(filepath.Join(root, "system.slice", "memory.max"), "134217728\n")
+	if got := cgroupMemoryMax(proc, root); got != 134217728 {
+		t.Errorf("tighter slice: %d, want 128 MiB", got)
+	}
+	write(proc, "0::/\n")
+	if got := cgroupMemoryMax(proc, root); got != 0 {
+		t.Errorf("root cgroup: %d, want 0", got)
+	}
 	write(proc, "12:memory:/system.slice/easyzfs.service\n") // cgroup v1
 	if got := cgroupMemoryMax(proc, root); got != 0 {
 		t.Errorf("cgroup v1: %d, want 0", got)

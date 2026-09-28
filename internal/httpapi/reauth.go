@@ -88,9 +88,7 @@ func (s *Server) requireReauthIf(pred func([]byte) bool, next http.HandlerFunc) 
 			writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados intentos; inténtalo más tarde")
 			return
 		}
-		argonSem <- struct{}{}
-		_, verr := s.users.Verify(r.Context(), user, re.Password)
-		<-argonSem
+		_, verr := s.verifyArgon(r.Context(), user, re.Password)
 		if verr != nil {
 			s.loginLimiter.failure(key, now)
 			writeErr(w, http.StatusForbidden, "reauth_failed", "contraseña incorrecta")

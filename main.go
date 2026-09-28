@@ -401,8 +401,9 @@ func backgroundJobs(cfg *config.Config) (sched, repl, purge bool) {
 	return true, true, !cfg.Mock
 }
 
-// cgroupMemoryMax — the cgroup v2 memory.max this process runs under, in
-// bytes; 0 when unlimited ("max") or unknown (cgroup v1, no unit).
+// cgroupMemoryMax — the lowest cgroup v2 memory.max from this process's
+// cgroup up to the root (a slice or an LXC container can be tighter than
+// the unit), in bytes; 0 when unlimited everywhere or unknown (cgroup v1).
 func cgroupMemoryMax(procCgroup, root string) int64 {
 	b, err := os.ReadFile(procCgroup)
 	if err != nil {
@@ -413,15 +414,19 @@ func cgroupMemoryMax(procCgroup, root string) int64 {
 		if !ok {
 			continue
 		}
-		v, err := os.ReadFile(filepath.Join(root, filepath.Clean("/"+rel), "memory.max"))
-		if err != nil {
-			return 0
+		var low int64
+		for dir := filepath.Clean("/" + rel); ; dir = filepath.Dir(dir) {
+			v, err := os.ReadFile(filepath.Join(root, dir, "memory.max"))
+			if err == nil {
+				if n, err := strconv.ParseInt(strings.TrimSpace(string(v)), 10, 64); err == nil && n > 0 && (low == 0 || n < low) {
+					low = n
+				}
+			}
+			if dir == "/" {
+				break
+			}
 		}
-		n, err := strconv.ParseInt(strings.TrimSpace(string(v)), 10, 64)
-		if err != nil || n <= 0 {
-			return 0
-		}
-		return n
+		return low
 	}
 	return 0
 }

@@ -56,7 +56,15 @@ func hashPassword(password string) (string, error) {
 }
 
 // verifyPassword compara en tiempo constante contra el hash PHC almacenado.
-func verifyPassword(password, phc string) bool {
+// Anything the stored hash makes argon2 panic on is a failed check: a
+// panic here escaped into the HTTP handlers, which lost their argonSem
+// slot for good.
+func verifyPassword(password, phc string) (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
 	parts := strings.Split(phc, "$")
 	// ["", "argon2id", "v=19", "m=...,t=...,p=...", salt, hash]
 	if len(parts) != 6 || parts[1] != "argon2id" {
@@ -70,7 +78,9 @@ func verifyPassword(password, phc string) bool {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads); err != nil {
 		return false
 	}
-	if memory > maxArgonMemory || time > 16 || threads == 0 || threads > 16 {
+	// argon2 panics on t=0 or m < 8·p, and a short or empty key made
+	// IDKey dereference nil: refused before they reach it.
+	if memory > maxArgonMemory || time == 0 || time > 16 || threads == 0 || threads > 16 || memory < 8*threads {
 		return false
 	}
 	b64 := base64.RawStdEncoding
@@ -79,7 +89,7 @@ func verifyPassword(password, phc string) bool {
 		return false
 	}
 	want, err := b64.DecodeString(parts[5])
-	if err != nil {
+	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false
 	}
 	key := argonKey([]byte(password), salt, time, memory, uint8(threads), uint32(len(want)))

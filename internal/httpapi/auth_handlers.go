@@ -160,8 +160,20 @@ func (l *loginLimiter) failure(key string, now time.Time) {
 }
 
 // argonSem limita las verificaciones argon2 concurrentes (cada Verify usa
-// ~64 MiB; el unit tiene MemoryMax=256M). Máximo 2 en vuelo.
+// ~64 MiB; el unit tiene MemoryMax=256M). internal/users now runs one argon2
+// computation at a time itself (two here plus the unguarded hashing of
+// Create/SetPassword still reached the OOM killer); this only bounds how
+// many handlers queue behind it.
 var argonSem = make(chan struct{}, 2)
+
+// verifyArgon — Verify under argonSem, released on every path: the slot
+// used to be given back by the next statement, so a panic inside Verify
+// kept it, and two of them blocked every login for good.
+func (s *Server) verifyArgon(ctx context.Context, user, password string) (string, error) {
+	argonSem <- struct{}{}
+	defer func() { <-argonSem }()
+	return s.users.Verify(ctx, user, password)
+}
 
 // loginQueue bounds how many logins may be in flight or waiting for argonSem.
 // argonSem alone caps concurrency but not the queue behind it, and the per-key
@@ -219,9 +231,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Semáforo argon2: serializar verificaciones para acotar la memoria.
-	argonSem <- struct{}{}
-	role, err := s.users.Verify(r.Context(), body.User, body.Password)
-	<-argonSem
+	role, err := s.verifyArgon(r.Context(), body.User, body.Password)
 	if err != nil {
 		s.loginLimiter.failure(key, now)
 		writeErr(w, http.StatusUnauthorized, "bad_credentials", "usuario o contraseña incorrectos")
@@ -420,9 +430,7 @@ func (s *Server) changeMyPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Mismo semáforo argon2 que en login: acota la memoria en verificaciones.
-	argonSem <- struct{}{}
-	_, err := s.users.Verify(r.Context(), user, body.Current)
-	<-argonSem
+	_, err := s.verifyArgon(r.Context(), user, body.Current)
 	if err != nil {
 		s.loginLimiter.failure(key, now)
 		// 403, not 401: the frontend treats any 401 as an expired session,
