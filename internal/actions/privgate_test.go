@@ -370,3 +370,70 @@ func TestPrivGrammarCoversEveryBuilder(t *testing.T) {
 		}
 	}
 }
+
+// Remediation spec P7: the service validates a disk, then the gateway runs
+// the command as root — and the disk's state may have changed in between.
+// The gateway re-reads it live, so each change below is refused at the
+// boundary even though the service-side check passed.
+func TestPrivRechecksDevicesAtTheBoundary(t *testing.T) {
+	usePrivHost(t)
+	state := map[string]string{} // kernel name → lsblk JSON node
+	blank := func(n string) string {
+		return `{"name":"` + n + `","type":"disk","fstype":null,"parttype":null,"mountpoints":[null]}`
+	}
+	lsblkJSON = func(_ context.Context, args ...string) ([]byte, error) {
+		n := strings.TrimPrefix(args[len(args)-1], "/dev/")
+		node, ok := state[n]
+		if !ok {
+			node = blank(n)
+		}
+		return []byte(`{"blockdevices":[` + node + `]}`), nil
+	}
+	ctx := context.Background()
+	check := func(what, cmd string) {
+		t.Helper()
+		tool, args := privArgv(cmd)
+		if err := PrivCheck(ctx, tool, args); !errors.Is(err, ErrDiskInUse) {
+			t.Errorf("%s: %s → %v, want ErrDiskInUse", what, cmd, err)
+		}
+	}
+
+	// A disk that became busy: blank when validated, then partitioned and
+	// mounted.
+	if err := requireFreeDisk(ctx, "sdc"); err != nil {
+		t.Fatalf("service-side check: %v", err)
+	}
+	state["sdc"] = `{"name":"sdc","type":"disk","fstype":null,"parttype":null,"mountpoints":[null],"children":[{"name":"sdc1","type":"part","fstype":"ext4","parttype":null,"mountpoints":["/srv/backup"]}]}`
+	check("disk became busy", "zpool create newpool sdc")
+
+	// A by-id path that now resolves to a different device: the name the
+	// admin picked pointed at a blank disk, and points at an LVM one now.
+	devs := t.TempDir()
+	for _, n := range []string{"sdd", "sde"} {
+		if err := os.WriteFile(filepath.Join(devs, n), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(devByIDDir, "ata-TESTDISK_0001")
+	if err := os.Symlink(filepath.Join(devs, "sdd"), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireFreeDisk(ctx, "/dev/disk/by-id/ata-TESTDISK_0001"); err != nil {
+		t.Fatalf("service-side check: %v", err)
+	}
+	state["sde"] = `{"name":"sde","type":"disk","fstype":"LVM2_member","parttype":null,"mountpoints":[null]}`
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(devs, "sde"), link); err != nil {
+		t.Fatal(err)
+	}
+	check("by-id path re-pointed", "zpool create newpool /dev/disk/by-id/ata-TESTDISK_0001")
+
+	// Pool membership changed: the disk joined another pool in between.
+	if err := requireFreeDisk(ctx, "sdf"); err != nil {
+		t.Fatalf("service-side check: %v", err)
+	}
+	state["sdf"] = `{"name":"sdf","type":"disk","fstype":"zfs_member","label":"bigtank","parttype":null,"mountpoints":[null]}`
+	check("disk joined another pool", "zpool create newpool sdf")
+}

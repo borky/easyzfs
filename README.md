@@ -294,7 +294,7 @@ The service reads `/etc/easyzfs/env`:
 
 | Var | Default | Description |
 |---|---|---|
-| `LISTEN_ADDR` | `:8080` | Listen address |
+| `LISTEN_ADDR` | `127.0.0.1:8080` | Listen address. Loopback unless set: `:8080` for every interface, or one of the host's addresses. The installer asks (and writes `127.0.0.1` with `--yes`) |
 | `DB_PATH` | `/var/lib/easyzfs/app.db` | SQLite DB path |
 | `SESSION_SECRET` | *(ephemeral)* | HMAC secret for sessions (set it in production) |
 | `ADMIN_PASSWORD` | *(generated)* | First admin password (bootstrap) |

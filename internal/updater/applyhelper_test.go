@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,7 +30,11 @@ type applyEnv struct {
 	env           []string
 	sums          map[string]string // tag → checksums.txt body
 	sigs          map[string]string // tag → checksums.txt.minisig body
-	mu            sync.Mutex        // the server reads sums/sigs from its own goroutines
+	// served — what the server hands out: a copy of sums/sigs taken by run(),
+	// under mu, since the server reads it from its own goroutines.
+	mu         sync.Mutex
+	servedSums map[string]string
+	servedSigs map[string]string
 }
 
 const trustedKey = "RWTtrustedKeyForTests"
@@ -76,9 +81,9 @@ func newApplyEnv(t *testing.T) *applyEnv {
 		var body string
 		var found bool
 		if tag, ok := strings.CutSuffix(path, "/checksums.txt"); ok {
-			body, found = e.sums[tag]
+			body, found = e.servedSums[tag]
 		} else if tag, ok := strings.CutSuffix(path, "/checksums.txt.minisig"); ok {
-			body, found = e.sigs[tag]
+			body, found = e.servedSigs[tag]
 		}
 		if !found {
 			http.NotFound(w, r)
@@ -132,7 +137,8 @@ func (e *applyEnv) refusal(t *testing.T) string {
 
 func (e *applyEnv) run(t *testing.T) (string, error) {
 	t.Helper()
-	e.mu.Lock() // orders the setup's map writes before the server's reads
+	e.mu.Lock()
+	e.servedSums, e.servedSigs = maps.Clone(e.sums), maps.Clone(e.sigs)
 	e.mu.Unlock()
 	cmd := exec.Command("bash", "../../deploy/easyzfs-apply-update", e.upd, e.bin)
 	cmd.Env = e.env

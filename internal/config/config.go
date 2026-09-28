@@ -14,22 +14,26 @@ import (
 
 // Config — configuración de la app (todo por variables de entorno).
 type Config struct {
-	ListenAddr    string // LISTEN_ADDR (def ":8080")
+	// ListenAddr — LISTEN_ADDR. Without it, loopback only (remediation spec
+	// P8): the UI can destroy pools, so all interfaces is something an
+	// operator asks for (":8080"), never what a missing variable gives. The
+	// installer always writes it, so this only decides manual installs.
+	ListenAddr    string
 	DBPath        string // DB_PATH (def "/var/lib/easyzfs/app.db")
 	SessionSecret []byte // SESSION_SECRET (sha256 del valor; si falta, efímero + aviso)
 	Demo          bool   // DEMO=1 → datos mock + mutaciones 403 demo_mode
 	// ReadOnly — EASYZFS_READONLY=1: real data, but every request that would
 	// change storage is refused and no scheduled job or replication runs.
 	// The installer pairs it with a sudoers file that grants nothing else.
-	ReadOnly bool
+	ReadOnly      bool
 	Mock          bool   // MOCK=1 → colectores mock (datos reales mutan y fallarán)
 	AdminPassword string // ADMIN_PASSWORD para bootstrap del primer admin
 	CookieSecure  bool   // COOKIE_SECURE=1 → atributo Secure (tras proxy TLS)
 	// TrustProxy — TRUST_PROXY=1: a reverse proxy in front sets
 	// X-Forwarded-Proto/Forwarded, and a request it received over HTTPS gets
 	// a Secure session cookie without COOKIE_SECURE (remediation spec P8).
-	TrustProxy bool
-	RetentionDays int    // RETENTION_DAYS series (def 30)
+	TrustProxy    bool
+	RetentionDays int // RETENTION_DAYS series (def 30)
 
 	VAPIDPublicKey  string // VAPID_PUBLIC_KEY (Web Push; la genera el instalador)
 	VAPIDPrivateKey string // VAPID_PRIVATE_KEY (solo servidor; si falta, push desactivado)
@@ -99,7 +103,7 @@ func (c *Config) PushEnabled() bool {
 // Load lee y valida la configuración. No falla: valores por defecto sensatos + avisos.
 func Load() *Config {
 	cfg := &Config{
-		ListenAddr:    env("LISTEN_ADDR", ":8080"),
+		ListenAddr:    env("LISTEN_ADDR", DefaultListenAddr),
 		DBPath:        env("DB_PATH", "/var/lib/easyzfs/app.db"),
 		Demo:          envBool("DEMO"),
 		ReadOnly:      envBool("EASYZFS_READONLY"),
@@ -112,7 +116,6 @@ func Load() *Config {
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:    env("VAPID_SUBJECT", "mailto:easyzfs@localhost"),
-
 
 		WebhookSecret:  os.Getenv("WEBHOOK_SECRET"),
 		WebhookTimeout: time.Duration(envInt("WEBHOOK_TIMEOUT", 10)) * time.Second,
@@ -127,14 +130,14 @@ func Load() *Config {
 		SMTPTimeout:    time.Duration(envInt("SMTP_TIMEOUT", 10)) * time.Second,
 		SMTPTestTo:     os.Getenv("SMTP_TEST_TO"),
 
-		NtfyURL:         os.Getenv("NTFY_URL"),
-		NtfyToken:       os.Getenv("NTFY_TOKEN"),
-		GotifyURL:       os.Getenv("GOTIFY_URL"),
-		GotifyToken:     os.Getenv("GOTIFY_TOKEN"),
-		SyslogHost:      os.Getenv("SYSLOG_HOST"),
-		SyslogPort:      envInt("SYSLOG_PORT", 514),
-		SyslogProto:     env("SYSLOG_PROTO", "udp"),
-		SyslogFacility:  envInt("SYSLOG_FACILITY", 1),
+		NtfyURL:        os.Getenv("NTFY_URL"),
+		NtfyToken:      os.Getenv("NTFY_TOKEN"),
+		GotifyURL:      os.Getenv("GOTIFY_URL"),
+		GotifyToken:    os.Getenv("GOTIFY_TOKEN"),
+		SyslogHost:     os.Getenv("SYSLOG_HOST"),
+		SyslogPort:     envInt("SYSLOG_PORT", 514),
+		SyslogProto:    env("SYSLOG_PROTO", "udp"),
+		SyslogFacility: envInt("SYSLOG_FACILITY", 1),
 
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
 		TelegramChatID:   os.Getenv("TELEGRAM_CHAT_ID"),
@@ -202,6 +205,9 @@ func Load() *Config {
 	}
 	return cfg
 }
+
+// DefaultListenAddr — see Config.ListenAddr.
+const DefaultListenAddr = "127.0.0.1:8080"
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
