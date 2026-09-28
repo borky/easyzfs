@@ -1470,6 +1470,12 @@ setup_update_units() {
   elif [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] escribiría ${upd_path} y ${upd_svc} (auto-update: ${upd_dir}/.restart-me)"
   else
+    # The helper installs nothing it cannot verify with minisign. Without it
+    # every update is refused, which is safe but would look broken, so say so.
+    if ! command -v minisign >/dev/null 2>&1; then
+      run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade minisign \
+        || warn "No se pudo instalar minisign: las actualizaciones descargadas se rechazarán (sin verificar la firma no se instala nada)."
+    fi
     run "${SUDO[@]}" mkdir -p "$(dirname "$APPLY_HELPER")"
     run "${SUDO[@]}" install -m 0755 -o root -g root "$apply_src" "$APPLY_HELPER" \
       || die "No se pudo instalar ${APPLY_HELPER}"
@@ -1521,25 +1527,32 @@ EOF
   local upd_weekly_svc="/etc/systemd/system/easyzfs-update-weekly.service"
   local upd_weekly_timer="/etc/systemd/system/easyzfs-update-weekly.timer"
   local upd_script="/opt/easyzfs/easyzfs-update-weekly.sh"
-  local weekly_src="" weekly_tmp=0
+  local weekly_src=""
+  # The weekly script hands what it downloads to the apply helper, which
+  # verifies the release signature. Upstream's copy of the script installs on
+  # a checksum alone, so it is never fetched: without the local copy and the
+  # helper there is no weekly timer.
+  weekly_src="$(local_deploy_file easyzfs-update-weekly.sh)"
   if [ "$BIN_MODE" != "download" ]; then
     info "Auto-update semanal NO instalado: el binario es local o compilado (${BIN_MODE}), y el timer lo sustituiría por la última release oficial."
+  elif [ -z "$weekly_src" ] || [ -z "$(local_deploy_file easyzfs-apply-update)" ]; then
+    info "Auto-update semanal NO instalado: faltan easyzfs-update-weekly.sh o easyzfs-apply-update junto al instalador."
+    # One installed earlier from upstream would keep installing unsigned
+    # releases as root every week.
+    local u
+    for u in easyzfs-update-weekly.timer easyzfs-update-weekly.service; do
+      if [ -e "/etc/systemd/system/${u}" ]; then
+        [ "$u" = easyzfs-update-weekly.timer ] && { run "${SUDO[@]}" systemctl disable --now "$u" || true; }
+        run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"
+      fi
+    done
   elif [ -z "${DOWNLOADED_TAG:-}" ]; then
     info "Auto-update semanal NO instalado: no se pudo determinar de qué release oficial viene el binario (¿URL propia?)."
   elif [ "$DRY_RUN" = "1" ]; then
     info "[DRY-RUN] instalaría easyzfs-update-weekly.timer + .service + script (release ${DOWNLOADED_TAG})"
   else
     "${SUDO[@]}" mkdir -p /opt/easyzfs
-    weekly_src="$(local_deploy_file easyzfs-update-weekly.sh)"
-    if [ -z "$weekly_src" ]; then
-      weekly_src="$(mktemp)"; weekly_tmp=1
-      curl -fsSL "https://raw.githubusercontent.com/gnacho/easyzfs/${DOWNLOADED_TAG}/deploy/easyzfs-update-weekly.sh" \
-        -o "$weekly_src" || { rm -f "$weekly_src"; die "No se pudo descargar easyzfs-update-weekly.sh."; }
-      head -1 "$weekly_src" | grep -q '^#!/bin/sh' \
-        || { rm -f "$weekly_src"; die "easyzfs-update-weekly.sh descargado no es el script esperado."; }
-    fi
     "${SUDO[@]}" install -m 0755 "$weekly_src" "$upd_script"
-    [ "$weekly_tmp" = "1" ] && rm -f "$weekly_src"
     printf '%s\n' "${DOWNLOADED_TAG#v}" | "${SUDO[@]}" tee /opt/easyzfs/.release-id >/dev/null
     write_root_file "$upd_weekly_svc" 0644 <<EOF
 [Unit]

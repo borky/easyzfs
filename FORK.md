@@ -116,12 +116,33 @@ and `zfs recv` into a dataset whose mountpoint it can set is root-equivalent.
 Read-only mode is the answer to that. `TestSudoersPropsMatchValidators` fails
 when a property is added to the allowlist but not to sudoers.
 
-**§11, signed releases.** Not applicable here, and not ours to do: this fork's
-builds carry the `local` channel and are never replaced from a release, and
-upstream's releases are signed (or not) by upstream. For a `github`-channel
-build, the root helper above checks the binary against the release's own
-`checksums.txt`, which protects against tampering on the NAS, not against a
-compromised release pipeline.
+**§11, signed releases — now enforced (remediation spec P3).** A checksum
+fetched next to the binary protects against tampering on the NAS, not against
+a compromised release pipeline, so the root helper now also requires
+`checksums.txt.minisig` and verifies it with `minisign -V` against the public
+key embedded in `deploy/easyzfs-apply-update` (`TRUSTED_MINISIGN_KEY`). It
+fails closed: no key embedded, no minisign installed, no signature published,
+a bad one, or a checksum that is not the one signed — nothing is installed and
+the binary in use is left as it was. The key is empty in this fork and
+upstream publishes no signatures, so a `github`-channel build never
+self-updates; this fork's builds are on the `local` channel anyway and update
+with `make update`. To publish signed releases, sign `checksums.txt` with
+`minisign -S` and put the public key in the helper.
+
+The helper also leaves the reason for a refusal in
+`$DATA_DIR/update/apply-refused` (created with O_EXCL, since the service
+account owns that directory), and `GET /api/update/status` returns it as
+`applyRefused`: without it Settings kept showing a refused update as one
+waiting for its restart. The weekly timer's script used to install a release
+as root on its checksum alone — a second, weaker path around the helper. It now
+only downloads, and hands the binary to the helper; the installer no longer
+fetches upstream's copy of that script (which still does the old thing) and
+removes a weekly timer it cannot replace with the local one. `minisign` is
+installed with the update units. Tests (`internal/updater/applyhelper_test.go`,
+with a stub minisign): no key, no minisign, unsigned, wrong key, garbage
+signature, checksums swapped after signing, wrong arch, symlinked binary, a
+failed install keeping the old binary, and a planted `apply-refused` symlink
+not written through.
 
 **§1, §19.1-2 — done**, see the effective-mountpoint row above. A Proxmox host
 that matters no longer needs read-only mode for this reason.

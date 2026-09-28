@@ -276,8 +276,11 @@ pinned reads and `crontab -l`, no gateway and no helper.
 Self-update: the daemon only detects and downloads (checksum-validated) to
 `$DATA_DIR/update/`, with the release tag in `easyzfs.new.tag`, then touches a
 flag; the root `easyzfs-update.path` unit runs `deploy/easyzfs-apply-update`,
-which re-checks the binary against that tag's `checksums.txt` itself before
-swapping and restarting. The daemon never writes to `/usr/local/bin`.
+which verifies that tag's `checksums.txt.minisig` against the embedded
+minisign key (none embedded = nothing installed), then re-checks the binary
+against `checksums.txt` itself before swapping and restarting; a refusal is
+left in `$DATA_DIR/update/apply-refused` for the UI. The weekly timer goes
+through the same helper. The daemon never writes to `/usr/local/bin`.
 
 In this fork, `make build` links `-X main.updateChannel=local`: that binary
 has no updater at all and is updated with `make update` from the checkout.

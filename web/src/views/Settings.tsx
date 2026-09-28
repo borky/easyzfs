@@ -156,6 +156,12 @@ function UpdateCheckRow({ version, channel }: { version: string | undefined; cha
           ))}
         </div>
       )}
+      {status?.applyRefused && (
+        <div className="form-err" role="alert" style={{ marginTop: 8, fontSize: 12.5 }}>
+          <b>{t('ab_upd_refused')}</b><br />
+          {t('ab_upd_refused_d')} <span className="mono">{status.applyRefused}</span>
+        </div>
+      )}
       {status?.restartConfigured === false && (
         <div className="form-err" role="alert" style={{ marginTop: 8, fontSize: 12.5 }}>
           <b>{t('ab_upd_norestart')}</b><br />

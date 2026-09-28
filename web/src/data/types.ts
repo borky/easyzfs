@@ -108,6 +108,7 @@ export interface UpdateStatus {
   inProgress?: boolean;
   progress?: { step: string; percentage: number };
   restartConfigured?: boolean;
+  applyRefused?: string; // why the root helper refused the last staged update
   releaseNotes?: string; // notas del release (changelog) truncadas
   releaseUrl?: string;   // enlace a la release en GitHub
 }

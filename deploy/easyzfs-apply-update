@@ -10,21 +10,47 @@
 #   1. the tag must look like a release tag;
 #   2. the staged binary is copied into a root-owned temp dir first, opened
 #      with O_NOFOLLOW, so the bytes checked are the bytes installed;
-#   3. that tag's checksums.txt is fetched by root from the official releases;
+#   3. that tag's checksums.txt is fetched by root from the official releases,
+#      with its minisign signature, and the signature is verified against the
+#      public key embedded below — a checksum published next to the binary
+#      only proves they came from the same place, which a compromised release
+#      pipeline also satisfies;
 #   4. only a matching binary is installed, by atomic rename.
-# What it cannot prevent: staging a genuine but older release, which rollback
-# needs. It no longer installs anything that is not an official release.
+# With no key embedded, or no minisign installed, nothing is installed at all
+# (fail closed): upstream publishes no signatures, so a build of this fork
+# on the github channel never self-updates, and 'make update' from the
+# checkout is the update path. What it cannot prevent: staging a genuine,
+# signed but older release, which rollback needs.
 #
 # Usage: easyzfs-apply-update <update dir> [<installed binary>]
 set -euo pipefail
 
 UPD="${1:?falta el directorio de actualización}"
 BIN="${2:-/usr/local/bin/easyzfs}"
-# Test seams; the unit sets neither.
+# The minisign public key releases must be signed with ('RW…', base64). Empty:
+# no release can be verified, so none is installed.
+TRUSTED_MINISIGN_KEY=""
+# Test seams; the unit sets none of them.
 RELEASES="${EASYZFS_RELEASES_BASE:-https://github.com/gnacho/easyzfs/releases/download}"
 ARCH="${EASYZFS_APPLY_ARCH:-$(uname -m)}"
+KEY="${EASYZFS_APPLY_PUBKEY:-$TRUSTED_MINISIGN_KEY}"
 
-die() { echo "easyzfs-apply-update: $*" >&2; exit 1; }
+# A refusal is also left in apply-refused for the daemon to show: otherwise the
+# UI keeps reporting an update that never happened. The directory belongs to
+# the service account, so the file is created with O_EXCL (noclobber) after
+# removing whatever is there — a planted symlink or file is never written
+# through.
+die() {
+  echo "easyzfs-apply-update: $*" >&2
+  rm -f "${UPD}/apply-refused" 2>/dev/null
+  (set -C; printf '%s\n' "$*" > "${UPD}/apply-refused") 2>/dev/null || true
+  exit 1
+}
+
+# Before anything else: without a way to verify a signature, nothing staged
+# can be trusted, whatever it is.
+[ -n "$KEY" ] || { rm -f "${UPD}/.restart-me"; die "no hay clave pública de firma configurada: las actualizaciones automáticas están desactivadas (usa 'make update' desde el checkout)"; }
+command -v minisign >/dev/null 2>&1 || { rm -f "${UPD}/.restart-me"; die "minisign no está instalado: no se puede verificar la firma, no se instala"; }
 
 rm -f "${UPD}/.restart-me"
 staged="${UPD}/easyzfs.new"
@@ -49,6 +75,10 @@ dd if="$staged" of="$tmp/bin" bs=1M iflag=nofollow status=none 2>/dev/null \
 
 curl -fsSL --proto '=https' --max-time 60 "${RELEASES}/${tag}/checksums.txt" -o "$tmp/sums" \
   || die "no se pudo descargar checksums.txt de ${tag}"
+curl -fsSL --proto '=https' --max-time 60 "${RELEASES}/${tag}/checksums.txt.minisig" -o "$tmp/sums.minisig" \
+  || die "la release ${tag} no publica firma (checksums.txt.minisig): no se instala"
+minisign -V -q -P "$KEY" -m "$tmp/sums" -x "$tmp/sums.minisig" >/dev/null 2>&1 \
+  || die "la firma de checksums.txt de ${tag} no es válida para la clave de confianza: no se instala"
 want="$(awk -v a="$asset" '$2 == a || $2 == "*"a {print $1; exit}' "$tmp/sums")"
 [[ "$want" =~ ^[0-9a-f]{64}$ ]] || die "checksums.txt de ${tag} no lista ${asset}"
 got="$(sha256sum "$tmp/bin" | awk '{print $1}')"
@@ -57,7 +87,8 @@ got="$(sha256sum "$tmp/bin" | awk '{print $1}')"
 own=(); [ "$(id -u)" = 0 ] && own=(-o root -g root)   # tests run unprivileged
 install -m 0755 "${own[@]}" "$tmp/bin" "${BIN}.new-$$"
 mv -f "${BIN}.new-$$" "$BIN"
-echo "easyzfs-apply-update: instalada la release ${tag} (sha256 verificado)"
+rm -f "${UPD}/apply-refused"
+echo "easyzfs-apply-update: instalada la release ${tag} (firma y sha256 verificados)"
 
 # Units written before the private mount namespace was dropped (see the
 # comment in deploy/easyzfs.service): an install that updates itself never

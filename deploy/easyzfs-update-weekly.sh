@@ -2,8 +2,9 @@
 # easyzfs-update-weekly.sh — chequeo y aplicación semanal de actualizaciones.
 #
 # Ejecutado por easyzfs-update-weekly.timer (systemd, cadencia semanal).
-# Descarga la release ESTABLE de GitHub, verifica sha256, hace backup
-# del binario actual, instala el nuevo y reinicia el servicio.
+# Downloads the latest STABLE release from GitHub, backs up the current
+# binary and hands the new one to easyzfs-apply-update, which verifies the
+# signature and sha256, installs it and restarts the service.
 #
 # A diferencia del apply in-app (POST /api/update/apply → .restart-me flag →
 # easyzfs-update.path → easyzfs-update.service), este script es AUTÓNOMO:
@@ -14,6 +15,7 @@ APP=easyzfs
 REPO=gnacho/easyzfs
 INSTALL_BIN=/usr/local/bin/easyzfs
 MARKER=/opt/easyzfs/.release-id
+APPLY_HELPER=/usr/local/libexec/easyzfs-apply-update
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
@@ -31,33 +33,32 @@ if [ -f "$MARKER" ] && [ "$(cat "$MARKER" 2>/dev/null || true)" = "$VER_NO_V" ];
   log "al día ($VER_NO_V)"; exit 0
 fi
 
-# 2. Descargar binario y checksums
+# 2. Download the binary only. Verifying and installing it is the apply
+# helper's job, the same one the in-app update goes through: it checks the
+# minisign signature of checksums.txt against the embedded key before the
+# sha256, which a checksum fetched next to the binary cannot replace. A
+# second, weaker install path here would be the one an attacker uses.
 echo "STEP:download"
+[ -x "$APPLY_HELPER" ] || { log "falta $APPLY_HELPER: no se instala nada"; exit 5; }
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 BIN="${APP}_linux_${ARCH}"
 BASE="https://github.com/$REPO/releases/download/$VER"
-curl -fL --max-time 120 "$BASE/$BIN" -o "$TMP_DIR/$APP"
-curl -fL --max-time 30 "$BASE/checksums.txt" -o "$TMP_DIR/checksums.txt"
+curl -fL --proto '=https' --max-time 120 "$BASE/$BIN" -o "$TMP_DIR/$APP.new"
+printf '%s\n' "$VER" > "$TMP_DIR/$APP.new.tag"
 
-# 3. Verificar sha256
-echo "STEP:verify"
-expected=$(awk -v f="$BIN" '$2=="'"$BIN"'" || index($0, "  '"$BIN"'") {print $1; exit}' "$TMP_DIR/checksums.txt" 2>/dev/null || true)
-[ -n "$expected" ] || { log "checksums.txt sin entrada para $BIN (¿release sin checksums?)"; exit 5; }
-got=$(sha256sum "$TMP_DIR/$APP" | awk '{print $1}')
-[ "$expected" = "$got" ] || { log "SHA256 NO coincide para $BIN"; exit 5; }
-log "sha256 verificado: $BIN"
-
-# 4. Backup del binario actual
+# 3. Backup del binario actual
 echo "STEP:backup"
 if [ -f "$INSTALL_BIN" ]; then
   cp "$INSTALL_BIN" "${INSTALL_BIN}.bak-$(date +%Y%m%d-%H%M%S)"
 fi
 
-# 5. Instalar y reiniciar
+# 4. Verify, install and restart (the helper restarts the service).
 echo "STEP:install"
-install -m 0755 "$TMP_DIR/$APP" "$INSTALL_BIN"
+if ! "$APPLY_HELPER" "$TMP_DIR" "$INSTALL_BIN"; then
+  log "la release $VER no pasó la verificación (firma/sha256): no se instala"
+  exit 5
+fi
 printf '%s\n' "$VER_NO_V" > "$MARKER"
-systemctl restart "$APP.service"
 
 log "actualizado a $VER_NO_V"
 echo "OK:$VER_NO_V"

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -62,6 +63,10 @@ type Status struct {
 	ReleaseNotes      string `json:"releaseNotes,omitempty"`
 	ReleaseURL        string `json:"releaseUrl,omitempty"`
 	RestartConfigured bool   `json:"restartConfigured"`
+	// ApplyRefused — why the root helper refused the last staged update (bad
+	// or missing signature, checksum mismatch…). Without it a refused update
+	// looks like one still waiting for its restart.
+	ApplyRefused string `json:"applyRefused,omitempty"`
 }
 
 // Progress — paso actual durante un apply.
@@ -243,8 +248,23 @@ func (u *Updater) statusLocked() Status {
 	if u.inProgress && u.progressStep != "" {
 		s.Progress = &Progress{Step: u.progressStep, Percentage: u.progressPct}
 	}
+	s.ApplyRefused = u.applyRefused()
 	return s
 }
+
+// applyRefused reads the refusal deploy/easyzfs-apply-update leaves behind;
+// "" when the last attempt succeeded or none was made.
+func (u *Updater) applyRefused() string {
+	f, err := os.Open(u.applyRefusedFile())
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	b, _ := io.ReadAll(io.LimitReader(f, 512))
+	return strings.TrimSpace(string(b))
+}
+
+func (u *Updater) applyRefusedFile() string { return filepath.Join(u.updateDir(), "apply-refused") }
 
 // Subscribe registra un canal para recibir el Status en cada cambio del
 // update en curso (progreso SSE). El cancel devuelto lo retira.
@@ -399,6 +419,9 @@ func (u *Updater) Apply(ctx context.Context) error {
 	if !newer {
 		return errors.New("updater: no hay versión más reciente")
 	}
+
+	// A new attempt: the previous refusal no longer describes it.
+	os.Remove(u.applyRefusedFile())
 
 	// Registrar pending apply para confirmación post-reinicio
 	if err := u.WritePendingApply(u.current, latestV); err != nil {
