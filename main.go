@@ -16,6 +16,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -106,6 +108,18 @@ func main() {
 	defer stop()
 
 	cfg := config.Load()
+
+	// The unit caps the service (MemoryMax=256M) but Go does not know: the
+	// GC ran by heap growth alone, and argon2's 64 MiB blocks pushed the
+	// process past the cap before a collection, into the OOM killer. A soft
+	// limit under the cgroup's makes the GC work to stay below it.
+	// GOMEMLIMIT, when set, wins.
+	if os.Getenv("GOMEMLIMIT") == "" {
+		if max := cgroupMemoryMax("/proc/self/cgroup", "/sys/fs/cgroup"); max > 0 {
+			debug.SetMemoryLimit(max * 3 / 4)
+			log.Printf("límite de memoria de Go: %d MiB (3/4 del MemoryMax del servicio)", max*3/4>>20)
+		}
+	}
 
 	// Storage tools run through the privileged gateway (internal/priv):
 	// unprivileged, via sudo to this binary; as root, with the same checks
@@ -385,4 +399,29 @@ func backgroundJobs(cfg *config.Config) (sched, repl, purge bool) {
 		return false, false, false
 	}
 	return true, true, !cfg.Mock
+}
+
+// cgroupMemoryMax — the cgroup v2 memory.max this process runs under, in
+// bytes; 0 when unlimited ("max") or unknown (cgroup v1, no unit).
+func cgroupMemoryMax(procCgroup, root string) int64 {
+	b, err := os.ReadFile(procCgroup)
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		rel, ok := strings.CutPrefix(line, "0::")
+		if !ok {
+			continue
+		}
+		v, err := os.ReadFile(filepath.Join(root, filepath.Clean("/"+rel), "memory.max"))
+		if err != nil {
+			return 0
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(string(v)), 10, 64)
+		if err != nil || n <= 0 {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
