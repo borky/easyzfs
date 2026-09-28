@@ -350,7 +350,9 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 	// loaded). This puts back what existed before the dataset was trashed;
 	// like DatasetMount it does not check the effective mountpoint (the
 	// open §1 item in FORK.md).
-	props, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem", "canmount,mountpoint,keystatus", e.Original)
+	// -t filesystem alone fails outright on a volume ("not applicable");
+	// volumes come back with mountpoint "-" and are skipped below.
+	props, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume", "canmount,mountpoint,keystatus", e.Original)
 	if err != nil {
 		return append(warnings, "no se pudo leer el árbol para montarlo: "+err.Error()), nil
 	}
