@@ -22,7 +22,8 @@ func newTestService(t *testing.T) (*Service, string) {
 	logFile := filepath.Join(dir, "zpool-args.log")
 
 	// zpool falso: anota los args y sale 0.
-	zpool := "#!/bin/sh\necho \"$@\" >> " + logFile + "\nexit 0\n"
+	// FAKE_CHECKPOINT: what 'zpool get … checkpoint' prints (VdevAdd).
+	zpool := "#!/bin/sh\necho \"$@\" >> " + logFile + "\n[ \"$1\" = get ] && [ -n \"$FAKE_CHECKPOINT\" ] && echo \"$FAKE_CHECKPOINT\"\nexit 0\n"
 	// sudo falso: executil antepone 'sudo -n' cuando no somos root; lo ignora.
 	sudo := "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -*) shift;; *) break;; esac; done\nexec \"$@\"\n"
 	// dd falso: anota los args y sale 0 (IdentifyDisk).

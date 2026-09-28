@@ -1363,6 +1363,7 @@ function PoolDiskModal({ pool, mode, presetOld, presetNew, onClose }: { pool: st
         <p className="desc">
           {t(mode === 'vdev' ? 'av_desc' : 'rp_desc')} <b className="mono">{pool}</b>
         </p>
+        {mode === 'vdev' && <p className="desc" style={{ marginTop: 8 }}>{t('av_checkpoint')}</p>}
 
         {mode === 'vdev' && (<>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>{t('np_topo')}

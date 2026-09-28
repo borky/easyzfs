@@ -237,7 +237,8 @@ const es = {
 
   // Añadir vdev / sustituir disco
   av_title: 'Añadir vdev',
-  av_desc: 'Se añadirá un nuevo vdev al pool con los discos seleccionados. Esta acción no se puede deshacer. Pool:',
+  av_desc: 'Se añadirá un nuevo vdev al pool con los discos seleccionados. Un vdev añadido no se puede quitar (con RAID-Z en el pool, nunca). Pool:',
+  av_checkpoint: 'Antes de añadirlo se crea un checkpoint del pool (si no hay uno): si te equivocas, el pool se puede devolver al estado de antes exportándolo e importándolo con «zpool import --rewind-to-checkpoint». Cuando estés conforme, descarta el checkpoint desde el pool: mientras exista retiene el espacio liberado y bloquea attach, detach y quitar vdevs.',
   av_btn: 'Añadir vdev',
   rp_title: 'Sustituir disco',
   rp_desc: 'Se sustituirá el disco elegido por uno nuevo y se reconstruirán los datos (resilver). Pool:',
@@ -931,7 +932,8 @@ const en: Record<I18nKey, string> = {
   ex_btn: 'Export pool',
 
   av_title: 'Add vdev',
-  av_desc: 'A new vdev with the selected disks will be added to the pool. This action cannot be undone. Pool:',
+  av_desc: 'A new vdev with the selected disks will be added to the pool. An added vdev cannot be removed (never, with RAID-Z in the pool). Pool:',
+  av_checkpoint: 'A pool checkpoint is taken first (unless one exists): if this was a mistake, the pool can be taken back to how it was by exporting it and importing it with "zpool import --rewind-to-checkpoint". Once you are happy, discard the checkpoint from the pool view: while it exists it holds freed space and blocks attach, detach and vdev removal.',
   av_btn: 'Add vdev',
   rp_title: 'Replace disk',
   rp_desc: 'The chosen disk will be replaced by a new one and data will be rebuilt (resilver). Pool:',

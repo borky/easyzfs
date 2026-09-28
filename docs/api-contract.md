@@ -59,7 +59,7 @@ Números: bytes en enteros (el front formatea a TiB/GiB con coma es-ES). Fechas:
 - `POST /api/pools/import` `{name?}` → lista importables si sin name; con name importa.
 - `POST /api/pools/{name}/scrub` `{action:"start"|"pause"|"stop"}` → 202
 - `POST /api/pools/{name}/export` `{confirm, force, destroy}` → 202
-- `POST /api/pools/{name}/vdev` `{topo, disks:[…], confirm}` → 202 (añadir vdev). `confirm` = nombre del pool.
+- `POST /api/pools/{name}/vdev` `{topo, disks:[…], confirm}` → 202 (añadir vdev). `confirm` = nombre del pool. Antes de `zpool add` se crea un checkpoint del pool si no hay uno (así un vdev equivocado se puede deshacer con `zpool import --rewind-to-checkpoint`); si no se puede leer o crear, no se añade nada (500).
 - `POST /api/pools/{name}/replace` `{old_dev, new_dev, confirm}` → 202. `confirm` = nombre del pool.
 - `POST /api/pools/{name}/autotrim` (admin) `{enabled:bool}` → 204 (`zpool set autotrim=on|off`).
 - `POST /api/pools/{name}/checkpoint` (admin) `{action:"create"|"discard", confirm}` → 202. `confirm` = nombre del pool (operación delicada: el checkpoint bloquea remove/attach/detach y retiene espacio; revertir con `zpool import --rewind-to-checkpoint`).

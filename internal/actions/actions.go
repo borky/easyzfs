@@ -288,8 +288,26 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 			return err
 		}
 	}
+	// A vdev, once added, is permanent (removal only works for mirrors and
+	// single disks, never with RAID-Z in the pool): a wrong topology or
+	// disk is the classic way to be stuck with a pool. Take a checkpoint
+	// first, so the pool can be rewound to before the add (export, then
+	// 'zpool import --rewind-to-checkpoint'). An existing checkpoint already
+	// covers it. It holds freed space until discarded, and blocks
+	// attach/detach/remove meanwhile; the pool view offers to discard it.
+	cp, err := executil.RunRead(ctx, 10*time.Second, "zpool", "get", "-Hp", "-o", "value", "checkpoint", pool)
+	if err != nil {
+		return fmt.Errorf("leer el checkpoint de %s (necesario antes de añadir un vdev): %w", pool, err)
+	}
+	created := false
+	if v := strings.TrimSpace(string(cp)); v == "" || v == "-" {
+		if _, err := executil.Run(ctx, 30*time.Second, "zpool", "checkpoint", pool); err != nil {
+			return fmt.Errorf("crear un checkpoint antes de añadir el vdev (no se ha añadido nada): %w", err)
+		}
+		created = true
+	}
 	s.audit(ctx, actor, "pool.vdev.add", pool,
-		map[string]any{"topo": topo, "disks": disks}, confirmed)
+		map[string]any{"topo": topo, "disks": disks, "checkpoint_created": created}, confirmed)
 	_, err = executil.Run(ctx, 60*time.Second, "zpool",
 		append([]string{"add", pool}, args...)...)
 	if err != nil {
