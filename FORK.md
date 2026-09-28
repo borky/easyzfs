@@ -233,11 +233,37 @@ so a compromised service process could skip every Go-side check.
     `rpool/data` are refused;
   - the dataset, recycle-bin, §1 and replication-cancel scenarios all pass
     through it.
-- **Not covered by the gateway:**
-  - a custom `DB_PATH` data directory. The gateway runs with sudo's cleaned
+- **A review of the gateway** found, and these fixed:
+  - `zfs recv` mounted whatever the stream held, setuid-root files and device
+    nodes included, which was a path to root. Receives now run only as
+    `recv -s -u -o setuid=off -o devices=off -o exec=off -x mountpoint
+    -x canmount -x sharenfs -x sharesmb` (`actions.RecvArgs`, which
+    replication uses). A local replica therefore stays unmounted until
+    someone mounts it; the mount goes through the checks.
+  - `zfs send` streamed any snapshot to the service account. Sending from the
+    running OS (`/etc/shadow`, host keys, the cluster database) is refused.
+  - sudo's `priv *` glob also matches a single argument such as `"priv x"`,
+    which would have started the whole daemon as root. Under sudo the binary
+    now refuses anything but `priv`.
+  - `destroy -r` of a snapshot reached guest disks' same-named snapshots; it
+    is refused (nothing uses it).
+  - Clone-then-promote could carry a guest disk's snapshots away. Promote now
+    checks the origin, and cloning a guest disk's snapshot is refused.
+  - zvols were accepted as disks for `zpool create`/`add`/`replace`/`attach`.
+    They are refused.
+  - `rewrite` requires the dataset to actually be mounted at the path.
+  - The recycle-bin exception only applies to a bin EasyZFS made.
+  - Every command the actions build during the test suite is replayed through
+    the grammar afterwards (`internal/actions/main_test.go`), so a builder
+    that drifts from the grammar fails CI instead of production.
+- **Still not covered:**
+  - A custom `DB_PATH` data directory. The gateway runs with sudo's cleaned
     environment and protects the default `/var/lib/easyzfs` only.
-  - `zfs recv`. It still writes whatever the stream holds into an allowed
-    destination.
+  - A guest disk's contents can still be streamed with `zfs send`, since
+    replicating VM disks off-host is a use this app supports.
+  - The binary the gateway runs is replaced by `make update` (root) or by the
+    root apply helper. The helper verifies the release checksum; requiring
+    a signature too is spec item P3, not done yet.
 
 ### Destructive actions only after the safety steps
 

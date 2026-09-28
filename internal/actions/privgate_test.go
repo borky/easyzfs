@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"easyzfs/internal/executil"
 )
@@ -87,7 +88,7 @@ func TestPrivMountpointRules(t *testing.T) {
 	for cmd, wantOK := range map[string]bool{
 		// Inherited: a dataset under the root filesystem lands on /etc.
 		"zfs create -p -o compression=lz4 rpool/ROOT/pve-1/etc": false,
-		"zfs create -p -o compression=lz4 rpool/data/media":      true,
+		"zfs create -p -o compression=lz4 rpool/data/media":     true,
 		// Recorded at /: mounting the root filesystem dataset again.
 		"zfs mount rpool/ROOT/pve-1": false,
 		"zfs mount rpool/data":       true,
@@ -98,7 +99,7 @@ func TestPrivMountpointRules(t *testing.T) {
 		// Inheriting under the root filesystem lands on a system path.
 		"zfs rename rpool/data/media rpool/ROOT/pve-1/media": false,
 		// A pool named after a system path mounts there.
-		"zpool create etc sdb": false,
+		"zpool create etc sdb":  false,
 		"zpool create tank sdb": true,
 	} {
 		tool, args := privArgv(cmd)
@@ -156,7 +157,20 @@ func TestPrivHostPolicy(t *testing.T) {
 		"zfs inherit compression rpool/ROOT/pve-1":                        false,
 		"zfs unload-key rpool/data":                                       false,
 		"zfs recv -s rpool/data/vm-100-disk-0":                            false,
-		"zfs recv -s rpool/data/backup":                                   true,
+		// A plain receive would mount a stream the sender controls, setuid
+		// files and device nodes included; only the hardened form runs.
+		"zfs recv -s rpool/data/backup":                                         false,
+		"zfs recv " + strings.Join(RecvArgs, " ") + " rpool/data/backup":        true,
+		"zfs recv " + strings.Join(RecvArgs, " ") + " rpool/data/vm-100-disk-0": false,
+		// The OS's contents (shadow, host keys) never leave as a stream.
+		"zfs send -v rpool/ROOT/pve-1@ezrepl-1":                          false,
+		"zfs send -v -i rpool/ROOT/pve-1#ezrepl-last rpool/ROOT/pve-1@x": false,
+		"zfs send -v rpool/data/media@ezrepl-1":                          true,
+		// -r on a snapshot reaches every descendant's same-named snapshot.
+		"zfs destroy -r rpool/data@easyzfs-auto-1": false,
+		"zfs destroy -r rpool/data/media":          true,
+		// A clone of a guest disk's snapshot pins the disk.
+		"zfs clone rpool/data/vm-100-disk-0@ezrepl-1 rpool/data/mine": false,
 	} {
 		tool, args := privArgv(cmd)
 		err := PrivCheck(ctx, tool, args)
@@ -200,5 +214,62 @@ func TestPrivErrorMapsBack(t *testing.T) {
 		if !errors.Is(&executil.PrivError{Code: PrivCode(e)}, e) {
 			t.Errorf("%v does not round-trip", e)
 		}
+	}
+}
+
+// Promote takes the origin's snapshots over, so a clone of a guest disk
+// cannot be promoted either.
+func TestPrivPromoteChecksTheOrigin(t *testing.T) {
+	usePrivHost(t)
+	saved := readOrigin
+	t.Cleanup(func() { readOrigin = saved })
+	readOrigin = func(context.Context, string) (string, error) { return "rpool/data/vm-100-disk-0@s", nil }
+	if err := PrivCheck(context.Background(), "zfs", []string{"promote", "rpool/data/mine"}); !errors.Is(err, ErrHostStorage) {
+		t.Fatalf("promote of a guest-disk clone: %v", err)
+	}
+	readOrigin = func(context.Context, string) (string, error) { return "rpool/data/media@s", nil }
+	if err := PrivCheck(context.Background(), "zfs", []string{"promote", "rpool/data/mine"}); err != nil {
+		t.Fatalf("promote of a data clone: %v", err)
+	}
+}
+
+// Only a bin EasyZFS made may be purged without the usual checks.
+func TestPrivTrashDestroyNeedsOwnBin(t *testing.T) {
+	usePrivHost(t)
+	saved := runZFS
+	t.Cleanup(func() { runZFS = saved })
+	runZFS = func(context.Context, time.Duration, ...string) ([]byte, error) {
+		return []byte("canmount\ton\tdefault\nmountpoint\t/tank/easyzfs-trash\tdefault\n"), nil
+	}
+	if err := PrivCheck(context.Background(), "zfs", []string{"destroy", "-r", "tank/easyzfs-trash/x"}); !errors.Is(err, ErrHostStorage) {
+		t.Fatalf("hand-made bin: %v", err)
+	}
+	runZFS = func(context.Context, time.Duration, ...string) ([]byte, error) {
+		return []byte("canmount\toff\tlocal\nmountpoint\tnone\tlocal\n"), nil
+	}
+	if err := PrivCheck(context.Background(), "zfs", []string{"destroy", "-r", "tank/easyzfs-trash/x"}); err != nil {
+		t.Fatalf("own bin: %v", err)
+	}
+}
+
+// A zvol is a VM disk, not a disk to build a pool on.
+func TestPrivRefusesZvolsAsDisks(t *testing.T) {
+	usePrivHost(t)
+	for _, cmd := range []string{"zpool create x zd16", "zpool add rpool zd0", "zpool replace tank sdb zd16", "zpool attach tank raidz1-0 zd16"} {
+		tool, args := privArgv(cmd)
+		if err := PrivCheck(context.Background(), tool, args); !errors.Is(err, ErrDiskInUse) && !errors.Is(err, ErrHostStorage) {
+			t.Errorf("%s: %v, want refused", cmd, err)
+		}
+	}
+}
+
+// rewrite works on what is mounted there, not on the directory under it.
+func TestPrivRewriteNeedsMounted(t *testing.T) {
+	usePrivHost(t)
+	saved := readMounted
+	t.Cleanup(func() { readMounted = saved })
+	readMounted = func(context.Context, string) (string, error) { return "no", nil }
+	if err := PrivCheck(context.Background(), "zfs", []string{"rewrite", "-r", "-x", "/rpool/data"}); err == nil {
+		t.Fatal("rewrite of an unmounted dataset's path allowed")
 	}
 }

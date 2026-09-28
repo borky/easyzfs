@@ -52,6 +52,7 @@ func (f *fakeZFS) tree(name string) []string {
 }
 
 func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byte, error) {
+	observeArgv("zfs", args)
 	cmd := strings.Join(args, " ")
 	f.calls = append(f.calls, cmd)
 	for prefix, err := range f.fail {

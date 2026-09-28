@@ -177,28 +177,47 @@ func privZFS(ctx context.Context, a []string) error {
 			return nil
 		}
 	case "send":
-		// Reads a stream out; what receives it is checked on its own side.
+		// A stream is the dataset's full contents on stdout, readable by the
+		// service account: never the running OS (/etc/shadow, host keys, the
+		// cluster database). Guest disks and data may be replicated off-host;
+		// that is what replication is for.
 		rest := a[1:]
 		if len(rest) >= 2 && rest[0] == "-v" {
 			rest = rest[1:]
 			if len(rest) > 0 && rest[0] == "-w" {
 				rest = rest[1:]
 			}
-			if len(rest) == 3 && rest[0] == "-i" && isBookmark(rest[1]) && isSnap(rest[2]) {
-				return nil
+			var snap string
+			switch {
+			case len(rest) == 3 && rest[0] == "-i" && isBookmark(rest[1]) && isSnap(rest[2]):
+				snap = rest[2]
+			case len(rest) == 1 && isSnap(rest[0]):
+				snap = rest[0]
+			default:
+				return notAllowed("zfs", a)
 			}
-			if len(rest) == 1 && isSnap(rest[0]) {
-				return nil
+			ds, _, _ := strings.Cut(snap, "@")
+			h, err := LoadHostView(ctx)
+			if err != nil {
+				return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
 			}
+			if kind, why := h.DatasetKind(ds); kind == HostSystem {
+				return fmt.Errorf("%w: %s; su contenido no se envía fuera del sistema", ErrHostStorage, why)
+			}
+			return nil
 		}
 	case "recv":
-		// A receive creates and mounts its destination, and a later
-		// force_full may destroy it: same checks as the replication runner.
-		if n == 3 && a[1] == "-s" && isDataset(a[2]) {
-			if err := guardHost(ctx, OpDatasetRemove, "", a[2]); err != nil {
+		// Only the hardened form (RecvArgs): a stream is whatever the sender
+		// put in it, setuid-root files and device nodes included, so it is
+		// received unmounted, with setuid, devices and exec forced off and
+		// the stream's own mountpoint and share settings ignored. Mounted
+		// later, it goes through the mount check like anything else. A later
+		// force_full may destroy it, hence the host check.
+		if n == len(RecvArgs)+2 && strings.Join(a[1:n-1], " ") == strings.Join(RecvArgs, " ") && isDataset(a[n-1]) {
+			if err := guardHost(ctx, OpDatasetRemove, "", a[n-1]); err != nil {
 				return err
 			}
-			return checkEffectiveMountpoint(ctx, a[2])
+			return checkEffectiveMountpoint(ctx, a[n-1])
 		}
 	case "snapshot":
 		rest, recursive := a[1:], false
@@ -237,9 +256,9 @@ func privZFS(ctx context.Context, a []string) error {
 			return nil
 		}
 	case "destroy":
-		rest := a[1:]
+		rest, recursive := a[1:], false
 		if len(rest) > 0 && rest[0] == "-r" {
-			rest = rest[1:]
+			rest, recursive = rest[1:], true
 		}
 		if len(rest) != 1 {
 			break
@@ -249,6 +268,12 @@ func privZFS(ctx context.Context, a []string) error {
 		case isBookmark(t):
 			return nil
 		case isSnap(t):
+			// -r on a snapshot destroys the same-named snapshot in every
+			// descendant, guest disks included, while the check below sees
+			// only the top one. Nothing in the service needs it.
+			if recursive {
+				return notAllowed("zfs", a)
+			}
 			if ownSnapshot(t) {
 				return nil
 			}
@@ -257,7 +282,12 @@ func privZFS(ctx context.Context, a []string) error {
 		case isDataset(t):
 			if InTrash(t) {
 				// The bin's own purge. What is in the bin was checked on the
-				// way in, and only bin paths pass here.
+				// way in, and only bin paths pass here — of a bin EasyZFS
+				// made, not a dataset someone named easyzfs-trash by hand.
+				pool, _, _ := strings.Cut(t, "/")
+				if _, ours := ownTrashRoot(ctx, TrashRoot(pool)); !ours {
+					return fmt.Errorf("%w: %s no es la papelera de EasyZFS", ErrHostStorage, TrashRoot(pool))
+				}
 				return nil
 			}
 			return guardHost(ctx, OpDatasetRemove, "", t)
@@ -277,6 +307,17 @@ func privZFS(ctx context.Context, a []string) error {
 		}
 		if len(rest) != 2 || !isSnap(rest[0]) || !isDataset(rest[1]) {
 			break
+		}
+		// A clone of a guest disk's snapshot pins it (Proxmox can no longer
+		// remove the disk), and promoting the clone would carry the disk's
+		// snapshots away from it.
+		src, _, _ := strings.Cut(rest[0], "@")
+		h, err := LoadHostView(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+		}
+		if kind, why := h.DatasetKind(src); kind == HostGuest {
+			return fmt.Errorf("%w: %s", ErrHostStorage, why)
 		}
 		if InTrash(rest[1]) {
 			return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
@@ -313,6 +354,17 @@ func privZFS(ctx context.Context, a []string) error {
 		if n == 2 && isDataset(a[1]) {
 			if err := guardHost(ctx, OpDatasetRemove, "", a[1]); err != nil {
 				return err
+			}
+			// Promote takes the origin's older snapshots over: the origin is
+			// affected as much as the clone.
+			origin, err := readOrigin(ctx, a[1])
+			if err != nil {
+				return err
+			}
+			if ds, _, ok := strings.Cut(origin, "@"); ok {
+				if err := guardHost(ctx, OpDatasetRemove, "", ds); err != nil {
+					return err
+				}
 			}
 			return checkMountDanger(ctx, a[1])
 		}
@@ -475,6 +527,30 @@ func privZFSInherit(ctx context.Context, a []string) error {
 	return nil
 }
 
+// RecvArgs — the one receive shape the gateway runs (see its "recv" case);
+// internal/replication builds its receive stage from it.
+var RecvArgs = []string{"-s", "-u", "-o", "setuid=off", "-o", "devices=off", "-o", "exec=off",
+	"-x", "mountpoint", "-x", "canmount", "-x", "sharenfs", "-x", "sharesmb"}
+
+// readMounted — the dataset's mounted property ("yes"/"no").
+var readMounted = func(ctx context.Context, name string) (string, error) {
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "mounted", name)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// readOrigin — the snapshot a clone came from ("-" for a dataset that is
+// not a clone).
+var readOrigin = func(ctx context.Context, name string) (string, error) {
+	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "origin", name)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrHostUnknown, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // readReceivedMountpoint — the received value of mountpoint ("-" if none).
 var readReceivedMountpoint = func(ctx context.Context, name string) (string, error) {
 	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "received", "mountpoint", name)
@@ -493,7 +569,16 @@ func privRewrite(ctx context.Context, mp string) error {
 	}
 	for _, d := range h.names {
 		if e := h.datasets[d]; e.typ == "filesystem" && path.Clean(e.mountpoint) == mp {
-			return h.check(OpDatasetRemove, "", d)
+			if err := h.check(OpDatasetRemove, "", d); err != nil {
+				return err
+			}
+			// Listed there is not mounted there: unmounted, the path is a
+			// directory of whatever filesystem holds it, and -x would rewrite
+			// that one instead.
+			if m, err := readMounted(ctx, d); err != nil || m != "yes" {
+				return fmt.Errorf("%w: %s no está montado en %s", ErrInvalidInput, d, mp)
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("%w: ningún dataset está montado en %s", ErrInvalidInput, mp)

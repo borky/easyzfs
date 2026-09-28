@@ -77,8 +77,16 @@ func RegisterPrivCode(code string, err error) { privCodes[code] = err }
 // "easyzfs-priv: <code>: <message>".
 const PrivRefusalPrefix = "easyzfs-priv: "
 
+// PrivObserve — test hook: sees every storage-tool argv before it runs, so
+// the tests can replay what the actions really build through the gateway's
+// grammar (internal/actions/main_test.go).
+var PrivObserve func(tool string, args []string)
+
 // command — what to run for name+args, applying the sudo and gateway rules.
 func command(ctx context.Context, name string, args []string) (string, []string, error) {
+	if privTools[name] && PrivObserve != nil {
+		PrivObserve(name, append([]string(nil), args...))
+	}
 	if privTools[name] {
 		switch {
 		case useSudo && PrivBin != "":

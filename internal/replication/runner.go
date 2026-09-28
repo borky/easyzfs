@@ -346,7 +346,10 @@ func (r *Runner) stages(j *Job, fullSnap string, incremental bool) []longops.Sta
 	// issues — a flag with nothing to exclude, and one more argv shape to keep
 	// pinned in sudoers. What a destination *can* already hold is a received
 	// mountpoint put there by somebody else's stream; run() checks for that.
-	recv := longops.Stage{Name: "zfs", Args: []string{"recv", "-s", j.DestDataset}, Sudo: true}
+	// The hardened receive the privileged gateway requires (actions.RecvArgs):
+	// unmounted, setuid/devices/exec off, the stream's mountpoint and share
+	// settings ignored. A stream is whatever the sender put in it.
+	recv := longops.Stage{Name: "zfs", Args: append(append([]string{"recv"}, actions.RecvArgs...), j.DestDataset), Sudo: true}
 	if j.DestType == "ssh" {
 		args := append(r.sshArgs(j), j.User+"@"+j.Host, "zfs", "recv", "-s", j.DestDataset)
 		recv = longops.Stage{Name: "ssh", Args: args}

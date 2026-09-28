@@ -253,6 +253,11 @@ func diskUse(ctx context.Context, dev string, imported map[string]bool, ownPool 
 	if !reDev.MatchString(name) {
 		return "", ErrInvalidDev
 	}
+	// A zvol is a dataset, not a disk: lsblk sees nothing on a blank or raw
+	// VM disk, and 'zpool create x zd16' would wipe it.
+	if strings.HasPrefix(name, "zd") {
+		return fmt.Sprintf("%s es un volumen ZFS (zvol), no un disco", name), nil
+	}
 	out, err := lsblkJSON(ctx, "-J", "-o", "NAME,TYPE,FSTYPE,LABEL,PARTTYPE,MOUNTPOINTS", "/dev/"+name)
 	if err != nil {
 		// util-linux < 2.37 (Debian 11, PVE 7) has no MOUNTPOINTS column.
