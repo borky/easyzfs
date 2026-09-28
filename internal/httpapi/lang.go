@@ -31,6 +31,9 @@ func requestLang(r *http.Request) string {
 
 func langMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The body depends on the language: a cache in between must not
+		// hand one user's English to another's Spanish.
+		w.Header().Add("Vary", "Accept-Language")
 		if requestLang(r) != "en" {
 			next.ServeHTTP(w, r)
 			return
@@ -70,6 +73,9 @@ func (w *langWriter) decide() {
 }
 
 func (w *langWriter) WriteHeader(code int) {
+	if w.mode != modeUndecided {
+		return // as net/http: only the first status counts
+	}
 	w.code = code
 	w.decide()
 	if w.mode != modeJSON {

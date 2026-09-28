@@ -3,19 +3,23 @@ package i18n
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 )
 
-// dataKeys — fields that hold names, paths and values, never prose: left
-// alone, so a dataset or property value can never be "translated".
-var dataKeys = map[string]bool{
-	"name": true, "pool": true, "dataset": true, "dev": true, "path": true,
-	"mountpoint": true, "value": true, "target": true, "source": true,
-	"serial": true, "model": true, "id": true, "user": true, "snapshot": true,
-	"full": true, "origin": true, "vdev": true, "group": true, "original": true,
-	"trashed": true, "dest_dataset": true, "host": true, "endpoint": true,
-	"display_name": true, "email": true, "label": true, "schedule": true,
-	"retention": true, "kind": true, "level": true, "state": true, "type": true,
-	"property": true, "public_key": true, "token": true, "url": true,
+// proseKeys — the fields that carry text the server wrote for people to
+// read. Only these are translated: everything else (names, paths, commands,
+// cron lines, zfs output, property values) is data, and a Spanish phrase in
+// a file or dataset name must come back exactly as it is.
+var proseKeys = map[string]bool{
+	"message": true, "error": true, "warnings": true, "reason": true,
+	"detail": true, "text": true, "title": true, "summary": true,
+	"instructions": true, "lines": true, "version": true, "remote_version": true,
+	"applyRefused": true,
+}
+
+func proseKey(k string) bool {
+	return proseKeys[k] || strings.HasSuffix(k, "_reason") || strings.HasSuffix(k, "_error") ||
+		strings.HasSuffix(k, "_detail") || strings.HasSuffix(k, "_result")
 }
 
 // JSON translates the prose inside a JSON document. ok is false when b is
@@ -39,13 +43,13 @@ func JSON(b []byte) (out []byte, ok bool) {
 func walk(v any, key string) any {
 	switch x := v.(type) {
 	case string:
-		if dataKeys[key] {
+		if !proseKey(key) {
 			return x
 		}
 		return English(x)
 	case []any:
 		for i := range x {
-			x[i] = walk(x[i], key)
+			x[i] = walk(x[i], key) // a list of prose ("warnings") keeps its key
 		}
 		return x
 	case map[string]any:

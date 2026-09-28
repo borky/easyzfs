@@ -11,15 +11,12 @@ import { ApiError } from './types';
 // Exact texts.
 const EXACT: Record<string, string> = {
   // jobs, history, system timers
-  'semanal': 'weekly',
   'en curso': 'running',
   '0 errores (4h 12m)': '0 errors (4h 12m)',
   '0 errores · 4h 12m': '0 errors · 4h 12m',
   '0 errores': '0 errors',
   'completado sin errores': 'completed without errors',
   'cancelado por el usuario al 31%': 'cancelled by the user at 31%',
-  'logrotate.timer · diario': 'logrotate.timer · daily',
-  'man-db.timer · diario': 'man-db.timer · daily',
   'Backup nocturno (crontab de root)': 'Nightly backup (root crontab)',
   'Trim semanal (zfsutils)': 'Weekly trim (zfsutils)',
   'test iniciado': 'test started',
@@ -104,12 +101,18 @@ const PATTERNS: [RegExp, (...m: string[]) => string][] = [
   [/^el disco pertenece al pool '(.*)'$/, (p) => `the disk belongs to pool '${p}'`],
 ];
 
-// Fields that hold names, paths and values: never translated.
-const DATA_KEYS = new Set([
-  'pool', 'dataset', 'dev', 'path', 'mountpoint', 'value', 'target', 'serial',
-  'model', 'full', 'origin', 'vdev', 'command', 'user', 'snapshot', 'original',
-  'trashed', 'by_id', 'group', 'error', 'code', 'status', 'state', 'kind', 'level',
+// The fields that carry prose, as on the server (internal/i18n/json.go):
+// only these are translated. Names, paths, commands and schedules are data,
+// and must come back exactly as they are (an edit form writes them back).
+const PROSE_KEYS = new Set([
+  'message', 'error', 'warnings', 'reason', 'detail', 'text', 'title', 'summary',
+  'instructions', 'lines', 'version', 'remote_version', 'applyRefused',
 ]);
+
+function proseKey(k: string): boolean {
+  return PROSE_KEYS.has(k) || k.endsWith('_reason') || k.endsWith('_error') ||
+    k.endsWith('_detail') || k.endsWith('_result');
+}
 
 export function demoEnglish(s: string): string {
   const exact = EXACT[s];
@@ -122,7 +125,7 @@ export function demoEnglish(s: string): string {
 }
 
 function deep<T>(v: T, key = ''): T {
-  if (typeof v === 'string') return (DATA_KEYS.has(key) ? v : demoEnglish(v)) as T;
+  if (typeof v === 'string') return (proseKey(key) ? demoEnglish(v) : v) as T;
   if (Array.isArray(v)) return v.map((x) => deep(x, key)) as T;
   if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
     const out: Record<string, unknown> = {};

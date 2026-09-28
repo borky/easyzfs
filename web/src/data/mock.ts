@@ -167,8 +167,8 @@ export class MockProvider implements DataProvider {
 
   private systemTimers: SystemTimer[] = [
     { source: 'systemd', name: 'zfs-scrub-monthly@tank.timer', schedule: 'monthly', next_run: iso(daysAgo(-9, 2)), command: 'zfs-scrub-monthly@tank.service', editable: true },
-    { source: 'systemd', name: 'logrotate', schedule: 'logrotate.timer · diario', next_run: iso(daysAgo(-1, 0)), command: '/usr/sbin/logrotate /etc/logrotate.conf' },
-    { source: 'systemd', name: 'man-db', schedule: 'man-db.timer · diario', next_run: iso(daysAgo(-1, 3)), command: '/usr/bin/mandb --quiet' },
+    { source: 'systemd', name: 'logrotate', schedule: 'logrotate.timer · daily', next_run: iso(daysAgo(-1, 0)), command: '/usr/sbin/logrotate /etc/logrotate.conf' },
+    { source: 'systemd', name: 'man-db', schedule: 'man-db.timer · daily', next_run: iso(daysAgo(-1, 3)), command: '/usr/bin/mandb --quiet' },
     { source: 'cron', name: 'Backup nocturno (crontab de root)', schedule: '30 3 * * *', next_run: iso(daysAgo(-1, 3)), command: '/root/bin/backup.sh --to tank/backups' },
     { source: 'cron', name: 'Trim semanal (zfsutils)', schedule: '0 0 * * 0', next_run: iso(daysAgo(-1, 1)), command: '/usr/sbin/zpool trim tank', origin: '/etc/cron.d/zfsutils-linux', line: 7, editable: true },
   ];

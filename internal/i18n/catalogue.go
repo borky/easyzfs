@@ -403,4 +403,33 @@ var catalogue = map[string]string{
 	"schedule inválido %q: día del mes 1-28":                               "invalid schedule %q: day of month 1-28",
 	"schedule inválido %q: tipo desconocido (hourly|daily|weekly|monthly)": "invalid schedule %q: unknown type (hourly|daily|weekly|monthly)",
 	"tipo de job desconocido %q":                                           "unknown job type %q",
+
+	// --- actions: more wrappers ---
+	"importar pool: %w":                           "import pool: %w",
+	"destruir pool: %w":                           "destroy pool: %w",
+	"exportar pool: %w":                           "export pool: %w",
+	"descartar checkpoint: %w":                    "discard checkpoint: %w",
+	"migrar a systemd: %w":                        "migrate to systemd: %w",
+	"expandir raidz: %w":                          "expand raidz: %w",
+	"desbloquear dataset: %w":                     "unlock dataset: %w",
+	"bloquear dataset: %w":                        "lock dataset: %w",
+	"clonar snapshot: %w":                         "clone snapshot: %w",
+	"promocionar dataset: %w":                     "promote dataset: %w",
+	"listar datasets: %w":                         "list datasets: %w",
+	"vaciar %s: %w":                               "empty %s: %w",
+	"%w: punto de montaje de %s ilegible (%q)":    "%w: unreadable mountpoint of %s (%q)",
+	"zfs get mountpoint %s: respuesta inesperada": "zfs get mountpoint %s: unexpected answer",
+
+	// --- command execution (executil, gateway) ---
+	"timeout ejecutando comando": "timeout running the command",
+	"%s: %w tras %s":             "%s: %w after %s",
+	"ejecutar zfs recv: %v":      "run zfs recv: %v",
+	"ejecutar %s: %v":            "run %s: %v",
+
+	// --- alerts, scheduler, series, users (found by the message-call scan) ---
+	"Disco %s a %.0f °C (umbral %d °C)": "Disk %s at %.0f °C (threshold %d °C)",
+	"hora esperada 'HH:MM'":             "expected a time 'HH:MM'",
+	"hora fuera de rango":               "time out of range",
+	"days fuera de rango (1-1825): %d":  "days out of range (1-1825): %d",
+	"credenciales incorrectas":          "wrong credentials",
 }

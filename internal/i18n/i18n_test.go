@@ -37,6 +37,19 @@ func TestSingleWordsStayOutOfNames(t *testing.T) {
 	}
 }
 
+// Keys match whole words only: a key must not rewrite part of a longer word.
+func TestKeysMatchWholeWords(t *testing.T) {
+	for es, want := range map[string]string{
+		"desmontar tank/a: busy":         "desmontar tank/a: busy", // not "de" + "mount tank/a…"
+		"no se monta tank/a: busy":       "tank/a is not mounted: busy",
+		"leer el estado de sdb: timeout": "read the state of sdb: timeout",
+	} {
+		if got := English(es); got != want {
+			t.Errorf("English(%q) = %q, want %q", es, got, want)
+		}
+	}
+}
+
 // Placeholders can be reordered in the English template.
 func TestReorderedPlaceholders(t *testing.T) {
 	e, err := compileEntry("el %s de %s", "%[2]s's %[1]s")
@@ -49,7 +62,7 @@ func TestReorderedPlaceholders(t *testing.T) {
 }
 
 func TestJSON(t *testing.T) {
-	in := `{"error":"dev_in_use","message":"disco en uso: sdb es un volumen físico LVM","name":"conflicto","used_bytes":18446744073709551615,"warnings":["no se monta tank/a: busy"],"host_reason":"%s"}`
+	in := `{"error":"dev_in_use","message":"disco en uso: sdb es un volumen físico LVM","name":"conflicto","path":"/tank/docs/no existe.txt","command":"leer log: x","used_bytes":18446744073709551615,"warnings":["no se monta tank/a: busy"],"host_reason":"%s"}`
 	out, ok := JSON([]byte(in))
 	if !ok {
 		t.Fatal("not JSON?")
@@ -58,6 +71,8 @@ func TestJSON(t *testing.T) {
 	for _, want := range []string{
 		`"message":"disk in use: sdb is an LVM physical volume"`,
 		`"name":"conflicto"`,                // a data field: never translated
+		`"path":"/tank/docs/no existe.txt"`, // a Spanish phrase in a file name stays
+		`"command":"leer log: x"`,
 		`"used_bytes":18446744073709551615`, // integers stay exact
 		`"warnings":["tank/a is not mounted: busy"]`,
 		`"error":"dev_in_use"`,

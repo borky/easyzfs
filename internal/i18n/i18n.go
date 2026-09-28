@@ -29,6 +29,20 @@ type entry struct {
 	en    []piece
 	probe string // the longest literal run of the key: a cheap pre-check
 	whole bool   // a single word: translated only when it is the whole text
+	lead  bool   // the pattern starts with a captured word boundary
+	trail bool   // … and ends with one
+}
+
+func startsWithLetter(s string) bool {
+	for _, r := range s {
+		return unicode.IsLetter(r)
+	}
+	return false
+}
+
+func endsWithLetter(s string) bool {
+	r := []rune(s)
+	return len(r) > 0 && unicode.IsLetter(r[len(r)-1])
 }
 
 // piece — a literal run of the English template, or a reference to the
@@ -70,6 +84,13 @@ func literalLen(k string) int { return len(reVerb.ReplaceAllString(k, "")) }
 func compileEntry(es, en string) (*entry, error) {
 	var re strings.Builder
 	re.WriteString(`(?s)`)
+	// A key that starts or ends with a letter matches only as whole words:
+	// "montar %s: %v" must not rewrite the middle of "desmontar tank/a: …".
+	// The boundary character is captured and put back (RE2 has no lookaround).
+	lead := startsWithLetter(es)
+	if lead {
+		re.WriteString(`(^|[^\p{L}\p{N}_])`)
+	}
 	locs := reVerb.FindAllStringSubmatchIndex(es, -1)
 	prev, probe := 0, ""
 	nverbs := 0
@@ -112,6 +133,10 @@ func compileEntry(es, en string) (*entry, error) {
 		probe = tail
 	}
 	re.WriteString(regexp.QuoteMeta(tail))
+	trail := tail != "" && endsWithLetter(tail)
+	if trail {
+		re.WriteString(`($|[^\p{L}\p{N}_])`)
+	}
 	whole := nverbs == 0 && !strings.ContainsAny(strings.TrimSpace(es), " ")
 	pat := re.String()
 	if whole {
@@ -144,7 +169,7 @@ func compileEntry(es, en string) (*entry, error) {
 	if lit := en[prev:]; lit != "" {
 		pieces = append(pieces, piece{lit: lit, arg: -1})
 	}
-	return &entry{key: es, re: rx, en: pieces, probe: probe, whole: whole}, nil
+	return &entry{key: es, re: rx, en: pieces, probe: probe, whole: whole, lead: lead, trail: trail}, nil
 }
 
 func (e *entry) enLiteral() string {
@@ -171,14 +196,25 @@ func (e *entry) apply(s string) string {
 	}
 	return e.re.ReplaceAllStringFunc(s, func(m string) string {
 		sub := e.re.FindStringSubmatch(m)
+		args := sub[1:]
 		var b strings.Builder
+		if e.lead {
+			b.WriteString(args[0])
+			args = args[1:]
+		}
+		var after string
+		if e.trail {
+			after = args[len(args)-1]
+			args = args[:len(args)-1]
+		}
 		for _, p := range e.en {
 			if p.arg < 0 {
 				b.WriteString(p.lit)
-			} else if p.arg+1 < len(sub) {
-				b.WriteString(sub[p.arg+1])
+			} else if p.arg < len(args) {
+				b.WriteString(args[p.arg])
 			}
 		}
+		b.WriteString(after)
 		return b.String()
 	})
 }
@@ -214,7 +250,10 @@ func English(s string) string {
 	cache[s] = out
 	// Observability: Spanish that reached an English response untranslated
 	// (a new message, or one built at run time) is logged once.
-	if looksSpanish(out) && !missed[out] && len(missed) < 1024 {
+	if looksSpanish(out) && !missed[out] {
+		if len(missed) >= 1024 {
+			missed = map[string]bool{} // start over rather than go quiet
+		}
 		missed[out] = true
 		log.Printf("i18n: sin traducción al inglés: %q", out)
 	}
