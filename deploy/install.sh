@@ -1398,10 +1398,14 @@ LimitNOFILE=4096
 
 # Hardening (${nota})
 ${nnp}
-ProtectSystem=full
-ReadWritePaths=${DATA_DIR} /etc/cron.d /etc/crontab /etc/systemd/system
-ProtectHome=yes
-PrivateTmp=yes
+# No ProtectSystem/ProtectHome/PrivateTmp: each gives the service a private
+# mount namespace, and the zfs commands it runs through sudo inherit it. A
+# dataset it mounted was then visible only inside, and one it unmounted,
+# renamed or destroyed stayed mounted on the host (destroy failed "busy",
+# the recycle bin left stale mounts). Found on a Proxmox VE 8.4 VM. The
+# namespace never kept a bad mountpoint off the host either: ZFS applies
+# the property at the next import. Mountpoints are checked when set
+# (internal/actions/props.go); the root surface is the pinned sudoers file.
 
 # Solo si escucha en puerto <1024 (preferir puerto alto + proxy):
 # AmbientCapabilities=CAP_NET_BIND_SERVICE
@@ -1770,6 +1774,13 @@ do_update() {
   if [ "$(service_user)" != "root" ]; then write_sudoers; fi
   detect_bin_channel
   setup_update_units
+  # Units written before the namespace was dropped (see write_unit): take
+  # out just those lines, leaving everything else in the unit as it is.
+  if grep -qE '^(ProtectSystem|ProtectHome|PrivateTmp|ReadWritePaths)=' "$UNIT_PATH"; then
+    run "${SUDO[@]}" sed -i -E '/^(ProtectSystem|ProtectHome|PrivateTmp|ReadWritePaths)=/d' "$UNIT_PATH"
+    run "${SUDO[@]}" systemctl daemon-reload
+    ok "Unit: quitado el espacio de montaje privado (los montajes de ZFS ahora son los del host)."
+  fi
   run "${SUDO[@]}" systemctl restart easyzfs.service
   verify_service strict || die "El servicio no responde con el binario nuevo. Para volver al anterior: sudo install -m 0755 ${INSTALL_BIN}.prev ${INSTALL_BIN} && sudo systemctl restart easyzfs"
   ok "Actualizado. Config, datos y ${ENV_FILE} sin tocar."

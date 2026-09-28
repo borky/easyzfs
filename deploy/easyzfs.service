@@ -19,10 +19,14 @@ LimitNOFILE=4096
 # Hardening (la app ejecuta zpool/zfs/smartctl/lsblk/crontab vía sudoers
 # limitado — ver deploy/easyzfs.sudoers y README). NO poner NoNewPrivileges=yes:
 # sudo necesita el bit setuid para elevar privilegios.
-ProtectSystem=full
-ReadWritePaths=/var/lib/easyzfs /etc/cron.d /etc/crontab /etc/systemd/system
-ProtectHome=yes
-PrivateTmp=yes
+# No ProtectSystem/ProtectHome/PrivateTmp: each gives the service a private
+# mount namespace, and the zfs commands it runs through sudo inherit it. A
+# dataset it mounted was then visible only inside, and one it unmounted,
+# renamed or destroyed stayed mounted on the host (destroy failed "busy",
+# the recycle bin left stale mounts). Found on a Proxmox VE 8.4 VM. The
+# namespace never kept a bad mountpoint off the host either: ZFS applies
+# the property at the next import. Mountpoints are checked when set
+# (internal/actions/props.go); the root surface is the pinned sudoers file.
 
 # Solo si escucha en puerto <1024 (preferir puerto alto + proxy):
 # AmbientCapabilities=CAP_NET_BIND_SERVICE
