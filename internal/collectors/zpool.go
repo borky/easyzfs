@@ -503,7 +503,7 @@ func (c *ZpoolCollector) parseStatusJSON(out []byte, p *model.Pool) bool {
 	roles := map[string]bool{}
 	p.RaidzVdevs = nil
 	for _, root := range pj.Vdevs {
-		c.walkVdev(root, "stripe", p, roles, false)
+		c.walkVdev(root, "stripe", "", p, roles, false)
 	}
 	p.Topo = topoFromRoles(roles)
 	if ss := pj.ScanStats; ss != nil {
@@ -590,11 +590,14 @@ func parseHumanSize(s string) (uint64, bool) {
 // walkVdev recorre el árbol JSON de vdevs recogiendo discos hoja y roles.
 // Los hijos de un contenedor 'replacing-N' se marcan Replacing: son la pareja
 // viejo+nuevo de una sustitución en curso (el viejo desaparece al terminar).
-func (c *ZpoolCollector) walkVdev(v jsonVdev, role string, p *model.Pool, roles map[string]bool, replacing bool) {
+func (c *ZpoolCollector) walkVdev(v jsonVdev, role, group string, p *model.Pool, roles map[string]bool, replacing bool) {
 	t := vdevRole(v.Name, v.VdevType)
 	if t != "" {
 		role = t
 		roles[t] = true
+		if t == "mirror" || strings.HasPrefix(t, "raidz") {
+			group = v.Name
+		}
 		// Contenedor raidz ('raidz2-0'): objetivo de RAID-Z expansion.
 		if strings.HasPrefix(t, "raidz") && reRaidzName.MatchString(v.Name) {
 			p.RaidzVdevs = append(p.RaidzVdevs, v.Name)
@@ -610,6 +613,7 @@ func (c *ZpoolCollector) walkVdev(v jsonVdev, role string, p *model.Pool, roles 
 				Role:      role,
 				Status:    v.State,
 				Replacing: replacing,
+				Group:     group,
 			})
 		}
 		return
@@ -622,7 +626,7 @@ func (c *ZpoolCollector) walkVdev(v jsonVdev, role string, p *model.Pool, roles 
 	sort.Strings(names)
 	for _, n := range names {
 		child := v.Vdevs[n]
-		c.walkVdev(child, role, p, roles, replacing)
+		c.walkVdev(child, role, group, p, roles, replacing)
 	}
 }
 
@@ -689,6 +693,7 @@ func (c *ZpoolCollector) parseStatusText(out string, p *model.Pool) {
 	curRole := "stripe"
 	inConfig := false
 	replIndent := -1 // indentación del contenedor 'replacing-N' activo (-1 = no)
+	group, groupIndent := "", -1 // the redundant vdev being listed (see model.Vdev.Group)
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "config:") {
 			inConfig = true
@@ -706,9 +711,15 @@ func (c *ZpoolCollector) parseStatusText(out string, p *model.Pool) {
 				if replIndent >= 0 && indent <= replIndent {
 					replIndent = -1
 				}
+				if groupIndent >= 0 && indent <= groupIndent {
+					group, groupIndent = "", -1 // a sibling: that vdev's list ended
+				}
 				if r := vdevRole(name, ""); r != "" {
 					curRole = r
 					roles[r] = true
+					if r == "mirror" || strings.HasPrefix(r, "raidz") {
+						group, groupIndent = name, indent
+					}
 					if strings.HasPrefix(r, "raidz") && reRaidzName.MatchString(name) {
 						p.RaidzVdevs = append(p.RaidzVdevs, name)
 					}
@@ -722,6 +733,7 @@ func (c *ZpoolCollector) parseStatusText(out string, p *model.Pool) {
 					Role:      curRole,
 					Status:    state,
 					Replacing: replacing,
+					Group:     group,
 				})
 			}
 		}

@@ -306,7 +306,7 @@ func (m *Mock) Expand(pool, vdev, disk string) {
 			role = "raidz3"
 		}
 		m.pools[i].Vdevs = append(m.pools[i].Vdevs,
-			model.Vdev{Dev: disk, Role: role, Status: "ONLINE", TempC: 32})
+			model.Vdev{Dev: disk, Role: role, Status: "ONLINE", TempC: 32, Group: vdev})
 		m.pools[i].Scrub = model.ScrubInfo{
 			State: "running", Kind: "expand", Pct: 0, EtaSec: 150,
 			Ts: time.Now().UTC(),
@@ -389,12 +389,12 @@ func (m *Mock) build() {
 			// Vdev raidz2-0: objetivo del botón Expandir (RAID-Z expansion).
 			RaidzVdevs: []string{"raidz2-0"},
 			Vdevs: []model.Vdev{
-				{Dev: "sdb", Role: "raidz2", Status: "ONLINE", TempC: 34},
-				{Dev: "sdc", Role: "raidz2", Status: "ONLINE", TempC: 35},
-				{Dev: "sdd", Role: "raidz2", Status: "ONLINE", TempC: 36},
+				{Dev: "sdb", Role: "raidz2", Group: "raidz2-0", Status: "ONLINE", TempC: 34},
+				{Dev: "sdc", Role: "raidz2", Group: "raidz2-0", Status: "ONLINE", TempC: 35},
+				{Dev: "sdd", Role: "raidz2", Group: "raidz2-0", Status: "ONLINE", TempC: 36},
 				// Caso real (pool heredado): vdev nombrado por PARTUUID y
 				// FAULTED; sin Path porque el disco ya no responde.
-				{Dev: "11111111-2222-3333-4444-555555555555", Role: "raidz2", Status: "FAULTED"},
+				{Dev: "11111111-2222-3333-4444-555555555555", Role: "raidz2", Group: "raidz2-0", Status: "FAULTED"},
 			},
 		},
 		{
@@ -408,10 +408,10 @@ func (m *Mock) build() {
 			Scrub:      model.ScrubInfo{State: "running", Kind: "resilver", Pct: 23, EtaSec: 1500, Ts: m.scrubStart.UTC(), Errors: 0},
 			Autotrim:   true, // SSD NVMe: TRIM continuo activado
 			Vdevs: []model.Vdev{
-				{Dev: "nvme0n1", Role: "mirror", Status: "ONLINE", TempC: 41},
+				{Dev: "nvme0n1", Role: "mirror", Group: "mirror-0", Status: "ONLINE", TempC: 41},
 				// Pareja replacing- real: viejo saliente (CANT_OPEN) + nuevo ya ONLINE
-				{Dev: "13501483247074580929", Role: "mirror", Status: "CANT_OPEN", Replacing: true},
-				{Dev: "nvme1n1", Role: "mirror", Status: "ONLINE", TempC: 42, Replacing: true},
+				{Dev: "13501483247074580929", Role: "mirror", Group: "mirror-0", Status: "CANT_OPEN", Replacing: true},
+				{Dev: "nvme1n1", Role: "mirror", Group: "mirror-0", Status: "ONLINE", TempC: 42, Replacing: true},
 			},
 		},
 	}

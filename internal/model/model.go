@@ -28,6 +28,11 @@ type Vdev struct {
 	Status    string  `json:"status"`
 	TempC     float64 `json:"temp_c"`
 	Replacing bool    `json:"replacing,omitempty"` // hijo de un vdev 'replacing-N' (sustitución en curso)
+	// Group — the redundant vdev this disk belongs to ("mirror-0",
+	// "raidz2-1"); "" for a disk with no redundancy of its own. Role alone
+	// could not tell two mirrors apart, so a detach that left one of them
+	// with a single disk went unwarned.
+	Group string `json:"group,omitempty"`
 }
 
 // Pool — contrato GET /api/pools.

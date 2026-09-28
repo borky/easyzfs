@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"easyzfs/internal/model"
@@ -275,7 +276,7 @@ func (s *Server) vdevAction(w http.ResponseWriter, r *http.Request) {
 	if !body.AcknowledgeRisk {
 		for _, p := range s.pools.Pools() {
 			if p.Name == name {
-				if why := vdevActionRisk(p, body.Action); why != "" {
+				if why := vdevActionRisk(p, body.Action, body.Dev); why != "" {
 					writeErr(w, http.StatusConflict, "risk_ack_required", why)
 					return
 				}
@@ -549,14 +550,15 @@ func poolForDisk(pools []string, vdevs map[string][]string, dev string, aliases 
 	return ""
 }
 
-// vdevActionRisk — why taking a disk out of service now could leave the pool
+// vdevActionRisk — why taking dev out of service now could leave the pool
 // without redundancy, from the collector's view of it; "" when nothing
 // stands out. It asks for an acknowledgement, it does not forbid: ZFS still
 // refuses what would lose data outright ("no valid replicas"), but it
-// happily takes the last redundant copy out of a pool that is already
-// degraded or resilvering, and a mistake there is the one that loses data
-// when the next disk fails.
-func vdevActionRisk(p model.Pool, action string) string {
+// happily takes the last redundant copy out of a vdev, and a mistake there
+// is the one that loses data when the next disk fails. Judged per redundant
+// vdev (model.Vdev.Group): counting mirror disks across the pool missed a
+// two-way mirror next to another mirror or a mirrored log.
+func vdevActionRisk(p model.Pool, action, dev string) string {
 	if action != "offline" && action != "detach" {
 		return ""
 	}
@@ -566,17 +568,37 @@ func vdevActionRisk(p model.Pool, action string) string {
 	if p.Scrub.State == "running" && (p.Scrub.Kind == "resilver" || p.Scrub.Kind == "expand") {
 		return "hay un " + p.Scrub.Kind + " en curso: espera a que termine antes de quitar un disco"
 	}
-	mirrorLeaves := 0
-	for _, v := range p.Vdevs {
+	var target *model.Vdev
+	for i, v := range p.Vdevs {
 		if v.Replacing {
 			return "hay una sustitución de disco en curso: espera a que termine antes de quitar otro"
 		}
-		if v.Role == "mirror" {
-			mirrorLeaves++
+		if v.Dev == dev {
+			target = &p.Vdevs[i]
 		}
 	}
-	if action == "detach" && p.Topo == "mirror" && mirrorLeaves == 2 {
-		return "es un mirror de dos discos: al retirar uno, el pool se queda sin redundancia y un fallo del otro pierde los datos"
+	if target == nil || target.Group == "" {
+		return "" // unknown to the cache, or a disk with no redundancy: ZFS decides
+	}
+	healthy, missing := 0, 0
+	for _, v := range p.Vdevs {
+		if v.Group != target.Group || v.Dev == dev {
+			continue
+		}
+		if v.Status == "ONLINE" {
+			healthy++
+		} else {
+			missing++
+		}
+	}
+	switch {
+	case target.Role == "mirror" && healthy < 2:
+		return target.Group + " se queda con un solo disco sano: sin redundancia, un fallo más pierde los datos"
+	case strings.HasPrefix(target.Role, "raidz"):
+		parity, _ := strconv.Atoi(strings.TrimPrefix(target.Role, "raidz"))
+		if missing+1 >= parity {
+			return target.Group + " se queda sin paridad: sin redundancia, un fallo más pierde los datos"
+		}
 	}
 	return ""
 }

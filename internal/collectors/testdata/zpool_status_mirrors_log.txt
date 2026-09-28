@@ -1,0 +1,18 @@
+  pool: tank
+ state: ONLINE
+config:
+
+	NAME                 STATE     READ WRITE CKSUM
+	tank                 ONLINE       0     0     0
+	  mirror-0           ONLINE       0     0     0
+	    /var/tmp/ezf/f1  ONLINE       0     0     0
+	    /var/tmp/ezf/f2  ONLINE       0     0     0
+	  mirror-1           ONLINE       0     0     0
+	    /var/tmp/ezf/f3  ONLINE       0     0     0
+	    /var/tmp/ezf/f4  ONLINE       0     0     0
+	logs	
+	  mirror-2           ONLINE       0     0     0
+	    /var/tmp/ezf/f5  ONLINE       0     0     0
+	    /var/tmp/ezf/f6  ONLINE       0     0     0
+
+errors: No known data errors

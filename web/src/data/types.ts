@@ -234,6 +234,8 @@ export interface Vdev {
   status: string;
   temp_c: number;
   replacing?: boolean; // hijo de un 'replacing-N' (sustitución en curso)
+  /** The redundant vdev it belongs to ('mirror-0', 'raidz2-1'); absent for a lone disk. */
+  group?: string;
 }
 export interface Pool {
   name: string;

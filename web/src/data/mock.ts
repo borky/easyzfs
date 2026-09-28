@@ -505,15 +505,17 @@ export class MockProvider implements DataProvider {
     await delay(300);
     const p = this.pools.find((x) => x.name === pool);
     if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    const v = p.vdevs.find((x) => x.dev === dev);
+    if (!v) throw new ApiError(404, 'not_found', 'Vdev no encontrado');
     // Same gate as the server (vdevActionRisk), for the demo.
     if (!ack && action !== 'online' && p.status !== 'ONLINE') {
       throw new ApiError(409, 'risk_ack_required', `el pool está ${p.status}: quitar otro disco ahora puede dejarlo sin redundancia`);
     }
-    if (!ack && action === 'detach' && p.vdevs.filter((x) => x.role === 'mirror').length === 2) {
+    // Same per-vdev rule as the server's vdevActionRisk (mirror left with one disk).
+    if (!ack && action === 'detach' && v.role === 'mirror' &&
+        p.vdevs.filter((x) => x.dev !== dev && x.role === 'mirror' && x.status === 'ONLINE' && (x.group ?? '') === (v.group ?? '')).length < 2) {
       throw new ApiError(409, 'risk_ack_required', 'es un mirror de dos discos: al retirar uno, el pool se queda sin redundancia');
     }
-    const v = p.vdevs.find((x) => x.dev === dev);
-    if (!v) throw new ApiError(404, 'not_found', 'Vdev no encontrado');
     if (action === 'detach') {
       if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
       p.vdevs = p.vdevs.filter((x) => x.dev !== dev);

@@ -286,3 +286,50 @@ func TestNextInterval(t *testing.T) {
 		t.Fatalf("idle: esperaba 200ms, got %v", got)
 	}
 }
+
+// Each disk carries the redundant vdev it belongs to, so the API can tell a
+// detach from one mirror apart from one in another. Output captured on
+// Proxmox VE 8.4 (OpenZFS 2.2.7, which has no 'zpool status --json').
+func TestParseStatusTextGroups(t *testing.T) {
+	for _, c := range []struct {
+		fixture, pool string
+		want          map[string]string // dev → group
+	}{
+		{"zpool_status_mirrors_log.txt", "tank", map[string]string{
+			"f1": "mirror-0", "f2": "mirror-0", "f3": "mirror-1", "f4": "mirror-1", "f5": "mirror-2", "f6": "mirror-2"}},
+		{"zpool_status_raidz1.txt", "bigtank", map[string]string{"f7": "raidz1-0", "f8": "raidz1-0", "f9": "raidz1-0"}},
+	} {
+		out, err := os.ReadFile(filepath.Join("testdata", c.fixture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := &model.Pool{Name: c.pool, Vdevs: []model.Vdev{}}
+		(&ZpoolCollector{lastPropsAt: map[string]time.Time{}}).parseStatusText(string(out), p)
+		if len(p.Vdevs) != len(c.want) {
+			t.Fatalf("%s: %d vdevs, want %d: %+v", c.fixture, len(p.Vdevs), len(c.want), p.Vdevs)
+		}
+		for _, v := range p.Vdevs {
+			if got, dev := v.Group, filepath.Base(v.Dev); got != c.want[dev] {
+				t.Errorf("%s: %s in group %q, want %q", c.fixture, dev, got, c.want[dev])
+			}
+		}
+	}
+}
+
+func TestParseStatusJSONGroups(t *testing.T) {
+	out := `{"pools":{"tank":{"name":"tank","state":"ONLINE","vdevs":{"tank":{"name":"tank","vdev_type":"root","state":"ONLINE","vdevs":{
+		"mirror-0":{"name":"mirror-0","vdev_type":"mirror","state":"ONLINE","vdevs":{
+			"sda":{"name":"sda","vdev_type":"disk","state":"ONLINE"},"sdb":{"name":"sdb","vdev_type":"disk","state":"ONLINE"}}},
+		"mirror-1":{"name":"mirror-1","vdev_type":"mirror","state":"ONLINE","vdevs":{
+			"sdc":{"name":"sdc","vdev_type":"disk","state":"ONLINE"},"sdd":{"name":"sdd","vdev_type":"disk","state":"ONLINE"}}}}}}}}}`
+	p := &model.Pool{Name: "tank", Vdevs: []model.Vdev{}}
+	if !(&ZpoolCollector{lastPropsAt: map[string]time.Time{}}).parseStatusJSON([]byte(out), p) {
+		t.Fatal("parseStatusJSON returned false")
+	}
+	want := map[string]string{"sda": "mirror-0", "sdb": "mirror-0", "sdc": "mirror-1", "sdd": "mirror-1"}
+	for _, v := range p.Vdevs {
+		if v.Group != want[v.Dev] {
+			t.Errorf("%s in group %q, want %q", v.Dev, v.Group, want[v.Dev])
+		}
+	}
+}
