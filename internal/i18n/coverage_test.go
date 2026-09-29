@@ -54,6 +54,10 @@ var noTranslate = map[string]bool{
 	"ping sqlite: %w": true, "migration %d: %w": true, "migration %d (record): %w": true,
 	"migration %d (commit): %w": true, "the privileged gateway only runs as root (via sudo)": true,
 	"usage: easyzfs priv <tool> <arguments…>": true,
+	// Always wraps executil.ErrTimeout: translated by its full sentence
+	// ("%s: timeout running the command after %s") instead, so a generic
+	// "after" in some tool's English output is never touched.
+	"%s: %w after %s": true,
 }
 
 // proseFields — struct fields whose text the UI shows.

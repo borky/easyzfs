@@ -900,7 +900,7 @@ func (s *Service) SnapshotRollback(ctx context.Context, actor, full string) erro
 	}
 	s.audit(ctx, actor, "snapshot.rollback", full, nil, true)
 	if _, err := executil.Run(ctx, 60*time.Second, "zfs", "rollback", "-r", full); err != nil {
-		if strings.Contains(err.Error(), "dataset does not exist") {
+		if zfsNoDataset(err) {
 			return ErrSnapshotNotFound
 		}
 		return fmt.Errorf("rollback: %w", err)

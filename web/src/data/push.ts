@@ -161,7 +161,7 @@ export function usePush(): {
       setState('subscribed');
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'error_desconocido');
+      setError(err instanceof Error ? err.message : 'unknown_error');
       setState('error');
       return false;
     }
@@ -179,7 +179,7 @@ export function usePush(): {
       }
       setState('idle');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'error_desconocido');
+      setError(err instanceof Error ? err.message : 'unknown_error');
       setState('error');
     }
   }, []);

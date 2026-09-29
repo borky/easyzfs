@@ -38,7 +38,9 @@ const TrashDir = "easyzfs-trash"
 
 var (
 	// ErrNotFound — no such dataset or trash entry. Mapped to 404.
-	ErrNotFound = errors.New("does not exist")
+	// Not "does not exist": that is zfs's own wording, which the purge and
+	// the list read as "already gone" (zfsNoDataset).
+	ErrNotFound = errors.New("no such dataset or recycle bin entry")
 	// ErrConflict — the operation cannot proceed in the current state.
 	// Mapped to 409.
 	ErrConflict = errors.New("conflict")
@@ -460,7 +462,7 @@ func (s *Service) purge(ctx context.Context, actor string, e TrashEntry) error {
 	}
 	s.audit(ctx, actor, "dataset.purge", e.Original, map[string]any{"trashed": e.Trashed}, true)
 	if _, err := runZFS(ctx, 120*time.Second, "destroy", "-r", e.Trashed); err != nil &&
-		!strings.Contains(err.Error(), "does not exist") {
+		!zfsNoDataset(err) {
 		// Shown on the entry: an hourly retry that keeps failing in silence
 		// would leave a purge date in the past and the space still used.
 		_, _ = s.db.ExecContext(ctx, "UPDATE trash SET last_error = ? WHERE id = ?", err.Error(), e.ID)
@@ -506,7 +508,7 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) {
 			// Destroyed or renamed behind the app's back (from the CLI): the
 			// row could only mislead, so it goes now rather than in a week.
 			if _, err := runZFS(ctx, 15*time.Second, "get", "-H", "-o", "value", "type", e.Trashed); err != nil &&
-				strings.Contains(err.Error(), "does not exist") {
+				zfsNoDataset(err) {
 				log.Printf("trash: %s no longer exists; removed from the list", e.Trashed)
 				_, _ = s.db.ExecContext(ctx, "DELETE FROM trash WHERE id = ?", e.ID)
 				s.dropEmptyTrashRoot(ctx, e.Pool)

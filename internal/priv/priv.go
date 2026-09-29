@@ -66,7 +66,7 @@ func Main(args []string) int {
 	}
 	bin, err := exec.LookPath(tool)
 	if err != nil {
-		refuse("invalid_input", fmt.Sprintf("%s not found: %v", tool, err))
+		refuse("invalid_input", fmt.Sprintf("tool %s not found: %v", tool, err))
 		return 3
 	}
 	// LC_ALL=C: the service reads ZFS's English messages ("does not exist").

@@ -65,7 +65,7 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 	case "get":
 		if strings.Contains(cmd, "-o value type") {
 			if _, ok := f.ds[last]; !ok {
-				return nil, errors.New("dataset does not exist")
+				return nil, errors.New("zfs: cannot open 'tank/x': dataset does not exist")
 			}
 			return []byte("filesystem\n"), nil
 		}
@@ -125,7 +125,7 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 			}
 		}
 		if b.Len() == 0 {
-			return nil, errors.New("dataset does not exist")
+			return nil, errors.New("zfs: cannot open 'tank/x': dataset does not exist")
 		}
 		return []byte(b.String()), nil
 	case "list":
@@ -136,7 +136,7 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 			}
 		}
 		if b.Len() == 0 {
-			return nil, errors.New("dataset does not exist")
+			return nil, errors.New("zfs: cannot open 'tank/x': dataset does not exist")
 		}
 		return []byte(b.String()), nil
 	case "create":
@@ -145,7 +145,7 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 		k, v, _ := strings.Cut(args[1], "=")
 		d := f.ds[last]
 		if d == nil {
-			return nil, errors.New("dataset does not exist")
+			return nil, errors.New("zfs: cannot open 'tank/x': dataset does not exist")
 		}
 		if k == "mountpoint" {
 			d.mountpoint = v
@@ -169,11 +169,11 @@ func (f *fakeZFS) run(_ context.Context, _ time.Duration, args ...string) ([]byt
 		f.ds[last].mounted = true
 	case "share":
 		if f.ds[last] == nil {
-			return nil, errors.New("dataset does not exist")
+			return nil, errors.New("zfs: cannot open 'tank/x': dataset does not exist")
 		}
 	case "destroy":
 		if _, ok := f.ds[last]; !ok {
-			return nil, errors.New("dataset does not exist")
+			return nil, errors.New("zfs: cannot open 'tank/x': dataset does not exist")
 		}
 		for _, n := range f.tree(last) {
 			delete(f.ds, n)

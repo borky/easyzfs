@@ -1347,12 +1347,15 @@ EASYZFS_READONLY=1"
     # Keep every line of the previous file whose key the installer does not
     # manage (CSRF_CHECK, COOKIE_SECURE, SMTP_*, comments…). A reinstall used
     # to rewrite the file from scratch and silently drop them.
-    local kept="" kept_hdr="# Conservado de la configuración anterior:"
+    # The header used to be Spanish: both are skipped, or an upgraded file
+    # would keep the old one and gain the new one on every reinstall.
+    local kept="" kept_hdr="# Kept from the previous configuration:"
+    local old_hdr="# Conservado de la configuración anterior:"
     if [ -r "$ENV_FILE" ]; then
-      kept="$(awk -v hdr="$kept_hdr" '
+      kept="$(awk -v hdr="$kept_hdr" -v old="$old_hdr" '
         BEGIN { n = split("LISTEN_ADDR DB_PATH SESSION_SECRET ADMIN_PASSWORD WEBHOOK_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT DEMO EASYZFS_READONLY", k, " ")
                 for (i = 1; i <= n; i++) managed[k[i]] = 1 }
-        $0 == hdr { next }
+        $0 == hdr || $0 == old { next }
         /^[ \t]*(export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*[ \t]*=/ { key = $0; sub(/^[ \t]*(export[ \t]+)?/, "", key); sub(/[ \t]*=.*/, "", key); if (key in managed) next }
         { print }' "$ENV_FILE" | sed '/[^[:space:]]/,$!d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
     fi
@@ -1791,7 +1794,7 @@ do_update() {
     || die "No install to update (${INSTALL_BIN}, ${UNIT_PATH}). Use 'make install'."
   if [ -n "$OPT_BINARY" ]; then BIN_MODE="local"
   elif [ -n "$OPT_SOURCE" ]; then BIN_MODE="build"
-  else die "--update necesita --binary o --source: nunca descarga."
+  else die "--update needs --binary or --source: it never downloads."
   fi
   check_root
   # Verify against the address the service really listens on: OPT_PORT is
@@ -1843,6 +1846,8 @@ do_update() {
     "# Only if it listens on a port <1024 (prefer a high port + proxy):"
     "# NoNewPrivileges=yes (incompatible con sudo setuid; superficie root limitada por sudoers)"
     "# NoNewPrivileges=yes (incompatible with setuid sudo; the root surface is bounded by sudoers)"
+    "# Hardening (modo root: administración completa (decisión consciente, ver README))"
+    "# Hardening (root mode: full administration (a deliberate choice, see README))"
   )
   local i unit_text changed=0
   unit_text="$(cat "$UNIT_PATH")"
@@ -1853,10 +1858,9 @@ do_update() {
     fi
   done
   # The old "# Hardening (…)" line named the tools sudoers used to grant.
-  if printf '%s\n' "$unit_text" | grep -q '^# Hardening (zpool/zfs/smartctl/lsblk/crontab vía sudoers limitado'; then
-    unit_text="$(printf '%s\n' "$unit_text" | sed -E 's|^# Hardening \(zpool/zfs/smartctl/lsblk/crontab vía sudoers limitado: (.*)\)$|# Hardening (storage tools through the privileged gateway, restricted sudoers: \1)|')"
-    changed=1
-  fi
+  local before="$unit_text"
+  unit_text="$(printf '%s\n' "$unit_text" | sed -E 's|^# Hardening \(zpool/zfs/smartctl/lsblk/crontab vía sudoers limitado: (.*)\)$|# Hardening (storage tools through the privileged gateway, restricted sudoers: \1)|')"
+  [ "$unit_text" = "$before" ] || changed=1
   if [ "$changed" = "1" ]; then
     printf '%s\n' "$unit_text" | write_root_file "$UNIT_PATH" 0644
     run "${SUDO[@]}" systemctl daemon-reload

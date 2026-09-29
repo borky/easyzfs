@@ -95,10 +95,11 @@ func esperaReal(ctx context.Context, d time.Duration) {
 func (s *Sender) Subscribe(ctx context.Context, userID, endpoint, p256dh, auth, lang, origin, userAgent string) error {
 	if lang == "" && origin == "" {
 		// Re-POST espontáneo (pushsubscriptionchange del SW): no tocar lang ni
-		// origin — insert cae a los DEFAULT, upsert conserva los existentes.
+		// origin — upsert conserva los existentes. A new row gets English, the
+		// product's language: the column's own default (v1) is 'es'.
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth, user_agent, updated_at)
-			VALUES (?,?,?,?,?,datetime('now'))
+			INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth, lang, user_agent, updated_at)
+			VALUES (?,?,?,?,'en',?,datetime('now'))
 			ON CONFLICT(endpoint) DO UPDATE SET
 			  user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth,
 			  user_agent=excluded.user_agent, updated_at=datetime('now')`,

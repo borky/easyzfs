@@ -106,10 +106,19 @@ var readMountpointProp = func(ctx context.Context, dataset string) (value, sourc
 // resolve of a dataset that does not exist yet fails closed — a refused create
 // with a puzzling message, never a mount that should not have happened.
 func classifyReadErr(err error) error {
-	if err != nil && strings.Contains(err.Error(), "does not exist") {
+	if err != nil && zfsNoDataset(err) {
 		return fmt.Errorf("%w: %v", ErrNoSuchDataset, err)
 	}
 	return err
+}
+
+// zfsNoDataset — zfs's own "cannot open 'x': dataset does not exist", told
+// apart from any message of ours: now that those are English too, "the
+// dataset does not exist" (ErrNoSuchDataset) or a gateway refusal quoting it
+// must not read as "zfs says it is gone" — the purge would then drop a
+// recycle-bin entry that was never destroyed.
+func zfsNoDataset(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "': dataset does not exist")
 }
 
 // parentDataset — the dataset one level up, and false at a pool's root.

@@ -193,7 +193,7 @@ func classify(n lsblkNode, imported map[string]bool, ownPool string) string {
 	}
 	switch n.Type {
 	case "lvm", "crypt", "dm", "raid0", "raid1", "raid4", "raid5", "raid6", "raid10", "mpath":
-		return fmt.Sprintf("%s is used by %s", n.Name, n.Type)
+		return fmt.Sprintf("%s is used by a %s device", n.Name, n.Type)
 	}
 	for _, c := range n.Children {
 		if r := classify(c, imported, ownPool); r != "" {
@@ -208,7 +208,7 @@ func classify(n lsblkNode, imported map[string]bool, ownPool string) string {
 func holdersReason(name string) string {
 	check := func(dir, who string) string {
 		if ents, err := os.ReadDir(filepath.Join(dir, "holders")); err == nil && len(ents) > 0 {
-			return fmt.Sprintf("%s is held by %s", who, ents[0].Name())
+			return fmt.Sprintf("%s is held by kernel device %s", who, ents[0].Name())
 		}
 		return ""
 	}

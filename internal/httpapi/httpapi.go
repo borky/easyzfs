@@ -526,7 +526,12 @@ func actionErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, actions.ErrWrongKey):
 		// 403, not 401: the frontend treats any 401 as an expired session.
 		writeErr(w, http.StatusForbidden, "wrong_key", err.Error())
-	case strings.Contains(err.Error(), "invalid"):
+	// Our own validation, by type, or by the "invalid …" our ad-hoc checks
+	// start with. Not any "invalid" anywhere: zfs's stderr ("invalid
+	// property value") is a failed command, not a bad request of ours.
+	case errors.Is(err, actions.ErrInvalidInput), errors.Is(err, actions.ErrInvalidName),
+		errors.Is(err, actions.ErrInvalidDev), errors.Is(err, actions.ErrInvalidTopo),
+		errors.Is(err, actions.ErrInvalidAction), strings.HasPrefix(err.Error(), "invalid "):
 		writeErr(w, http.StatusBadRequest, "invalid_input", err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, "exec_error", err.Error())

@@ -1436,7 +1436,7 @@ const DICTS: Record<'es' | 'en', Record<I18nKey, string>> = { es, en };
 const LANG_KEY = 'easyzfs-lang';
 const LANG_KEY_LEGACY = 'zfc-lang';
 
-let currentLang: 'es' | 'en' = 'es';
+let currentLang: 'es' | 'en' = 'en'; // until initLang(): the product's language
 const subs = new Set<() => void>();
 // true solo en el despliegue demo (DEMO=1, flag público del backend): el modo
 // auto se resuelve a inglés, la elección explícita del usuario sigue mandando.

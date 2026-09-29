@@ -74,6 +74,10 @@ func TestJSON(t *testing.T) {
 			t.Errorf("missing %s in %s", want, s)
 		}
 	}
+	// The error envelope's code is contract: never translated.
+	if out, _ := JSON([]byte(`{"error":"conflict","message":"conflict: tank/x already exists"}`)); !strings.Contains(string(out), `"error":"conflict"`) || !strings.Contains(string(out), `"message":"conflicto:`) {
+		t.Errorf("envelope: %s", out)
+	}
 	if _, ok := JSON([]byte("not json")); ok {
 		t.Error("non-JSON accepted")
 	}

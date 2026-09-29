@@ -53,7 +53,13 @@ func walk(v any, key string) any {
 		}
 		return x
 	case map[string]any:
+		_, envelope := x["message"]
 		for k, e := range x {
+			// In the error envelope {"error": code, "message": text} the
+			// code is contract, not prose: "conflict" must stay "conflict".
+			if k == "error" && envelope {
+				continue
+			}
 			x[k] = walk(e, k)
 		}
 		return x

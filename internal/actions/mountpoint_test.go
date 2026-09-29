@@ -355,7 +355,11 @@ func TestClassifyReadErr(t *testing.T) {
 	}{
 		{"zfs: cannot open 'tank/x': dataset does not exist", true},
 		{"zfs: cannot open 'rpool/data/new': dataset does not exist", true},
-		{"zfs: tras 10s", false},
+		{"zfs: timeout running the command after 10s", false},
+		// Our own messages say it too, now that they are English: never
+		// zfs's answer (the purge would drop an entry never destroyed).
+		{"the dataset does not exist", false},
+		{"not allowed: privileged operation not allowed: the dataset does not exist", false},
 		{"zfs: sudo: a password is required", false},
 		{"zfs: Sorry, user easyzfs is not allowed to execute '/usr/sbin/zfs get' as root", false},
 		{"zfs: cannot open 'tank': pool I/O is currently suspended", false},
