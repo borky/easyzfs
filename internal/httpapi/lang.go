@@ -10,9 +10,11 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"easyzfs/internal/auth"
 	"easyzfs/internal/i18n"
@@ -145,8 +147,9 @@ func translateSSE(b []byte) []byte {
 // uiLangSeen — per user, the UI language last recorded (a cache in front of
 // users.ui_lang, so the database is written only when it changes).
 var (
-	uiLangMu   sync.Mutex
-	uiLangSeen = map[string]string{}
+	uiLangMu    sync.Mutex // guards the two maps only, never held across I/O
+	uiLangSeen  = map[string]string{}
+	uiLangLocks = map[string]*sync.Mutex{} // one per user: serialises its writes
 )
 
 // forgetUILang drops a deleted user from the cache: a user created again
@@ -156,6 +159,42 @@ func forgetUILang(user string) {
 	uiLangMu.Lock()
 	delete(uiLangSeen, user)
 	uiLangMu.Unlock()
+}
+
+// noteUILang records lang for user when it changed. The common case (no
+// change) only reads the cache. A write is serialised per user — two
+// requests in different languages at once must leave the cache and the
+// database agreeing — and bounded in time: the database has one connection,
+// and a backup's VACUUM holding it must not stall this user's requests for
+// long, nor anybody else's ever.
+func (s *Server) noteUILang(ctx context.Context, user, lang string) {
+	uiLangMu.Lock()
+	if uiLangSeen[user] == lang {
+		uiLangMu.Unlock()
+		return
+	}
+	ul := uiLangLocks[user]
+	if ul == nil {
+		ul = &sync.Mutex{}
+		uiLangLocks[user] = ul
+	}
+	uiLangMu.Unlock()
+
+	ul.Lock()
+	defer ul.Unlock()
+	uiLangMu.Lock()
+	done := uiLangSeen[user] == lang // another request got here first
+	uiLangMu.Unlock()
+	if done {
+		return
+	}
+	wctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := s.users.SetUILang(wctx, user, lang); err == nil {
+		uiLangMu.Lock()
+		uiLangSeen[user] = lang
+		uiLangMu.Unlock()
+	}
 }
 
 // recordUILang notes the language each user's UI shows, for what the server
@@ -172,16 +211,7 @@ func (s *Server) recordUILang(next http.Handler) http.Handler {
 		}
 		user := auth.UserFromContext(r.Context())
 		if (lang == "es" || lang == "en") && user != "" && s.users != nil {
-			// Held across the write: two requests in different languages at
-			// once must leave the cache and the database agreeing. The write
-			// only happens on a change, so the lock is rarely held long.
-			uiLangMu.Lock()
-			if uiLangSeen[user] != lang {
-				if _, err := s.users.SetUILang(r.Context(), user, lang); err == nil {
-					uiLangSeen[user] = lang
-				}
-			}
-			uiLangMu.Unlock()
+			s.noteUILang(r.Context(), user, lang)
 		}
 		next.ServeHTTP(w, r)
 	})
