@@ -454,6 +454,12 @@ func (s *Service) TrashPurge(ctx context.Context, actor string, id int64) error 
 	return s.purge(ctx, actor, e)
 }
 
+// poolHere — the pool is imported (its root dataset answers).
+func (s *Service) poolHere(ctx context.Context, pool string) bool {
+	_, err := runZFS(ctx, 15*time.Second, "get", "-H", "-o", "value", "type", pool)
+	return err == nil
+}
+
 // purge — call with trashMu held.
 func (s *Service) purge(ctx context.Context, actor string, e TrashEntry) error {
 	// Belt and braces: only ever destroy something inside a recycle bin.
@@ -507,8 +513,11 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) {
 		if now.Before(e.PurgeAt) {
 			// Destroyed or renamed behind the app's back (from the CLI): the
 			// row could only mislead, so it goes now rather than in a week.
+			// zfs says the same for everything in an exported pool: only a
+			// pool that is here can have lost the entry. Otherwise the rows
+			// went, and the data came back unlisted and never purged.
 			if _, err := runZFS(ctx, 15*time.Second, "get", "-H", "-o", "value", "type", e.Trashed); err != nil &&
-				zfsNoDataset(err) {
+				zfsNoDataset(err) && s.poolHere(ctx, e.Pool) {
 				log.Printf("trash: %s no longer exists; removed from the list", e.Trashed)
 				_, _ = s.db.ExecContext(ctx, "DELETE FROM trash WHERE id = ?", e.ID)
 				s.dropEmptyTrashRoot(ctx, e.Pool)

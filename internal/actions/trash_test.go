@@ -465,3 +465,35 @@ func TestSetMountpointsOrdersByPath(t *testing.T) {
 		t.Fatalf("order = %q, want the parent path first", order)
 	}
 }
+
+// An exported pool answers "dataset does not exist" for everything in it,
+// its recycle bin included: its entries must survive until it comes back.
+func TestPurgeKeepsEntriesOfAnExportedPool(t *testing.T) {
+	svc, _ := newTestService(t)
+	f := newFakeZFS("tank", "tank/away")
+	useFakeZFS(t, f)
+	ctx := context.Background()
+	if err := svc.DatasetTrash(ctx, "tester", "tank/away", false); err != nil {
+		t.Fatal(err)
+	}
+	for ds := range f.ds { // the whole pool goes, as on 'zpool export'
+		delete(f.ds, ds)
+	}
+	svc.PurgeExpired(ctx, time.Now())
+	if list, _ := svc.TrashList(ctx); len(list) != 1 {
+		t.Fatalf("an exported pool's recycle-bin entry was dropped: %v", list)
+	}
+}
+
+// A refusal of easyzfs-sysd is invalid input (400); a failure of the
+// command it runs is not.
+func TestSysdErr(t *testing.T) {
+	refused := sysdErr("change timer", errors.New("easyzfs-sysd: invalid OnCalendar: 'foo'"))
+	if !errors.Is(refused, ErrInvalidInput) {
+		t.Errorf("refusal not invalid input: %v", refused)
+	}
+	failed := sysdErr("change timer", errors.New("systemctl: Failed to connect to bus"))
+	if errors.Is(failed, ErrInvalidInput) || failed.Error() != "change timer: systemctl: Failed to connect to bus" {
+		t.Errorf("failure misread: %v", failed)
+	}
+}

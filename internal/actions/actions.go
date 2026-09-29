@@ -455,6 +455,18 @@ func (s *Service) IdentifyDisk(ctx context.Context, actor, dev string) error {
 
 // --- tareas del sistema (vía helper root confinado easyzfs-sysd) ---
 
+// sysdErr — a refusal of the helper (its die(), "easyzfs-sysd: …": a bad
+// OnCalendar, a line that is not a job) is invalid input, 400; anything else
+// (systemctl failing) stays a failed command. The Spanish-era messages were
+// told apart by "inválid" in them; the English ones are not "invalid …" at
+// the start once wrapped, so the helper's own prefix decides.
+func sysdErr(what string, err error) error {
+	if strings.Contains(err.Error(), "easyzfs-sysd: ") {
+		return fmt.Errorf("%w: %s: %v", ErrInvalidInput, what, err)
+	}
+	return fmt.Errorf("%s: %w", what, err)
+}
+
 // sysdHelper — única vía de escritura sobre /etc/cron* y /etc/systemd.
 // EASYZFS_SYSD_HELPER permite sobreescribir la ruta (tests).
 var sysdHelper = func() string {
@@ -481,7 +493,7 @@ func (s *Service) SysTaskSetSchedule(ctx context.Context, actor string, task mod
 			return ErrInvalidName
 		}
 		if _, err := executil.Run(ctx, 30*time.Second, sysdHelper, "timer-set", task.Name, schedule); err != nil {
-			return fmt.Errorf("change timer: %w", err)
+			return sysdErr("change timer", err)
 		}
 		return nil
 	}
@@ -493,7 +505,7 @@ func (s *Service) SysTaskSetSchedule(ctx context.Context, actor string, task mod
 	}
 	if _, err := executil.Run(ctx, 30*time.Second, sysdHelper, "cron-set",
 		task.Origin, strconv.Itoa(task.Line), schedule); err != nil {
-		return fmt.Errorf("change cron: %w", err)
+		return sysdErr("change cron", err)
 	}
 	return nil
 }
@@ -510,7 +522,7 @@ func (s *Service) SysTaskMigrate(ctx context.Context, actor string, task model.S
 		map[string]any{"origin": task.Origin, "line": task.Line, "unit": "easyzfs-" + newName + ".timer"}, true)
 	if _, err := executil.Run(ctx, 30*time.Second, sysdHelper, "cron-to-timer",
 		task.Origin, strconv.Itoa(task.Line), newName); err != nil {
-		return fmt.Errorf("migrate to systemd: %w", err)
+		return sysdErr("migrate to systemd", err)
 	}
 	return nil
 }
