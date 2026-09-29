@@ -12,7 +12,9 @@ import (
 	"bytes"
 	"net/http"
 	"strings"
+	"sync"
 
+	"easyzfs/internal/auth"
 	"easyzfs/internal/i18n"
 )
 
@@ -138,4 +140,40 @@ func translateSSE(b []byte) []byte {
 		}
 	}
 	return bytes.Join(lines, []byte("\n"))
+}
+
+// uiLangSeen — per user, the UI language last recorded (a cache in front of
+// users.ui_lang, so the database is written only when it changes).
+var (
+	uiLangMu   sync.Mutex
+	uiLangSeen = map[string]string{}
+)
+
+// recordUILang notes the language each user's UI shows, for what the server
+// writes to them outside a response: e-mail, push, and the shared channels
+// when their language is "auto" (users.NotifyLang). Only the UI says it: its
+// X-UI-Lang header, or ?lang= on an EventSource. A browser's own
+// Accept-Language on a plain navigation (a backup download) is not a choice
+// the user made in EasyZFS.
+func (s *Server) recordUILang(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lang := r.Header.Get("X-UI-Lang")
+		if lang == "" {
+			lang = r.URL.Query().Get("lang")
+		}
+		user := auth.UserFromContext(r.Context())
+		if (lang == "es" || lang == "en") && user != "" && s.users != nil {
+			uiLangMu.Lock()
+			seen := uiLangSeen[user]
+			uiLangMu.Unlock()
+			if seen != lang {
+				if _, err := s.users.SetUILang(r.Context(), user, lang); err == nil {
+					uiLangMu.Lock()
+					uiLangSeen[user] = lang
+					uiLangMu.Unlock()
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

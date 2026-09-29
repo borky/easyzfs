@@ -414,11 +414,9 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("el canal %s no está configurado", name))
 		return
 	}
-	lang := "es"
-	if u, err := s.users.Get(r.Context(), auth.UserFromContext(r.Context())); err == nil && u.Language == "en" {
-		lang = "en"
-	}
-	title, body := testMessage(lang)
+	// In the language of the UI the admin pressed the button in.
+	title, body := testMessage(requestLang(r))
+	lang := requestLang(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
 

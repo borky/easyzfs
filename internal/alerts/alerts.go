@@ -14,10 +14,12 @@ import (
 
 	"easyzfs/internal/channels"
 	"easyzfs/internal/hub"
+	"easyzfs/internal/i18n"
 	"easyzfs/internal/model"
 	"easyzfs/internal/notifier"
 	"easyzfs/internal/push"
 	"easyzfs/internal/settings"
+	"easyzfs/internal/users"
 	"easyzfs/internal/webhook"
 )
 
@@ -124,10 +126,16 @@ func (a *Alerter) RaiseKind(ctx context.Context, level, source, target, message,
 	a.hub.Publish("alert.new", map[string]any{
 		"alert": model.Alert{ID: id, Ts: now, Level: level, Source: source, Target: target, Message: message},
 	})
-	// Webhook saliente (async, cola acotada + DLQ): encola y sigue.
+	// Webhook saliente (async, cola acotada + DLQ): encola y sigue. Its
+	// message is in the notification language, like the other shared
+	// channels.
 	if a.wh != nil {
+		msg := message
+		if a.notifyLang(ctx) == "en" {
+			msg = i18n.English(message)
+		}
 		a.wh.Notify(webhook.Event{
-			ID: id, Ts: now, Level: level, Source: source, Target: target, Message: message,
+			ID: id, Ts: now, Level: level, Source: source, Target: target, Message: msg,
 		})
 	}
 	// Email: a los usuarios con email + tipo habilitado. Best-effort async.
@@ -154,7 +162,7 @@ func (a *Alerter) notifyEmail(level, source, target, kind string, params map[str
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	rows, err := a.db.QueryContext(ctx,
-		"SELECT user, email, language FROM users WHERE email != ''")
+		"SELECT user, email, language, ui_lang FROM users WHERE email != ''")
 	if err != nil {
 		log.Printf("alerts: email: listar destinatarios: %v", err)
 		return
@@ -166,10 +174,14 @@ func (a *Alerter) notifyEmail(level, source, target, kind string, params map[str
 	var dests []dest
 	for rows.Next() {
 		var d dest
-		if err := rows.Scan(&d.user, &d.email, &d.lang); err != nil {
+		var ui string
+		if err := rows.Scan(&d.user, &d.email, &d.lang, &ui); err != nil {
 			log.Printf("alerts: email: scan: %v", err)
 			return
 		}
+		// "auto" is the browser's language, which only the UI knows: use
+		// the one it was last seen showing (users.ui_lang).
+		d.lang = i18n.Resolve(d.lang, ui, "")
 		dests = append(dests, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -195,7 +207,8 @@ func (a *Alerter) notifyEmail(level, source, target, kind string, params map[str
 func (a *Alerter) notifyChannels(level, source, target, kind string, params map[string]any, ts time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	title, body := push.Compose("es", kind, params)
+	lang := a.notifyLang(ctx)
+	title, body := push.Compose(lang, kind, params)
 	prefix := ""
 	switch level {
 	case "crit":
@@ -206,6 +219,19 @@ func (a *Alerter) notifyChannels(level, source, target, kind string, params map[
 		prefix = "🔵 "
 	}
 	a.ch.Send(ctx, prefix+title, fmt.Sprintf("[%s] %s", level, body))
+}
+
+// notifyLang — the language of the notifications that go to no user in
+// particular (ntfy, Gotify, Telegram, syslog, webhook): the one set in
+// Settings, or with "auto" the one the most recently active admin reads the
+// UI in. Channels used to be Spanish always.
+func (a *Alerter) notifyLang(ctx context.Context) string {
+	if a.st != nil {
+		if st, err := a.st.Load(ctx); err == nil && (st.Lang == "es" || st.Lang == "en") {
+			return st.Lang
+		}
+	}
+	return users.NotifyLang(ctx, a.db)
 }
 
 // emailTypeEnabled — ¿el usuario tiene habilitado este tipo de alerta por

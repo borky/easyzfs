@@ -376,6 +376,31 @@ the installer's template loses the three lines or gains a rejected one. The
 real protection stays where it was: the gateway's checks, which run as
 root outside the service.
 
+### Everything in the language the user chose
+
+The UI's own text was always translated; what the server wrote was not.
+Now, with the UI in English:
+
+- API errors, reasons, warnings, alert texts, job errors and SSE events are
+  translated on the way out (`internal/i18n`, `langMiddleware`) from a
+  catalogue keyed by the exact Spanish format strings. Only prose fields are
+  touched, and keys match whole words, so names and paths never change.
+  Spanish stays the default for every other client. `TestCatalogueCoversTheCode`
+  fails on a new user-visible string without an English entry, including
+  every literal passed to `errors.New`, `fmt.Errorf`, `writeErr` and
+  `RaiseKind`. The demo does the same in `web/src/data/demoI18n.ts`.
+- Notifications: e-mail and push follow each user's language (explicit, or
+  the one their UI was last seen in: `users.ui_lang`, v26), and push no
+  longer keeps the language the device had when it subscribed. ntfy,
+  Gotify, Telegram, syslog and the webhook use the notification language in
+  Settings → Alert channels (auto = the most recently active admin's); they
+  were always Spanish. Values inside a notification (a SMART detail) are
+  translated too, and a test notification uses the tester's UI language.
+- A 403 now shows its reason (host storage, a gateway refusal, demo mode…)
+  instead of a generic "no permission"; only a missing role still does.
+- Still Spanish: the installer's terminal output, and the service's log lines
+  in the journal.
+
 ### Secure cookie, mode sweep, proxy docs (spec P8)
 
 - The session cookie is Secure whenever the browser reached the app over

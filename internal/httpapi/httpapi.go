@@ -279,7 +279,7 @@ func (s *Server) Handler() http.Handler {
 		s.h.ServeSSE(w, r, actor(r))
 	}))
 
-	root.Handle("/api/", s.auth.Middleware(s.rateGuard(s.csrfGuard(s.demoGuard(s.refreshAfterMutation(a))))))
+	root.Handle("/api/", s.auth.Middleware(s.recordUILang(s.rateGuard(s.csrfGuard(s.demoGuard(s.refreshAfterMutation(a)))))))
 	// Outermost, so every response, from any handler or guard, is covered.
 	return langMiddleware(root)
 }

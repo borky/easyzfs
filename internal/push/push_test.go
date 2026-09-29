@@ -398,3 +398,41 @@ func TestURLFor(t *testing.T) {
 		}
 	}
 }
+
+// The user's language wins over the one the device had when it subscribed:
+// switching the UI to English turns every device's notifications English.
+func TestUserLanguageWinsOverTheDevice(t *testing.T) {
+	d := nuevaBD(t)
+	s := New(cfgConClaves(t), d, hubFalso{})
+	for _, c := range []struct{ language, uiLang, device, want string }{
+		{"en", "", "es", "en"},     // explicit choice
+		{"auto", "en", "es", "en"}, // what the UI showed last
+		{"auto", "", "en", "en"},   // nothing known: the device
+		{"es", "en", "en", "es"},   // explicit Spanish
+	} {
+		if _, err := d.Exec("UPDATE users SET language=?, ui_lang=? WHERE user='admin'", c.language, c.uiLang); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.Exec("DELETE FROM push_subscriptions"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Subscribe(context.Background(), "admin", "https://push.example/x", "p", "a", c.device, "https://nas", "ua"); err != nil {
+			t.Fatal(err)
+		}
+		subs, err := s.list(context.Background())
+		if err != nil || len(subs) != 1 {
+			t.Fatalf("list: %v %v", subs, err)
+		}
+		if subs[0].lang != c.want {
+			t.Errorf("%+v: lang %q, want %q", c, subs[0].lang, c.want)
+		}
+	}
+}
+
+// Text values inside an English notification are translated too.
+func TestEnglishTranslatesParams(t *testing.T) {
+	_, body := catalog("en", "smart_status", map[string]any{"dev": "sdb", "detail": "no disponible"})
+	if body != "sdb: not available." {
+		t.Errorf("body = %q", body)
+	}
+}

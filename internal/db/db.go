@@ -206,6 +206,11 @@ var migrations = []string{
 	// elsewhere depends on it, a hold). It was only logged, so the UI kept
 	// showing a purge date in the past with the space still in use.
 	`ALTER TABLE trash ADD COLUMN last_error TEXT NOT NULL DEFAULT '';`,
+	// v26: the language each user's UI really shows ('es'/'en'), recorded
+	// from their requests. users.language is often 'auto' (the browser's),
+	// which the server cannot resolve on its own, so e-mail and push fell
+	// back to Spanish for users reading the UI in English.
+	`ALTER TABLE users ADD COLUMN ui_lang TEXT NOT NULL DEFAULT '';`,
 }
 
 // Open abre la BD con WAL, busy_timeout y una sola conexión escritora.

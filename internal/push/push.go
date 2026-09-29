@@ -27,6 +27,7 @@ import (
 	webpush "github.com/SherClockHolmes/webpush-go"
 
 	"easyzfs/internal/config"
+	"easyzfs/internal/i18n"
 )
 
 // Hub — lo mínimo que el sender necesita del hub SSE: saber si un usuario
@@ -180,8 +181,13 @@ func (s *Sender) Notify(ctx context.Context, a Alert) {
 
 // list carga todas las suscripciones (una por dispositivo/navegador).
 func (s *Sender) list(ctx context.Context) ([]subscription, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, user_id, endpoint, p256dh, auth, lang, origin FROM push_subscriptions")
+	// The user's language wins over the device's: the subscription keeps
+	// the one its device had when it subscribed, and a user who switches
+	// the UI to English must get English on every device (i18n.Resolve).
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT s.id, s.user_id, s.endpoint, s.p256dh, s.auth, s.lang, s.origin,
+		       COALESCE(u.language, ''), COALESCE(u.ui_lang, '')
+		FROM push_subscriptions s LEFT JOIN users u ON u.user = s.user_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -189,9 +195,11 @@ func (s *Sender) list(ctx context.Context) ([]subscription, error) {
 	var out []subscription
 	for rows.Next() {
 		var sub subscription
-		if err := rows.Scan(&sub.id, &sub.userID, &sub.endpoint, &sub.p256dh, &sub.auth, &sub.lang, &sub.origin); err != nil {
+		var language, uiLang string
+		if err := rows.Scan(&sub.id, &sub.userID, &sub.endpoint, &sub.p256dh, &sub.auth, &sub.lang, &sub.origin, &language, &uiLang); err != nil {
 			return nil, err
 		}
+		sub.lang = i18n.Resolve(language, uiLang, sub.lang)
 		out = append(out, sub)
 	}
 	return out, rows.Err()

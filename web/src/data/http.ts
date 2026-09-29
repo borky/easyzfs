@@ -8,7 +8,7 @@ import { getLang } from '../ui/i18n';
 // messages (errors, reasons, warnings) come back in it. Without it the
 // server answers in Spanish, its default for any other client.
 function langHeaders(h: Record<string, string> = {}): Record<string, string> {
-  return { ...h, 'Accept-Language': getLang() };
+  return { ...h, 'Accept-Language': getLang(), 'X-UI-Lang': getLang() };
 }
 import type {
   ActivityItem, Alert, APIKeyCreated, APIKeyInfo, BackupFile, BackupStatus, ChannelName, ChannelPatch, ChannelsStatus, CreateDatasetReq, CreateJobReq, CreatePoolReq, CreateReplicationReq, CreateSnapshotReq, CreateUserReq,

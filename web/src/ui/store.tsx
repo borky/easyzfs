@@ -293,7 +293,11 @@ export function errorMessage(e: unknown, t: AppCtx['t']): string {
     if (e.code === 'reauth_failed') return t('err_reauth_failed');
     if (e.code === 'reauth_required' || e.code === 'reauth_code_required') return t('err_reauth_cancelled');
     if (e.status === 401) return t('login_error');
-    if (e.status === 403) return t('no_permission');
+    // Only a missing role is "no permission". Every other 403 carries its
+    // reason (host storage, a refusal of the privileged gateway, demo mode,
+    // a wrong code…), already in the UI's language: hiding it behind a
+    // generic message left the user guessing why.
+    if (e.status === 403 && (e.code === 'forbidden' || e.code === 'readonly_key' || !e.message)) return t('no_permission');
     return e.message;
   }
   return (e as Error)?.message ?? String(e);

@@ -933,7 +933,10 @@ function ChannelForm({ name, info, onDone }: { name: ChannelName; info: ChannelI
 
 // Tarjeta "Canales de alerta" (zona admin): estado de cada canal (sin
 // secretos), configuración en caliente y botón Probar.
-function ChannelsPanel() {
+function ChannelsPanel({ settings, onSave }: {
+  settings: SettingsData;
+  onSave: (patch: Partial<SettingsData>) => Promise<void>;
+}) {
   const { t, notify } = useApp();
   const [ch, setCh] = useState<ChannelsStatus | null>(null);
   const [editing, setEditing] = useState<ChannelName | null>(null);
@@ -969,6 +972,17 @@ function ChannelsPanel() {
     <div className="card pad admin-card">
       <h3 className="cardtitle">{t('s_ch_title')}</h3>
       <p className="muted">{t('s_ch_d')}</p>
+      {/* Language of what the shared channels send (ntfy, Gotify, Telegram,
+          syslog, webhook). E-mail and push follow each user's own language. */}
+      <div className="rowitem">
+        <div className="grow">
+          <div className="t1" style={{ fontSize: 14 }}>{t('s_ch_lang')}</div>
+          <div className="t2">{t('s_ch_lang_d')}</div>
+        </div>
+        <Select value={settings.lang} ariaLabel={t('s_ch_lang')}
+          options={[{ v: 'auto', label: t('s_ch_lang_auto') }, { v: 'es', label: 'Español' }, { v: 'en', label: 'English' }]}
+          onChange={(v) => { void onSave({ lang: v }); }} />
+      </div>
       <div>
         {CHANNEL_ORDER.map((name) => {
           const info = ch[name];
@@ -1321,7 +1335,7 @@ export default function Settings() {
           )}
           {adminPanel === 'channels' && (
             <div className="ab-panel">
-              <ChannelsPanel />
+              <ChannelsPanel settings={settings} onSave={saveSettings} />
             </div>
           )}
         </div>

@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"easyzfs/internal/i18n"
 )
 
 // User — vista pública de un usuario (contrato GET /api/users).
@@ -285,6 +287,38 @@ func (s *Store) SetLanguage(ctx context.Context, name, lang string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetUILang records the language the user's UI is showing ("es"/"en"), as
+// seen on their requests; true when it changed.
+func (s *Store) SetUILang(ctx context.Context, name, lang string) (bool, error) {
+	if lang != "es" && lang != "en" {
+		return false, ErrInvalidLang
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE users SET ui_lang=? WHERE user=? AND ui_lang != ?", lang, name, lang)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// NotifyLang — the language for notifications that go to no user in
+// particular (ntfy, Gotify, Telegram, syslog, the webhook) when the admin
+// left it on "auto": the one the most recently active admin reads the UI
+// in. Spanish when there is no admin to ask.
+func (s *Store) NotifyLang(ctx context.Context) string { return NotifyLang(ctx, s.db) }
+
+// NotifyLang — Store.NotifyLang for code that holds only the database.
+func NotifyLang(ctx context.Context, db *sql.DB) string {
+	var lang, ui string
+	err := db.QueryRowContext(ctx,
+		"SELECT language, ui_lang FROM users WHERE role='admin' ORDER BY last_login IS NULL, last_login DESC LIMIT 1").Scan(&lang, &ui)
+	if err != nil {
+		return "es"
+	}
+	return i18n.Resolve(lang, ui, "")
 }
 
 // TOTPSecret devuelve el secreto TOTP actual del usuario ("" si no tiene).

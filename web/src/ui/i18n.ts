@@ -516,6 +516,9 @@ const es = {
 
   // Ajustes
   s_general: 'General', s_lang: 'Idioma', s_lang_auto: 'Automático',
+  s_ch_lang: 'Idioma de las notificaciones',
+  s_ch_lang_d: 'Para ntfy, Gotify, Telegram, syslog y el webhook. El email y las notificaciones push llegan a cada usuario en su propio idioma.',
+  s_ch_lang_auto: 'Automático (el del último admin activo)',
   s_appear: 'Apariencia', s_accent: 'Color de acento',
   acc_cyan: 'Cian', acc_steel: 'Acero', acc_emerald: 'Esmeralda', acc_amber: 'Ámbar',
   acc_violet: 'Violeta', acc_green: 'Fósforo', acc_blue: 'Azul', acc_yellow: 'Amarillo',
@@ -1223,6 +1226,9 @@ const en: Record<I18nKey, string> = {
   al_goto: 'View the cause',
 
   s_general: 'General', s_lang: 'Language', s_lang_auto: 'Automatic',
+  s_ch_lang: 'Notification language',
+  s_ch_lang_d: 'For ntfy, Gotify, Telegram, syslog and the webhook. E-mail and push notifications reach each user in their own language.',
+  s_ch_lang_auto: 'Automatic (the last active admin\'s)',
   s_appear: 'Appearance', s_accent: 'Accent color',
   acc_cyan: 'Cyan', acc_steel: 'Steel', acc_emerald: 'Emerald', acc_amber: 'Amber',
   acc_violet: 'Violet', acc_green: 'Phosphor', acc_blue: 'Blue', acc_yellow: 'Yellow',

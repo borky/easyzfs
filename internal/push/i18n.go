@@ -6,6 +6,8 @@ package push
 import (
 	"fmt"
 	"strings"
+
+	"easyzfs/internal/i18n"
 )
 
 // textos — título corto + cuerpo con placeholders {param} por kind de alerta.
@@ -89,6 +91,18 @@ func catalog(lang, kind string, params map[string]any) (title, body string) {
 			p["status"] = traducido
 			params = p
 		}
+	}
+	// Values can be text the server wrote in Spanish (a SMART detail such
+	// as "no disponible"): translated with everything else (internal/i18n).
+	if lang == "en" {
+		p := make(map[string]any, len(params))
+		for k, v := range params {
+			if s, ok := v.(string); ok {
+				v = i18n.English(s)
+			}
+			p[k] = v
+		}
+		params = p
 	}
 	return interp(tx.title, params), interp(tx.body, params)
 }
