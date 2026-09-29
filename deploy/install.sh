@@ -1830,6 +1830,38 @@ do_update() {
     run "${SUDO[@]}" systemctl daemon-reload
     ok "Unit: private mount namespace removed (ZFS mounts are now the host's)."
   fi
+  # Units written when the product spoke Spanish: their description (what
+  # "systemctl status" and the journal show) and the text lines the
+  # installer wrote become English. Each line is replaced only if it is
+  # exactly the old one, so anything edited by hand stays as it is.
+  local old_new=(
+    "Description=EasyZFS — gestión ZFS del NAS (colector + PWA)"
+    "Description=EasyZFS — ZFS management for the NAS (collector + PWA)"
+    "# Huella y longevidad"
+    "# Footprint and lifetime"
+    "# Solo si escucha en puerto <1024 (preferir puerto alto + proxy):"
+    "# Only if it listens on a port <1024 (prefer a high port + proxy):"
+    "# NoNewPrivileges=yes (incompatible con sudo setuid; superficie root limitada por sudoers)"
+    "# NoNewPrivileges=yes (incompatible with setuid sudo; the root surface is bounded by sudoers)"
+  )
+  local i unit_text changed=0
+  unit_text="$(cat "$UNIT_PATH")"
+  for ((i = 0; i < ${#old_new[@]}; i += 2)); do
+    if grep -qxF -- "${old_new[i]}" "$UNIT_PATH"; then
+      unit_text="$(printf '%s\n' "$unit_text" | awk -v o="${old_new[i]}" -v n="${old_new[i+1]}" '$0 == o { print n; next } { print }')"
+      changed=1
+    fi
+  done
+  # The old "# Hardening (…)" line named the tools sudoers used to grant.
+  if printf '%s\n' "$unit_text" | grep -q '^# Hardening (zpool/zfs/smartctl/lsblk/crontab vía sudoers limitado'; then
+    unit_text="$(printf '%s\n' "$unit_text" | sed -E 's|^# Hardening \(zpool/zfs/smartctl/lsblk/crontab vía sudoers limitado: (.*)\)$|# Hardening (storage tools through the privileged gateway, restricted sudoers: \1)|')"
+    changed=1
+  fi
+  if [ "$changed" = "1" ]; then
+    printf '%s\n' "$unit_text" | write_root_file "$UNIT_PATH" 0644
+    run "${SUDO[@]}" systemctl daemon-reload
+    ok "Unit: description and notes now in English."
+  fi
   # Units written before the P5 hardening lines: add them after
   # LimitNOFILE (or before [Install]), leaving the rest as it is.
   if ! grep -q '^RemoveIPC=' "$UNIT_PATH"; then
