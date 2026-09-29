@@ -149,6 +149,15 @@ var (
 	uiLangSeen = map[string]string{}
 )
 
+// forgetUILang drops a deleted user from the cache: a user created again
+// under the same name starts with no recorded language, and a stale entry
+// would keep it from being recorded.
+func forgetUILang(user string) {
+	uiLangMu.Lock()
+	delete(uiLangSeen, user)
+	uiLangMu.Unlock()
+}
+
 // recordUILang notes the language each user's UI shows, for what the server
 // writes to them outside a response: e-mail, push, and the shared channels
 // when their language is "auto" (users.NotifyLang). Only the UI says it: its
@@ -163,16 +172,16 @@ func (s *Server) recordUILang(next http.Handler) http.Handler {
 		}
 		user := auth.UserFromContext(r.Context())
 		if (lang == "es" || lang == "en") && user != "" && s.users != nil {
+			// Held across the write: two requests in different languages at
+			// once must leave the cache and the database agreeing. The write
+			// only happens on a change, so the lock is rarely held long.
 			uiLangMu.Lock()
-			seen := uiLangSeen[user]
-			uiLangMu.Unlock()
-			if seen != lang {
+			if uiLangSeen[user] != lang {
 				if _, err := s.users.SetUILang(r.Context(), user, lang); err == nil {
-					uiLangMu.Lock()
 					uiLangSeen[user] = lang
-					uiLangMu.Unlock()
 				}
 			}
+			uiLangMu.Unlock()
 		}
 		next.ServeHTTP(w, r)
 	})

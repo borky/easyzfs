@@ -436,3 +436,28 @@ func TestEnglishTranslatesParams(t *testing.T) {
 		t.Errorf("body = %q", body)
 	}
 }
+
+// Alerts held back by quiet hours are sent later in the user's language too
+// (the queue drains through listUser).
+func TestQueuedPushUsesTheUserLanguage(t *testing.T) {
+	d := nuevaBD(t)
+	s := New(cfgConClaves(t), d, hubFalso{})
+	if _, err := d.Exec("UPDATE users SET language='auto', ui_lang='en' WHERE user='admin'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Subscribe(context.Background(), "admin", "https://push.example/y", "p", "a", "es", "https://nas", "ua"); err != nil {
+		t.Fatal(err)
+	}
+	subs, err := s.listUser(context.Background(), "admin")
+	if err != nil || len(subs) != 1 || subs[0].lang != "en" {
+		t.Fatalf("listUser: %+v %v, want one subscription in en", subs, err)
+	}
+}
+
+// Names inside a notification are never translated, only its prose.
+func TestEnglishKeepsNames(t *testing.T) {
+	_, body := catalog("en", "pool_capacity", map[string]any{"pool": "conflicto", "pct": 95, "threshold": 90})
+	if body != "Pool conflicto is at 95% capacity (threshold 90%)." {
+		t.Errorf("body = %q", body)
+	}
+}

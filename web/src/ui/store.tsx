@@ -297,7 +297,8 @@ export function errorMessage(e: unknown, t: AppCtx['t']): string {
     // reason (host storage, a refusal of the privileged gateway, demo mode,
     // a wrong code…), already in the UI's language: hiding it behind a
     // generic message left the user guessing why.
-    if (e.status === 403 && (e.code === 'forbidden' || e.code === 'readonly_key' || !e.message)) return t('no_permission');
+    // A 403 with no JSON body (a reverse proxy's page) has code http_error.
+    if (e.status === 403 && (e.code === 'forbidden' || e.code === 'readonly_key' || e.code === 'http_error' || !e.message)) return t('no_permission');
     return e.message;
   }
   return (e as Error)?.message ?? String(e);

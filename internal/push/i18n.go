@@ -94,14 +94,14 @@ func catalog(lang, kind string, params map[string]any) (title, body string) {
 	}
 	// Values can be text the server wrote in Spanish (a SMART detail such
 	// as "no disponible"): translated with everything else (internal/i18n).
-	if lang == "en" {
+	// Only the prose ones: pool, dev and vdev are names, and a pool called
+	// "conflicto" must keep its name.
+	if s, ok := params["detail"].(string); ok && lang == "en" {
 		p := make(map[string]any, len(params))
 		for k, v := range params {
-			if s, ok := v.(string); ok {
-				v = i18n.English(s)
-			}
 			p[k] = v
 		}
+		p["detail"] = i18n.English(s)
 		params = p
 	}
 	return interp(tx.title, params), interp(tx.body, params)

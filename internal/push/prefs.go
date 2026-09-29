@@ -311,20 +311,7 @@ func (s *Sender) clearQueue(ctx context.Context, userID string) {
 
 // listUser — suscripciones de un solo usuario (para vaciar su cola).
 func (s *Sender) listUser(ctx context.Context, userID string) ([]subscription, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, user_id, endpoint, p256dh, auth, lang, origin FROM push_subscriptions WHERE user_id=?",
-		userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []subscription
-	for rows.Next() {
-		var sub subscription
-		if err := rows.Scan(&sub.id, &sub.userID, &sub.endpoint, &sub.p256dh, &sub.auth, &sub.lang, &sub.origin); err != nil {
-			return nil, err
-		}
-		out = append(out, sub)
-	}
-	return out, rows.Err()
+	// Same language resolution as a live send: an alert held back by quiet
+	// hours was sent later in the device's language, not the user's.
+	return s.query(ctx, userID)
 }

@@ -184,10 +184,22 @@ func (s *Sender) list(ctx context.Context) ([]subscription, error) {
 	// The user's language wins over the device's: the subscription keeps
 	// the one its device had when it subscribed, and a user who switches
 	// the UI to English must get English on every device (i18n.Resolve).
-	rows, err := s.db.QueryContext(ctx, `
+	return s.query(ctx, "")
+}
+
+// query — subscriptions with the language to write to each in, resolved
+// from its user (see list); userID "" = all users.
+func (s *Sender) query(ctx context.Context, userID string) ([]subscription, error) {
+	q := `
 		SELECT s.id, s.user_id, s.endpoint, s.p256dh, s.auth, s.lang, s.origin,
 		       COALESCE(u.language, ''), COALESCE(u.ui_lang, '')
-		FROM push_subscriptions s LEFT JOIN users u ON u.user = s.user_id`)
+		FROM push_subscriptions s LEFT JOIN users u ON u.user = s.user_id`
+	var args []any
+	if userID != "" {
+		q += " WHERE s.user_id=?"
+		args = append(args, userID)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

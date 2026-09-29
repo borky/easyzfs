@@ -86,6 +86,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
 	}
+	forgetUILang(name)
 	s.act.AuditOnly(r.Context(), actor(r), "user.delete", name, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
