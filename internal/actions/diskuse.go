@@ -22,7 +22,7 @@ import (
 
 // ErrDiskInUse — the disk holds something the operation would destroy or
 // disturb. Mapped to 409 dev_in_use.
-var ErrDiskInUse = errors.New("disco en uso")
+var ErrDiskInUse = errors.New("disk in use")
 
 // Test seams.
 var (
@@ -144,17 +144,17 @@ func classify(n lsblkNode, imported map[string]bool, ownPool string) string {
 	for _, mp := range append(n.Mountpoints, n.Mountpoint) {
 		if mp != nil && *mp != "" {
 			if *mp == "[SWAP]" {
-				return fmt.Sprintf("%s es swap activo", n.Name)
+				return fmt.Sprintf("%s is active swap", n.Name)
 			}
-			return fmt.Sprintf("%s está montado en %s", n.Name, *mp)
+			return fmt.Sprintf("%s is mounted at %s", n.Name, *mp)
 		}
 	}
 	if n.PartType != nil {
 		switch strings.ToLower(*n.PartType) {
 		case partTypeESP:
-			return fmt.Sprintf("%s es una partición EFI de arranque", n.Name)
+			return fmt.Sprintf("%s is an EFI boot partition", n.Name)
 		case partTypeBIOSBoot:
-			return fmt.Sprintf("%s es una partición BIOS boot", n.Name)
+			return fmt.Sprintf("%s is a BIOS boot partition", n.Name)
 		}
 	}
 	if n.FSType != nil && *n.FSType != "" {
@@ -166,34 +166,34 @@ func classify(n lsblkNode, imported map[string]bool, ownPool string) string {
 					label = *n.Label
 				}
 				if label == "" {
-					return fmt.Sprintf("%s tiene una etiqueta ZFS sin nombre de pool: no se puede saber si está en uso", n.Name)
+					return fmt.Sprintf("%s has a ZFS label with no pool name: there is no way to tell whether it is in use", n.Name)
 				}
 				if !imported[label] {
 					break // an exported or stale pool: safe to power off
 				}
-				return fmt.Sprintf("%s es miembro del pool importado '%s'", n.Name, label)
+				return fmt.Sprintf("%s is a member of the imported pool '%s'", n.Name, label)
 			}
 			if ownPool != "" && n.Label != nil && *n.Label == ownPool {
 				break
 			}
-			return fmt.Sprintf("%s tiene una etiqueta ZFS (miembro de un pool, activo, exportado o antiguo)", n.Name)
+			return fmt.Sprintf("%s has a ZFS label (member of a pool: active, exported or old)", n.Name)
 		case "LVM2_member":
-			return fmt.Sprintf("%s es un volumen físico LVM", n.Name)
+			return fmt.Sprintf("%s is an LVM physical volume", n.Name)
 		case "crypto_LUKS":
-			return fmt.Sprintf("%s es un volumen cifrado LUKS", n.Name)
+			return fmt.Sprintf("%s is a LUKS encrypted volume", n.Name)
 		case "linux_raid_member":
-			return fmt.Sprintf("%s es miembro de un RAID mdadm", n.Name)
+			return fmt.Sprintf("%s is a member of an mdadm RAID", n.Name)
 		case "ceph_bluestore":
-			return fmt.Sprintf("%s es un OSD de Ceph", n.Name)
+			return fmt.Sprintf("%s is a Ceph OSD", n.Name)
 		default:
 			if !powerOff { // unmounted (mounts were checked above)
-				return fmt.Sprintf("%s contiene un sistema de ficheros %s", n.Name, *n.FSType)
+				return fmt.Sprintf("%s contains a %s file system", n.Name, *n.FSType)
 			}
 		}
 	}
 	switch n.Type {
 	case "lvm", "crypt", "dm", "raid0", "raid1", "raid4", "raid5", "raid6", "raid10", "mpath":
-		return fmt.Sprintf("%s lo usa %s", n.Name, n.Type)
+		return fmt.Sprintf("%s is used by %s", n.Name, n.Type)
 	}
 	for _, c := range n.Children {
 		if r := classify(c, imported, ownPool); r != "" {
@@ -208,7 +208,7 @@ func classify(n lsblkNode, imported map[string]bool, ownPool string) string {
 func holdersReason(name string) string {
 	check := func(dir, who string) string {
 		if ents, err := os.ReadDir(filepath.Join(dir, "holders")); err == nil && len(ents) > 0 {
-			return fmt.Sprintf("%s lo retiene %s", who, ents[0].Name())
+			return fmt.Sprintf("%s is held by %s", who, ents[0].Name())
 		}
 		return ""
 	}
@@ -239,10 +239,10 @@ func DiskUse(ctx context.Context, dev string) (string, error) {
 func DiskActiveUse(ctx context.Context, dev string) (string, error) {
 	imported, members, err := poolMembers(ctx)
 	if err != nil {
-		return "", fmt.Errorf("leer los pools importados: %w", err)
+		return "", fmt.Errorf("read the imported pools: %w", err)
 	}
 	if pool, ok := members[kernelName(dev)]; ok {
-		return fmt.Sprintf("%s es miembro del pool importado '%s'", kernelName(dev), pool), nil
+		return fmt.Sprintf("%s is a member of the imported pool '%s'", kernelName(dev), pool), nil
 	}
 	// The LABEL check in classify stays as a second opinion.
 	return diskUse(ctx, dev, imported, "")
@@ -256,7 +256,7 @@ func diskUse(ctx context.Context, dev string, imported map[string]bool, ownPool 
 	// A zvol is a dataset, not a disk: lsblk sees nothing on a blank or raw
 	// VM disk, and 'zpool create x zd16' would wipe it.
 	if strings.HasPrefix(name, "zd") {
-		return fmt.Sprintf("%s es un volumen ZFS (zvol), no un disco", name), nil
+		return fmt.Sprintf("%s is a ZFS volume (zvol), not a disk", name), nil
 	}
 	out, err := lsblkJSON(ctx, "-J", "-o", "NAME,TYPE,FSTYPE,LABEL,PARTTYPE,MOUNTPOINTS", "/dev/"+name)
 	if err != nil {
@@ -264,13 +264,13 @@ func diskUse(ctx context.Context, dev string, imported map[string]bool, ownPool 
 		out, err = lsblkJSON(ctx, "-J", "-o", "NAME,TYPE,FSTYPE,LABEL,PARTTYPE,MOUNTPOINT", "/dev/"+name)
 	}
 	if err != nil {
-		return "", fmt.Errorf("leer el estado de %s: %w", name, err)
+		return "", fmt.Errorf("read the state of %s: %w", name, err)
 	}
 	var tree struct {
 		Devices []lsblkNode `json:"blockdevices"`
 	}
 	if err := json.Unmarshal(out, &tree); err != nil || len(tree.Devices) == 0 {
-		return "", fmt.Errorf("leer el estado de %s: salida de lsblk no válida", name)
+		return "", fmt.Errorf("read the state of %s: invalid lsblk output", name)
 	}
 	if r := classify(tree.Devices[0], imported, ownPool); r != "" {
 		return r, nil
@@ -292,7 +292,7 @@ func requireFreeDiskFor(ctx context.Context, dev, pool string) error {
 		return err
 	}
 	if reason != "" {
-		return fmt.Errorf("%w: %s. Si de verdad quieres reutilizarlo, bórralo antes a mano (wipefs / zpool labelclear)", ErrDiskInUse, reason)
+		return fmt.Errorf("%w: %s. If you really want to reuse it, wipe it by hand first (wipefs / zpool labelclear)", ErrDiskInUse, reason)
 	}
 	return nil
 }
@@ -316,7 +316,7 @@ func AllDiskUse(ctx context.Context) (map[string]string, error) {
 		if err != nil {
 			// Unknown is not free: a disk that could not be read used to be
 			// left out of the map, and so shown as available.
-			r = fmt.Sprintf("no se pudo leer el estado de %s", d.Name)
+			r = fmt.Sprintf("could not read the state of %s", d.Name)
 		}
 		if r != "" {
 			res[d.Name] = r

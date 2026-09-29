@@ -122,13 +122,13 @@ func (c *EventsCollector) Run(ctx context.Context) {
 		if alive < eventsMinAlive {
 			badStarts++
 			if badStarts >= 2 {
-				log.Printf("events: 'zpool events' no disponible (%v); colector desactivado (capability off)", err)
+				log.Printf("events: 'zpool events' not available (%v); collector disabled (capability off)", err)
 				return
 			}
 		} else {
 			badStarts = 0
 		}
-		log.Printf("events: proceso terminado (%v); reconexión en %s", err, backoff)
+		log.Printf("events: process ended (%v); reconnecting in %s", err, backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -235,11 +235,11 @@ func (c *EventsCollector) dispatch(ctx context.Context, ev map[string]string) {
 		}[class]
 		// One whole sentence per kind, not a word spliced into one: the
 		// English UI translates these texts by their format (internal/i18n).
-		format := "Errores de E/S en %s (evento ZFS, pool %s)"
+		format := "I/O errors on %s (ZFS event, pool %s)"
 		if class == "ereport.fs.zfs.checksum" {
-			format = "Errores de checksum en %s (evento ZFS, pool %s)"
+			format = "Checksum errors on %s (ZFS event, pool %s)"
 		} else if class == "ereport.fs.zfs.data" {
-			format = "Errores de datos en %s (evento ZFS, pool %s)"
+			format = "Data errors on %s (ZFS event, pool %s)"
 		}
 		where := vdev
 		if where == "" {
@@ -250,10 +250,10 @@ func (c *EventsCollector) dispatch(ctx context.Context, ev map[string]string) {
 			kind, params)
 	case "ereport.fs.zfs.deadman", "ereport.fs.zfs.delay":
 		kind := "zfs_io_delay"
-		format := "E/S lenta (delay) en %s (evento ZFS, pool %s)"
+		format := "Slow I/O (delay) on %s (ZFS event, pool %s)"
 		if class == "ereport.fs.zfs.deadman" {
 			kind = "zfs_deadman"
-			format = "E/S colgada (deadman) en %s (evento ZFS, pool %s)"
+			format = "Hung I/O (deadman) on %s (ZFS event, pool %s)"
 		}
 		where := vdev
 		if where == "" {
@@ -264,16 +264,16 @@ func (c *EventsCollector) dispatch(ctx context.Context, ev map[string]string) {
 			kind, params)
 	case "sysevent.fs.zfs.resilver_start":
 		c.al.RaiseKind(ctx, "info", "zed."+class, poolTarget,
-			fmt.Sprintf("Resilver iniciado en el pool %s", pool),
+			fmt.Sprintf("Resilver started on pool %s", pool),
 			"resilver_start", params)
 	case "sysevent.fs.zfs.resilver_finish":
 		c.al.RaiseKind(ctx, "info", "zed."+class, poolTarget,
-			fmt.Sprintf("Resilver del pool %s terminado", pool),
+			fmt.Sprintf("Resilver of pool %s finished", pool),
 			"resilver_finish", params)
 	case "sysevent.fs.zfs.scrub_finish":
 		if n, _ := strconv.ParseInt(ev["errors"], 10, 64); n > 0 {
 			c.al.RaiseKind(ctx, "warn", "zed."+class, poolTarget,
-				fmt.Sprintf("Scrub de %s terminó con %d errores (evento ZFS)", pool, n),
+				fmt.Sprintf("Scrub of %s finished with %d errors (ZFS event)", pool, n),
 				"scrub_errors", map[string]any{"pool": pool, "errors": n})
 		}
 	case "sysevent.fs.zfs.vdev_statechange":
@@ -287,11 +287,11 @@ func (c *EventsCollector) dispatch(ctx context.Context, ev map[string]string) {
 				where = pool
 			}
 			c.al.RaiseKind(ctx, "crit", "zed."+class, target,
-				fmt.Sprintf("El vdev %s pasó a %s (pool %s)", where, state, pool),
+				fmt.Sprintf("Vdev %s went %s (pool %s)", where, state, pool),
 				"vdev_state", map[string]any{"pool": pool, "vdev": vdev, "state": state})
 		}
 	default:
 		// config_sync, trim_start/finish, scrub_start, desconocidos: ruido.
-		log.Printf("events: %s pool=%s (sin alerta)", class, pool)
+		log.Printf("events: %s pool=%s (no alert)", class, pool)
 	}
 }

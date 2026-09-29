@@ -14,14 +14,15 @@ import (
 	"easyzfs/internal/users"
 )
 
-// The same refusal, asked for in English and in Spanish (the default).
+// The same refusal, asked for in Spanish and in English (the default).
 func TestErrorsFollowTheUILanguage(t *testing.T) {
 	h, c := setupReadOnlyServer(t)
 	for lang, want := range map[string]string{
 		"en":             "read-only mode: EasyZFS does not change storage",
 		"en-GB,en;q=0.9": "read-only mode: EasyZFS does not change storage",
 		"es":             "modo solo lectura: EasyZFS no modifica el almacenamiento",
-		"":               "modo solo lectura: EasyZFS no modifica el almacenamiento",
+		"es-ES,es;q=0.9": "modo solo lectura: EasyZFS no modifica el almacenamiento",
+		"":               "read-only mode: EasyZFS does not change storage",
 	} {
 		r := httptest.NewRequest("POST", "/api/pools/tank/scrub", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
@@ -64,13 +65,13 @@ func TestSSEIsTranslatedAndStillStreams(t *testing.T) {
 		t.Fatal("langWriter is not a Flusher: SSE handlers would refuse to stream")
 	}
 	w.Write([]byte(":ok\n\n"))
-	w.Write([]byte("event: alert\ndata: {\"message\":\"Resilver iniciado en el pool tank\",\"pool\":\"tank\"}\n\n"))
+	w.Write([]byte("event: alert\ndata: {\"message\":\"Resilver started on pool tank\",\"pool\":\"tank\"}\n\n"))
 	w.(http.Flusher).Flush()
 	if !rec.Flushed {
 		t.Error("not flushed")
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"message":"Resilver started on pool tank"`) || !strings.HasPrefix(body, ":ok\n\n") {
+	if !strings.Contains(body, `"message":"Resilver iniciado en el pool tank"`) || !strings.HasPrefix(body, ":ok\n\n") {
 		t.Errorf("stream: %q", body)
 	}
 }

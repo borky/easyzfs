@@ -31,7 +31,7 @@ import (
 )
 
 // ErrNotAllowed — an argv outside the gateway's grammar. Mapped to 403.
-var ErrNotAllowed = errors.New("operación privilegiada no permitida")
+var ErrNotAllowed = errors.New("privileged operation not allowed")
 
 // replSnapPrefix — internal/replication's snapshot prefix (SnapPrefix there;
 // not imported, the dependency goes the other way).
@@ -199,10 +199,10 @@ func privZFS(ctx context.Context, a []string) error {
 			ds, _, _ := strings.Cut(snap, "@")
 			h, err := LoadHostView(ctx)
 			if err != nil {
-				return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+				return fmt.Errorf("%w: %v; nothing was done", ErrHostUnknown, err)
 			}
 			if kind, why := h.DatasetKind(ds); kind == HostSystem {
-				return fmt.Errorf("%w: %s; su contenido no se envía fuera del sistema", ErrHostStorage, why)
+				return fmt.Errorf("%w: %s; its contents are not sent outside the system", ErrHostStorage, why)
 			}
 			return nil
 		}
@@ -234,7 +234,7 @@ func privZFS(ctx context.Context, a []string) error {
 			case err != nil:
 				return fmt.Errorf("%w: %v", ErrHostUnknown, err)
 			case mark != "on":
-				return fmt.Errorf("%w: %s ya existe y no es una réplica creada por EasyZFS; no se recibe encima", ErrConflict, dest)
+				return fmt.Errorf("%w: %s already exists and is not a replica created by EasyZFS; nothing is received over it", ErrConflict, dest)
 			}
 			if argsEqual(a[1:n-1], RecvFSArgs) {
 				return checkEffectiveMountpoint(ctx, dest)
@@ -251,7 +251,7 @@ func privZFS(ctx context.Context, a []string) error {
 		}
 		h, err := LoadHostView(ctx)
 		if err != nil {
-			return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+			return fmt.Errorf("%w: %v; nothing was done", ErrHostUnknown, err)
 		}
 		for _, t := range rest {
 			if !isSnap(t) {
@@ -267,7 +267,7 @@ func privZFS(ctx context.Context, a []string) error {
 			if recursive {
 				for _, g := range h.guests {
 					if strings.HasPrefix(g, ds+"/") {
-						return fmt.Errorf("%w: el snapshot recursivo de %s incluiría discos de Proxmox (%s…)", ErrHostStorage, ds, g)
+						return fmt.Errorf("%w: a recursive snapshot of %s would include Proxmox disks (%s…)", ErrHostStorage, ds, g)
 					}
 				}
 			}
@@ -308,7 +308,7 @@ func privZFS(ctx context.Context, a []string) error {
 				// made, not a dataset someone named easyzfs-trash by hand.
 				pool, _, _ := strings.Cut(t, "/")
 				if _, ours := ownTrashRoot(ctx, TrashRoot(pool)); !ours {
-					return fmt.Errorf("%w: %s no es la papelera de EasyZFS", ErrHostStorage, TrashRoot(pool))
+					return fmt.Errorf("%w: %s is not the EasyZFS recycle bin", ErrHostStorage, TrashRoot(pool))
 				}
 				return nil
 			}
@@ -342,13 +342,13 @@ func privZFS(ctx context.Context, a []string) error {
 		src, _, _ := strings.Cut(rest[0], "@")
 		h, err := LoadHostView(ctx)
 		if err != nil {
-			return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+			return fmt.Errorf("%w: %v; nothing was done", ErrHostUnknown, err)
 		}
 		if kind, why := h.DatasetKind(src); kind == HostGuest {
 			return fmt.Errorf("%w: %s", ErrHostStorage, why)
 		}
 		if InTrash(rest[1]) {
-			return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
+			return fmt.Errorf("%w: %s is reserved for the recycle bin", ErrInvalidInput, TrashDir)
 		}
 		if err := guardNewName(ctx, rest[1]); err != nil {
 			return err
@@ -462,7 +462,7 @@ func privZFSCreate(ctx context.Context, a []string) error {
 		return ErrInvalidName
 	}
 	if InTrash(name) {
-		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
+		return fmt.Errorf("%w: %s is reserved for the recycle bin", ErrInvalidInput, TrashDir)
 	}
 	if err := guardNewName(ctx, name); err != nil {
 		return err
@@ -620,7 +620,7 @@ const (
 // order.
 func RecvStreamIsVolume(hdr []byte) (bool, error) {
 	if len(hdr) < 40 {
-		return false, fmt.Errorf("%w: stream demasiado corto", ErrInvalidInput)
+		return false, fmt.Errorf("%w: stream too short", ErrInvalidInput)
 	}
 	const magic = 0x2F5bacbac
 	le := func(b []byte) uint64 {
@@ -641,16 +641,16 @@ func RecvStreamIsVolume(hdr []byte) (bool, error) {
 	switch {
 	case le(hdr[8:16]) == magic:
 		if uint32(le(hdr[0:8])) != 0 { // DRR_BEGIN
-			return false, fmt.Errorf("%w: el stream no empieza por DRR_BEGIN", ErrInvalidInput)
+			return false, fmt.Errorf("%w: the stream does not start with DRR_BEGIN", ErrInvalidInput)
 		}
 		typ = le(hdr[32:40]) & 0xffffffff
 	case be(hdr[8:16]) == magic:
 		if be(hdr[0:8])>>32 != 0 {
-			return false, fmt.Errorf("%w: el stream no empieza por DRR_BEGIN", ErrInvalidInput)
+			return false, fmt.Errorf("%w: the stream does not start with DRR_BEGIN", ErrInvalidInput)
 		}
 		typ = be(hdr[32:40]) >> 32
 	default:
-		return false, fmt.Errorf("%w: no es un stream de zfs send", ErrInvalidInput)
+		return false, fmt.Errorf("%w: not a zfs send stream", ErrInvalidInput)
 	}
 	switch typ {
 	case dmuOstZFS:
@@ -658,7 +658,7 @@ func RecvStreamIsVolume(hdr []byte) (bool, error) {
 	case dmuOstZvol:
 		return true, nil
 	}
-	return false, fmt.Errorf("%w: tipo de dataset %d en el stream", ErrInvalidInput, typ)
+	return false, fmt.Errorf("%w: dataset type %d in the stream", ErrInvalidInput, typ)
 }
 
 // readMounted — the dataset's mounted property ("yes"/"no").
@@ -694,7 +694,7 @@ var readReceivedMountpoint = func(ctx context.Context, name string) (string, err
 func privRewrite(ctx context.Context, mp string) error {
 	h, err := LoadHostView(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: %v; no se hace nada", ErrHostUnknown, err)
+		return fmt.Errorf("%w: %v; nothing was done", ErrHostUnknown, err)
 	}
 	for _, d := range h.names {
 		if e := h.datasets[d]; e.typ == "filesystem" && path.Clean(e.mountpoint) == mp {
@@ -705,12 +705,12 @@ func privRewrite(ctx context.Context, mp string) error {
 			// directory of whatever filesystem holds it, and -x would rewrite
 			// that one instead.
 			if m, err := readMounted(ctx, d); err != nil || m != "yes" {
-				return fmt.Errorf("%w: %s no está montado en %s", ErrInvalidInput, d, mp)
+				return fmt.Errorf("%w: %s is not mounted at %s", ErrInvalidInput, d, mp)
 			}
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: ningún dataset está montado en %s", ErrInvalidInput, mp)
+	return fmt.Errorf("%w: no dataset is mounted at %s", ErrInvalidInput, mp)
 }
 
 func privZpool(ctx context.Context, a []string) error {

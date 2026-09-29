@@ -42,7 +42,7 @@ func (s *Server) listTrash(w http.ResponseWriter, r *http.Request) {
 func trashID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "id no válido")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "invalid id")
 		return 0, false
 	}
 	return id, true
@@ -92,7 +92,7 @@ func (s *Server) purgeTrash(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == "" {
-		writeErr(w, http.StatusNotFound, "not_found", "no existe en la papelera")
+		writeErr(w, http.StatusNotFound, "not_found", "it is not in the recycle bin")
 		return
 	}
 	if !requireConfirm(w, body.Confirm, target) {

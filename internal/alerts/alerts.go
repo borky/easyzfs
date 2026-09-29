@@ -131,8 +131,8 @@ func (a *Alerter) RaiseKind(ctx context.Context, level, source, target, message,
 	// channels.
 	if a.wh != nil {
 		msg := message
-		if a.notifyLang(ctx) == "en" {
-			msg = i18n.English(message)
+		if a.notifyLang(ctx) == "es" {
+			msg = i18n.Spanish(message)
 		}
 		a.wh.Notify(webhook.Event{
 			ID: id, Ts: now, Level: level, Source: source, Target: target, Message: msg,
@@ -164,7 +164,7 @@ func (a *Alerter) notifyEmail(level, source, target, kind string, params map[str
 	rows, err := a.db.QueryContext(ctx,
 		"SELECT user, email, language, ui_lang FROM users WHERE email != ''")
 	if err != nil {
-		log.Printf("alerts: email: listar destinatarios: %v", err)
+		log.Printf("alerts: email: list recipients: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -196,7 +196,7 @@ func (a *Alerter) notifyEmail(level, source, target, kind string, params map[str
 		if err := a.mail.Send(ctx, []string{d.email}, d.lang, notifier.Alert{
 			Level: level, Source: source, Target: target, Timestamp: ts,
 		}, title, body); err != nil {
-			log.Printf("alerts: email a usuario %s: %v", d.user, err)
+			log.Printf("alerts: email to user %s: %v", d.user, err)
 		}
 	}
 }
@@ -262,11 +262,11 @@ func (a *Alerter) EvaluatePools(ctx context.Context, pools []model.Pool) {
 		switch {
 		case pct >= st.CapCritPct:
 			a.RaiseKind(ctx, "crit", "pool."+p.Name, "pools:"+p.Name,
-				fmt.Sprintf("Pool %s al %d%% de capacidad (crítico ≥ %d%%)", p.Name, pct, st.CapCritPct),
+				fmt.Sprintf("Pool %s at %d%% capacity (critical ≥ %d%%)", p.Name, pct, st.CapCritPct),
 				"pool_capacity", map[string]any{"pool": p.Name, "pct": pct, "threshold": st.CapCritPct})
 		case pct >= st.CapWarnPct:
 			a.RaiseKind(ctx, "warn", "pool."+p.Name, "pools:"+p.Name,
-				fmt.Sprintf("Pool %s al %d%% de capacidad (aviso ≥ %d%%)", p.Name, pct, st.CapWarnPct),
+				fmt.Sprintf("Pool %s at %d%% capacity (warning ≥ %d%%)", p.Name, pct, st.CapWarnPct),
 				"pool_capacity", map[string]any{"pool": p.Name, "pct": pct, "threshold": st.CapWarnPct})
 		}
 		if p.Status == "DEGRADED" {
@@ -279,7 +279,7 @@ func (a *Alerter) EvaluatePools(ctx context.Context, pools []model.Pool) {
 		// kind "trim" no aplica: sus "errores" no son errores de datos.
 		if st.NotifyScrubErrors && p.Scrub.State == "done" && p.Scrub.Errors > 0 && p.Scrub.Kind != "trim" {
 			a.RaiseKind(ctx, "warn", "scrub."+p.Name, "pools:"+p.Name,
-				fmt.Sprintf("Scrub de %s terminó con %d errores", p.Name, p.Scrub.Errors),
+				fmt.Sprintf("Scrub of %s finished with %d errors", p.Name, p.Scrub.Errors),
 				"scrub_errors", map[string]any{"pool": p.Name, "errors": p.Scrub.Errors})
 		}
 	}
@@ -310,7 +310,7 @@ func (a *Alerter) trackPools(ctx context.Context, pools []model.Pool) {
 	rows, err := a.db.QueryContext(ctx,
 		"SELECT name, last_seen_at FROM known_pools WHERE last_seen_at < ?", cutoff)
 	if err != nil {
-		log.Printf("alerts: known_pools listar: %v", err)
+		log.Printf("alerts: known_pools list: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -339,7 +339,7 @@ func (a *Alerter) trackPools(ctx context.Context, pools []model.Pool) {
 	for _, m := range missingPools {
 		mins := int(now.Sub(m.lastSeen).Minutes())
 		a.RaiseKind(ctx, "crit", "pool."+m.name, "pools:"+m.name,
-			fmt.Sprintf("Pool %s no importado (no aparece en zpool list; visto por última vez hace %d min)",
+			fmt.Sprintf("Pool %s not imported (missing from zpool list; last seen %d min ago)",
 				m.name, mins),
 			"pool_missing", map[string]any{"pool": m.name, "mins": mins})
 	}
@@ -380,7 +380,7 @@ func (a *Alerter) EvaluateDisks(ctx context.Context, disks []model.Disk) {
 	for _, d := range disks {
 		if d.TempC != nil && int(*d.TempC) >= st.DiskTempC {
 			a.RaiseKind(ctx, "warn", "disk."+d.Dev, "disks:"+d.Dev,
-				fmt.Sprintf("Disco %s a %.0f °C (umbral %d °C)", d.Dev, *d.TempC, st.DiskTempC),
+				fmt.Sprintf("Disk %s at %.0f °C (threshold %d °C)", d.Dev, *d.TempC, st.DiskTempC),
 				"disk_temp", map[string]any{"dev": d.Dev, "temp": int(*d.TempC), "threshold": st.DiskTempC})
 		}
 		if !st.NotifySmartChange {
@@ -389,11 +389,11 @@ func (a *Alerter) EvaluateDisks(ctx context.Context, disks []model.Disk) {
 		switch d.Smart {
 		case "crit":
 			a.RaiseKind(ctx, "crit", "smart."+d.Dev, "disks:"+d.Dev,
-				fmt.Sprintf("SMART crítico en %s: %s", d.Dev, d.SmartDetail),
+				fmt.Sprintf("Critical SMART on %s: %s", d.Dev, d.SmartDetail),
 				"smart_status", map[string]any{"dev": d.Dev, "detail": d.SmartDetail})
 		case "warn":
 			a.RaiseKind(ctx, "warn", "smart."+d.Dev, "disks:"+d.Dev,
-				fmt.Sprintf("SMART con avisos en %s: %s", d.Dev, d.SmartDetail),
+				fmt.Sprintf("SMART warnings on %s: %s", d.Dev, d.SmartDetail),
 				"smart_status", map[string]any{"dev": d.Dev, "detail": d.SmartDetail})
 		}
 	}

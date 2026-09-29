@@ -141,11 +141,11 @@ func TestEffectiveMountpointOnProxmoxLayout(t *testing.T) {
 		refused string // a substring of the reason; "" = allowed
 	}{
 		// The incident. /etc is a system path whatever put a dataset there.
-		{"a dataset inheriting /etc", "rpool/ROOT/pve-1/etc", "ruta de sistema"},
-		{"deeper under /etc", "rpool/ROOT/pve-1/etc/network", "ruta de sistema"},
+		{"a dataset inheriting /etc", "rpool/ROOT/pve-1/etc", "system path"},
+		{"deeper under /etc", "rpool/ROOT/pve-1/etc/network", "system path"},
 		// Not a system path, but still a new mount on the host's root, which
 		// no allowed tree covers: an ancestor at / grants nothing.
-		{"a dataset inheriting /srv-like junk", "rpool/ROOT/pve-1/stuff", "fuera de las rutas permitidas"},
+		{"a dataset inheriting /srv-like junk", "rpool/ROOT/pve-1/stuff", "outside the allowed paths"},
 		// The pool's own tree is where datasets belong.
 		{"under rpool/data", "rpool/data/vm-100-disk-0", ""},
 		{"under the pool root", "rpool/backups", ""},
@@ -154,7 +154,7 @@ func TestEffectiveMountpointOnProxmoxLayout(t *testing.T) {
 		{"the PVE storage dataset", "rpool/var-lib-vz", ""},
 		{"a child of it", "rpool/var-lib-vz/dump", ""},
 		// The root filesystem itself is never something to mount.
-		{"the root dataset", "rpool/ROOT/pve-1", "ruta de sistema"},
+		{"the root dataset", "rpool/ROOT/pve-1", "system path"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := checkEffectiveMountpoint(ctx, c.dataset)

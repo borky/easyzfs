@@ -22,7 +22,7 @@ import (
 )
 
 // ErrNotFound — job de replicación inexistente.
-var ErrNotFound = errors.New("job de replicación no encontrado")
+var ErrNotFound = errors.New("replication job not found")
 
 // Job — contrato GET /api/replication.
 type Job struct {
@@ -56,7 +56,7 @@ var (
 // ValidateDataset — nombre de dataset/pool (sin espacios ni metacaracteres).
 func ValidateDataset(name string) error {
 	if name == "" || len(name) > 256 || !reDataset.MatchString(name) {
-		return fmt.Errorf("nombre de dataset inválido %q", name)
+		return fmt.Errorf("invalid dataset name %q", name)
 	}
 	return nil
 }
@@ -64,7 +64,7 @@ func ValidateDataset(name string) error {
 // ValidateSSHUser — usuario SSH (sintaxis de login Unix).
 func ValidateSSHUser(u string) error {
 	if u == "" || len(u) > 32 || !reSSHUser.MatchString(u) {
-		return fmt.Errorf("usuario SSH inválido %q", u)
+		return fmt.Errorf("invalid SSH user %q", u)
 	}
 	return nil
 }
@@ -72,7 +72,7 @@ func ValidateSSHUser(u string) error {
 // ValidateSSHHost — host SSH (FQDN o IP literal; sin espacios ni opciones).
 func ValidateSSHHost(h string) error {
 	if h == "" || len(h) > 253 || !reSSHHost.MatchString(h) {
-		return fmt.Errorf("host SSH inválido %q", h)
+		return fmt.Errorf("invalid SSH host %q", h)
 	}
 	return nil
 }
@@ -80,7 +80,7 @@ func ValidateSSHHost(h string) error {
 // ValidateSSHPort — puerto TCP 1-65535.
 func ValidateSSHPort(p int) error {
 	if p < 1 || p > 65535 {
-		return fmt.Errorf("puerto SSH inválido %d", p)
+		return fmt.Errorf("invalid SSH port %d", p)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func (j *Job) Validate() error {
 			return err
 		}
 	default:
-		return fmt.Errorf("dest_type inválido %q (local|ssh)", j.DestType)
+		return fmt.Errorf("invalid dest_type %q (local|ssh)", j.DestType)
 	}
 	return nil
 }

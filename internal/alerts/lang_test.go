@@ -28,11 +28,11 @@ func TestChannelsFollowTheNotificationLanguage(t *testing.T) {
 		admin   string // language, ui_lang of the only admin ("" = no admin)
 		want    string
 	}{
-		{"explicit English", "en", "", "Pool capacity"},
-		{"explicit Spanish over an English admin", "es", "en,en", "Capacidad de pool"},
-		{"auto follows the admin's UI", "auto", "auto,en", "Pool capacity"},
-		{"auto, the admin's own choice wins", "auto", "es,en", "Capacidad de pool"},
-		{"auto without admins", "auto", "", "Capacidad de pool"},
+		{"explicit Spanish", "es", "", "Capacidad de pool"},
+		{"explicit English over a Spanish admin", "en", "es,es", "Pool capacity"},
+		{"auto follows the admin's UI", "auto", "auto,es", "Capacidad de pool"},
+		{"auto, the admin's own choice wins", "auto", "en,es", "Pool capacity"},
+		{"auto without admins: English", "auto", "", "Pool capacity"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestChannelsFollowTheNotificationLanguage(t *testing.T) {
 			a := New(d, hub.NewHub(), st)
 			a.SetChannels(channels.New(channels.Config{NtfyURL: srv.URL}))
 			a.RaiseKind(context.Background(), "warn", "pool.tank", "pools:tank",
-				"Pool tank al 95% de capacidad (aviso ≥ 90%)", "pool_capacity",
+				"Pool tank at 95% capacity (warning ≥ 90%)", "pool_capacity",
 				map[string]any{"pool": "tank", "pct": 95, "threshold": 90})
 			select {
 			case m := <-got:
@@ -84,7 +84,7 @@ func TestChannelsFollowTheNotificationLanguage(t *testing.T) {
 }
 
 // A user left on "auto" gets e-mail in the language their UI was last seen
-// in (users.ui_lang), not the Spanish fallback.
+// in (users.ui_lang), not the English default.
 func TestEmailFollowsTheUILanguage(t *testing.T) {
 	d, err := db.Open(t.TempDir() + "/test.db")
 	if err != nil {
@@ -98,7 +98,7 @@ func TestEmailFollowsTheUILanguage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Exec("INSERT INTO users(user, pass_hash, role, language, ui_lang, email) VALUES ('alice','x','user','auto','en','alice@example.com')"); err != nil {
+	if _, err := d.Exec("INSERT INTO users(user, pass_hash, role, language, ui_lang, email) VALUES ('alice','x','user','auto','es','alice@example.com')"); err != nil {
 		t.Fatal(err)
 	}
 	fake := newSMTPFake(t)
@@ -112,13 +112,13 @@ func TestEmailFollowsTheUILanguage(t *testing.T) {
 	defer m.Close()
 	a := New(d, hub.NewHub(), st)
 	a.SetEmail(m)
-	a.RaiseKind(context.Background(), "warn", "smart.sdb", "disks:sdb", "SMART con avisos en sdb: no disponible", "smart_status",
-		map[string]any{"dev": "sdb", "detail": "no disponible"})
+	a.RaiseKind(context.Background(), "warn", "smart.sdb", "disks:sdb", "SMART warnings on sdb: not available", "smart_status",
+		map[string]any{"dev": "sdb", "detail": "not available"})
 	select {
 	case msg := <-fake.msgs:
 		flat := strings.ReplaceAll(msg, "=\n", "") // quoted-printable soft breaks
-		if !strings.Contains(flat, "not available") || strings.Contains(flat, "no disponible") {
-			t.Errorf("e-mail not in English (or its SMART detail untranslated):\n%s", msg)
+		if !strings.Contains(flat, "no disponible") || strings.Contains(flat, "not available") {
+			t.Errorf("e-mail not in Spanish (or its SMART detail untranslated):\n%s", msg)
 		}
 	case <-time.After(4 * time.Second):
 		t.Fatal("no e-mail")

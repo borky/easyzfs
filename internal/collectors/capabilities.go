@@ -68,7 +68,7 @@ func CapabilitiesFromOutput(out string) model.Capabilities {
 		ver := mjoin(maj, min, pat)
 		return capsFromVersion(maj, min, pat, ver)
 	}
-	return model.Capabilities{Version: "desconocida"}
+	return model.Capabilities{Version: "unknown"}
 }
 
 // mjoin formatea "2.3.4".
@@ -131,7 +131,7 @@ func (c *CapsCollector) Capabilities() model.Capabilities {
 func DetectZFSVersion(ctx context.Context) string {
 	out, err := executil.RunRead(ctx, 5*time.Second, "zpool", "--version")
 	if err != nil {
-		return "desconocida"
+		return "unknown"
 	}
 	// formato: 'zfs-2.2.6-1\nzfs-kmod-2.2.6-1'
 	first, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")

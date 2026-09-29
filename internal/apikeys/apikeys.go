@@ -23,7 +23,7 @@ type KeyInfo struct {
 }
 
 // ErrNotFound — la clave o id no existe.
-var ErrNotFound = errors.New("clave no encontrada")
+var ErrNotFound = errors.New("key not found")
 
 // Store — acceso a la tabla api_keys.
 type Store struct {

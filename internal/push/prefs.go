@@ -255,7 +255,7 @@ func (s *Sender) drainUser(ctx context.Context, userID string) {
 		"SELECT id, tipo, severity, datos_json FROM notification_queue WHERE user_id=? ORDER BY id",
 		userID)
 	if err != nil {
-		log.Printf("push: cola de %s: %v", userID, err)
+		log.Printf("push: queue of %s: %v", userID, err)
 		return
 	}
 	var items []queueItem
@@ -263,12 +263,12 @@ func (s *Sender) drainUser(ctx context.Context, userID string) {
 		var it queueItem
 		var datos string
 		if err := rows.Scan(&it.id, &it.tipo, &it.severity, &datos); err != nil {
-			log.Printf("push: cola de %s (scan): %v", userID, err)
+			log.Printf("push: queue of %s (scan): %v", userID, err)
 			break
 		}
 		var d queueDatos
 		if err := json.Unmarshal([]byte(datos), &d); err != nil {
-			log.Printf("push: cola de %s (datos_json inválido, id %d): %v", userID, it.id, err)
+			log.Printf("push: queue of %s (invalid datos_json, id %d): %v", userID, it.id, err)
 			continue
 		}
 		it.userID = userID
@@ -284,7 +284,7 @@ func (s *Sender) drainUser(ctx context.Context, userID string) {
 
 	subs, err := s.listUser(ctx, userID)
 	if err != nil {
-		log.Printf("push: suscripciones de %s: %v", userID, err)
+		log.Printf("push: subscriptions of %s: %v", userID, err)
 		return // reintenta en el próximo tick (no se borra la cola)
 	}
 	for _, it := range items {
@@ -305,7 +305,7 @@ func (s *Sender) drainUser(ctx context.Context, userID string) {
 func (s *Sender) clearQueue(ctx context.Context, userID string) {
 	if _, err := s.db.ExecContext(ctx,
 		"DELETE FROM notification_queue WHERE user_id=?", userID); err != nil {
-		log.Printf("push: vaciar cola de %s: %v", userID, err)
+		log.Printf("push: empty the queue of %s: %v", userID, err)
 	}
 }
 

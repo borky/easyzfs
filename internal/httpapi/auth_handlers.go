@@ -212,7 +212,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.User) > loginMaxUserLen {
-		writeErr(w, http.StatusUnauthorized, "bad_credentials", "usuario o contraseña incorrectos")
+		writeErr(w, http.StatusUnauthorized, "bad_credentials", "wrong username or password")
 		return
 	}
 	select {
@@ -220,28 +220,28 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-loginQueue }()
 	default:
 		w.Header().Set("Retry-After", "1")
-		writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados inicios de sesión en curso; inténtalo de nuevo en unos segundos")
+		writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many logins in progress; try again in a few seconds")
 		return
 	}
 	key := loginKey(r, body.User)
 	now := time.Now()
 	if ok, retry := s.loginLimiter.allow(key, now); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
-		writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados intentos de login; inténtalo más tarde")
+		writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many login attempts; try again later")
 		return
 	}
 	// Semáforo argon2: serializar verificaciones para acotar la memoria.
 	role, err := s.verifyArgon(r.Context(), body.User, body.Password)
 	if err != nil {
 		s.loginLimiter.failure(key, now)
-		writeErr(w, http.StatusUnauthorized, "bad_credentials", "usuario o contraseña incorrectos")
+		writeErr(w, http.StatusUnauthorized, "bad_credentials", "wrong username or password")
 		return
 	}
 	// 2FA activo → no crear sesión aún; entregar un token pendiente firmado.
 	if s.require2FA(r.Context(), body.User) {
 		pending, perr := s.auth.SignPending(body.User)
 		if perr != nil {
-			writeErr(w, http.StatusInternalServerError, "session_error", "no se pudo preparar el segundo factor")
+			writeErr(w, http.StatusInternalServerError, "session_error", "could not prepare the second factor")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -255,7 +255,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.loginLimiter.success(key)
 	cookie, err := s.auth.CreateSession(r.Context(), body.User)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "session_error", "no se pudo crear la sesión")
+		writeErr(w, http.StatusInternalServerError, "session_error", "could not create the session")
 		return
 	}
 	cookie.Secure = s.auth.SecureRequest(r)
@@ -277,20 +277,20 @@ func (s *Server) login2FA(w http.ResponseWriter, r *http.Request) {
 	}
 	user, ok := s.auth.VerifyPending(body.Pending)
 	if !ok {
-		writeErr(w, http.StatusUnauthorized, "pending_expired", "la sesión de segundo factor ha caducado; vuelve a introducir tu contraseña")
+		writeErr(w, http.StatusUnauthorized, "pending_expired", "the second-factor session has expired; enter your password again")
 		return
 	}
 	key := loginKey(r, user)
 	now := time.Now()
 	if ok, retry := s.loginLimiter.allow(key, now); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
-		writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados intentos; inténtalo más tarde")
+		writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many attempts; try again later")
 		return
 	}
 	// Código TOTP, o recovery code como alternativa.
 	secret, err := s.users.TOTPSecret(r.Context(), user)
 	if err != nil || secret == "" {
-		writeErr(w, http.StatusUnauthorized, "bad_code", "código incorrecto")
+		writeErr(w, http.StatusUnauthorized, "bad_code", "wrong code")
 		return
 	}
 	if totp.Validate(strings.TrimSpace(body.Code), secret, now) {
@@ -305,14 +305,14 @@ func (s *Server) login2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginLimiter.failure(key, now)
-	writeErr(w, http.StatusUnauthorized, "bad_code", "código incorrecto")
+	writeErr(w, http.StatusUnauthorized, "bad_code", "wrong code")
 }
 
 // finishLogin2FA crea la sesión y responde (paso común del login 2FA).
 func (s *Server) finishLogin2FA(w http.ResponseWriter, r *http.Request, user string) {
 	cookie, err := s.auth.CreateSession(r.Context(), user)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "session_error", "no se pudo crear la sesión")
+		writeErr(w, http.StatusInternalServerError, "session_error", "could not create the session")
 		return
 	}
 	cookie.Secure = s.auth.SecureRequest(r)
@@ -426,7 +426,7 @@ func (s *Server) changeMyPassword(w http.ResponseWriter, r *http.Request) {
 	key, now := loginKey(r, user), time.Now()
 	if ok, retry := s.loginLimiter.allow(key, now); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
-		writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados intentos; inténtalo más tarde")
+		writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many attempts; try again later")
 		return
 	}
 	// Mismo semáforo argon2 que en login: acota la memoria en verificaciones.
@@ -435,7 +435,7 @@ func (s *Server) changeMyPassword(w http.ResponseWriter, r *http.Request) {
 		s.loginLimiter.failure(key, now)
 		// 403, not 401: the frontend treats any 401 as an expired session,
 		// so a mistyped current password logged the user out.
-		writeErr(w, http.StatusForbidden, "bad_credentials", "la contraseña actual no es correcta")
+		writeErr(w, http.StatusForbidden, "bad_credentials", "the current password is not correct")
 		return
 	}
 	s.loginLimiter.success(key)
@@ -531,16 +531,16 @@ func (s *Server) my2FAConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if enabled {
-		writeErr(w, http.StatusConflict, "already_enabled", "la verificación en dos pasos ya está activa")
+		writeErr(w, http.StatusConflict, "already_enabled", "two-step verification is already enabled")
 		return
 	}
 	secret, err := s.users.TOTPSecret(r.Context(), user)
 	if err != nil || secret == "" {
-		writeErr(w, http.StatusBadRequest, "no_setup", "inicia primero la configuración (setup)")
+		writeErr(w, http.StatusBadRequest, "no_setup", "start the setup first")
 		return
 	}
 	if !totp.Validate(strings.TrimSpace(body.Code), secret, time.Now()) {
-		writeErr(w, http.StatusUnauthorized, "bad_code", "código incorrecto")
+		writeErr(w, http.StatusUnauthorized, "bad_code", "wrong code")
 		return
 	}
 	if err := s.users.TOTPActivate(r.Context(), user); err != nil {
@@ -584,7 +584,7 @@ func (s *Server) my2FADisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !enabled {
-		writeErr(w, http.StatusBadRequest, "not_enabled", "la verificación en dos pasos no está activa")
+		writeErr(w, http.StatusBadRequest, "not_enabled", "two-step verification is not enabled")
 		return
 	}
 	secret, _ := s.users.TOTPSecret(r.Context(), user)
@@ -593,7 +593,7 @@ func (s *Server) my2FADisable(w http.ResponseWriter, r *http.Request) {
 		ok = true
 	}
 	if !ok {
-		writeErr(w, http.StatusUnauthorized, "bad_code", "código incorrecto")
+		writeErr(w, http.StatusUnauthorized, "bad_code", "wrong code")
 		return
 	}
 	if err := s.users.TOTPDisable(r.Context(), user); err != nil {
@@ -613,7 +613,7 @@ func (s *Server) my2FARecovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !enabled {
-		writeErr(w, http.StatusBadRequest, "not_enabled", "la verificación en dos pasos no está activa")
+		writeErr(w, http.StatusBadRequest, "not_enabled", "two-step verification is not enabled")
 		return
 	}
 	if err := s.users.ClearRecoveryCodes(r.Context(), user); err != nil {

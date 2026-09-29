@@ -100,7 +100,7 @@ func (s *Server) patchReplication(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := s.repl.Store().Get(r.Context(), id); err != nil {
-		writeErr(w, http.StatusNotFound, "not_found", "job de replicación no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "replication job not found")
 		return
 	}
 	if err := s.repl.Store().Update(r.Context(), id, body.Enabled, body.ForceFull, body.Raw, body.Schedule); err != nil {
@@ -120,7 +120,7 @@ func (s *Server) deleteReplication(w http.ResponseWriter, r *http.Request) {
 	}
 	j, err := s.repl.Store().Get(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "not_found", "job de replicación no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "replication job not found")
 		return
 	}
 	var body struct {
@@ -150,7 +150,7 @@ func (s *Server) runReplication(w http.ResponseWriter, r *http.Request) {
 	if err := s.repl.RunNow(r.Context(), id); err != nil {
 		switch {
 		case errors.Is(err, replication.ErrNotFound):
-			writeErr(w, http.StatusNotFound, "not_found", "job de replicación no encontrado")
+			writeErr(w, http.StatusNotFound, "not_found", "replication job not found")
 		case errors.Is(err, replication.ErrAlreadyRunning):
 			writeErr(w, http.StatusConflict, "already_running", err.Error())
 		default:
@@ -172,8 +172,8 @@ func (s *Server) getReplicationSSHKey(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"public_key": pub,
-		"instructions": "Añade esta clave a ~/.ssh/authorized_keys del usuario destino. " +
-			"Para no usar root: zfs allow -u <usuario> snapshot,send,receive,destroy,hold,bookmark <pool>",
+		"instructions": "Add this key to ~/.ssh/authorized_keys of the destination user. " +
+			"To avoid root: zfs allow -u <user> snapshot,send,receive,destroy,hold,bookmark <pool>",
 	})
 }
 

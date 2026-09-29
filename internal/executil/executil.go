@@ -16,7 +16,7 @@ import (
 )
 
 // ErrTimeout indica que el comando superó su timeout.
-var ErrTimeout = errors.New("timeout ejecutando comando")
+var ErrTimeout = errors.New("timeout running the command")
 
 // useSudo decide si los comandos privilegiados (zpool, zfs, smartctl, lsblk, crontab)
 // se ejecutan vía `sudo -n`:
@@ -137,7 +137,7 @@ func RunDirect(ctx context.Context, timeout time.Duration, name string, args ...
 	cmd := exec.CommandContext(cctx, name, args...)
 	out, err := cmd.Output()
 	if cctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("%s: %w tras %s", name, ErrTimeout, timeout)
+		return nil, fmt.Errorf("%s: %w after %s", name, ErrTimeout, timeout)
 	}
 	if err != nil {
 		var ee *exec.ExitError
@@ -162,7 +162,7 @@ func Run(ctx context.Context, timeout time.Duration, name string, args ...string
 	cmd := exec.CommandContext(cctx, name, args...)
 	out, err := cmd.Output()
 	if cctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("%s: %w tras %s", orig, ErrTimeout, timeout)
+		return nil, fmt.Errorf("%s: %w after %s", orig, ErrTimeout, timeout)
 	}
 	if err != nil {
 		var ee *exec.ExitError
@@ -191,7 +191,7 @@ func RunTolerant(ctx context.Context, timeout time.Duration, name string, args .
 	cmd := exec.CommandContext(cctx, name, args...)
 	out, err := cmd.Output()
 	if cctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("%s: %w tras %s", orig, ErrTimeout, timeout)
+		return nil, fmt.Errorf("%s: %w after %s", orig, ErrTimeout, timeout)
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -223,7 +223,7 @@ func RunStdin(ctx context.Context, timeout time.Duration, stdin []byte, name str
 	cmd.Stdin = bytes.NewReader(stdin)
 	out, err := cmd.Output()
 	if cctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("%s: %w tras %s", orig, ErrTimeout, timeout)
+		return nil, fmt.Errorf("%s: %w after %s", orig, ErrTimeout, timeout)
 	}
 	if err != nil {
 		var ee *exec.ExitError

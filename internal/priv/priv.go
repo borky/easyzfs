@@ -35,11 +35,11 @@ const securePath = "/usr/sbin:/usr/bin:/sbin:/bin"
 // returns (the tool replaces the process).
 func Main(args []string) int {
 	if os.Geteuid() != 0 {
-		refuse("not_allowed", "el gateway privilegiado solo corre como root (vía sudo)")
+		refuse("not_allowed", "the privileged gateway only runs as root (via sudo)")
 		return 3
 	}
 	if len(args) == 0 {
-		refuse("not_allowed", "uso: easyzfs priv <herramienta> <argumentos…>")
+		refuse("not_allowed", "usage: easyzfs priv <tool> <arguments…>")
 		return 2
 	}
 	os.Setenv("PATH", securePath)
@@ -48,7 +48,7 @@ func Main(args []string) int {
 	if len(args) == 1 && args[0] == "pvecfg" {
 		c, err := actions.ReadPVEConfig("/etc/pve")
 		if err != nil {
-			refuse("host_unknown", fmt.Sprintf("leer /etc/pve: %v", err))
+			refuse("host_unknown", fmt.Sprintf("read /etc/pve: %v", err))
 			return 3
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(c); err != nil {
@@ -66,7 +66,7 @@ func Main(args []string) int {
 	}
 	bin, err := exec.LookPath(tool)
 	if err != nil {
-		refuse("invalid_input", fmt.Sprintf("%s no encontrado: %v", tool, err))
+		refuse("invalid_input", fmt.Sprintf("%s not found: %v", tool, err))
 		return 3
 	}
 	// LC_ALL=C: the service reads ZFS's English messages ("does not exist").
@@ -75,7 +75,7 @@ func Main(args []string) int {
 		return recv(bin, rest, env)
 	}
 	err = syscall.Exec(bin, append([]string{tool}, rest...), env)
-	refuse("invalid_input", fmt.Sprintf("ejecutar %s: %v", tool, err))
+	refuse("invalid_input", fmt.Sprintf("run %s: %v", tool, err))
 	return 3
 }
 
@@ -90,7 +90,7 @@ func recv(bin string, args, env []string) int {
 	hdr := make([]byte, 40)
 	n, err := io.ReadFull(os.Stdin, hdr)
 	if err != nil {
-		refuse("invalid_input", fmt.Sprintf("leer el stream: %v", err))
+		refuse("invalid_input", fmt.Sprintf("read the stream: %v", err))
 		return 3
 	}
 	volume, err := actions.RecvStreamIsVolume(hdr[:n])
@@ -99,7 +99,7 @@ func recv(bin string, args, env []string) int {
 		return 3
 	}
 	if volume != actions.IsRecvVolumeForm(args[1:]) {
-		refuse("not_allowed", "el tipo del stream no corresponde a la forma de zfs recv pedida")
+		refuse("not_allowed", "the stream type does not match the requested zfs recv form")
 		return 3
 	}
 	cmd := exec.Command(bin, args...)
@@ -110,7 +110,7 @@ func recv(bin string, args, env []string) int {
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	if err := cmd.Start(); err != nil {
-		refuse("invalid_input", fmt.Sprintf("ejecutar zfs recv: %v", err))
+		refuse("invalid_input", fmt.Sprintf("run zfs recv: %v", err))
 		return 3
 	}
 	go func() {

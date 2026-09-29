@@ -102,10 +102,10 @@ func FromConfig(c *config.Config) SMTP {
 // Validate comprueba que el canal está operativo (host + from).
 func (s SMTP) Validate() error {
 	if s.Host == "" {
-		return fmt.Errorf("SMTP_HOST no definido")
+		return fmt.Errorf("SMTP_HOST not set")
 	}
 	if s.From == "" {
-		return fmt.Errorf("SMTP_FROM no definido")
+		return fmt.Errorf("SMTP_FROM not set")
 	}
 	return nil
 }
@@ -175,7 +175,7 @@ func (m *Mailer) Send(ctx context.Context, to []string, lang string, a Alert, ti
 	}
 	for _, d := range dest {
 		if err := msg.To(d); err != nil {
-			log.Printf("notifier: destinatario inválido %q: %v", d, err)
+			log.Printf("notifier: invalid recipient %q: %v", d, err)
 		}
 	}
 	msg.Subject(prefix + title)
@@ -198,8 +198,8 @@ var alertENTxt string
 
 // render compone texto + HTML en el idioma pedido (fallback es).
 func render(lang string, a Alert, title, summary string) (html, text string, err error) {
-	if lang != "en" {
-		lang = "es"
+	if lang != "es" {
+		lang = "en" // the product's language
 	}
 	data := templateData{
 		Title:     title,

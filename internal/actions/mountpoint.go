@@ -78,7 +78,7 @@ func mountsNothing(v string) bool {
 // for any other reason must not be mistaken for that. Substituting the
 // inherited path for the recorded one is the "intended state instead of
 // observed state" trap, and here it would hand a mount over /etc a pass.
-var ErrNoSuchDataset = errors.New("el dataset no existe")
+var ErrNoSuchDataset = errors.New("the dataset does not exist")
 
 // readMountpointProp — mountpoint value and source of one dataset, read live.
 // RunRead needs no sudo: 'zfs get' works unprivileged on Debian/Proxmox, and
@@ -93,7 +93,7 @@ var readMountpointProp = func(ctx context.Context, dataset string) (value, sourc
 	line := strings.TrimRight(string(out), "\n")
 	i := strings.LastIndex(line, "\t")
 	if i < 0 {
-		return "", "", fmt.Errorf("zfs get mountpoint %s: respuesta inesperada", dataset)
+		return "", "", fmt.Errorf("zfs get mountpoint %s: unexpected answer", dataset)
 	}
 	return line[:i], line[i+1:], nil
 }
@@ -188,7 +188,7 @@ func (r *mountResolver) read(ctx context.Context, dataset string) (value, source
 	}
 	if source == "" {
 		// A line with no source is not an answer about where this mounts.
-		return "", "", fmt.Errorf("zfs get mountpoint %s: sin source", dataset)
+		return "", "", fmt.Errorf("zfs get mountpoint %s: no source", dataset)
 	}
 	r.props[dataset] = [2]string{value, source}
 	return value, source, nil
@@ -248,7 +248,7 @@ func (r *mountResolver) target(ctx context.Context, dataset string) (mountTarget
 		// timeout, a suspended pool, sudo refusing — leaves us not knowing
 		// where this dataset would mount, and an unknown is not a pass.
 		if !errors.Is(err, ErrNoSuchDataset) || !ok {
-			return mountTarget{}, fmt.Errorf("%w: no se puede leer el punto de montaje de %s: %v", ErrInvalidInput, cur, err)
+			return mountTarget{}, fmt.Errorf("%w: cannot read the mountpoint of %s: %v", ErrInvalidInput, cur, err)
 		}
 		cur = parent
 	}
@@ -256,7 +256,7 @@ func (r *mountResolver) target(ctx context.Context, dataset string) (mountTarget
 		return mountTarget{}, nil
 	}
 	if !strings.HasPrefix(value, "/") {
-		return mountTarget{}, fmt.Errorf("%w: punto de montaje de %s ilegible (%q)", ErrInvalidInput, cur, value)
+		return mountTarget{}, fmt.Errorf("%w: unreadable mountpoint of %s (%q)", ErrInvalidInput, cur, value)
 	}
 	t := r.targetFrom(ctx, cur, value, source)
 	if cur != dataset {
@@ -292,13 +292,13 @@ func (r *mountResolver) checkTarget(ctx context.Context, dataset string, t mount
 		return nil
 	}
 	if deniedMountpoint(t.path) {
-		return fmt.Errorf("%w: %s se montaría en una ruta de sistema (%s); eso deja la máquina sin arrancar o sin red",
+		return fmt.Errorf("%w: %s would be mounted on a system path (%s); that leaves the machine unable to boot or without network",
 			ErrInvalidInput, dataset, t.path)
 	}
 	if allowlist {
 		for _, e := range derivedExactMountpoints {
 			if t.path == e {
-				return fmt.Errorf("%w: %s se montaría sobre %s, que esconde todo lo que hay debajo",
+				return fmt.Errorf("%w: %s would be mounted over %s, hiding everything underneath",
 					ErrInvalidInput, dataset, t.path)
 			}
 		}
@@ -309,7 +309,7 @@ func (r *mountResolver) checkTarget(ctx context.Context, dataset string, t mount
 			trees = append(append([]string(nil), trees...), t.grant)
 		}
 		if !underAllowedRoot(t.path, trees) {
-			return fmt.Errorf("%w: %s heredaría el punto de montaje %s, fuera de las rutas permitidas (%s, /mnt/…, /media/…, /srv/…, /home/…); define un mountpoint explícito o elige otro padre",
+			return fmt.Errorf("%w: %s would inherit the mountpoint %s, outside the allowed paths (%s, /mnt/…, /media/…, /srv/…, /home/…); set an explicit mountpoint or choose another parent",
 				ErrInvalidInput, dataset, t.path, strings.Join(trees, ", "))
 		}
 	}
@@ -318,7 +318,7 @@ func (r *mountResolver) checkTarget(ctx context.Context, dataset string, t mount
 	// users or left group-writable is the ordinary setup. See
 	// checkMountpointPath for what that gives up.
 	if err := checkMountpointPath("/", t.path, false); err != nil {
-		return fmt.Errorf("%w: %s no se puede montar en %s: %v", ErrInvalidInput, dataset, t.path, err)
+		return fmt.Errorf("%w: %s cannot be mounted at %s: %v", ErrInvalidInput, dataset, t.path, err)
 	}
 	return nil
 }
@@ -355,7 +355,7 @@ func checkEffectiveMountpointTree(ctx context.Context, dataset string) error {
 		if _, _, err := r.read(ctx, cur); err == nil {
 			break
 		} else if !errors.Is(err, ErrNoSuchDataset) {
-			return fmt.Errorf("%w: no se puede leer el punto de montaje de %s: %v", ErrInvalidInput, cur, err)
+			return fmt.Errorf("%w: cannot read the mountpoint of %s: %v", ErrInvalidInput, cur, err)
 		}
 		missing = append(missing, cur)
 		parent, ok := parentDataset(cur)
@@ -446,7 +446,7 @@ func (s *Service) mountTree(ctx context.Context, root string) []string {
 	rows, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume",
 		"canmount,mountpoint,keystatus,sharenfs,sharesmb", root)
 	if err != nil {
-		return []string{fmt.Sprintf("no se pudo leer el árbol para montarlo: %v", err)}
+		return []string{fmt.Sprintf("could not read the tree to mount it: %v", err)}
 	}
 	byName := map[string]map[string]string{}
 	source := map[string]string{}
@@ -485,12 +485,12 @@ func (s *Service) mountTree(ctx context.Context, root string) []string {
 			// Logged as well as returned: the HTTP response is read once, and
 			// a dataset deliberately left unmounted is a state somebody will
 			// have to explain days later.
-			log.Printf("mountpoint: no se monta %s: %v", n, err)
-			warnings = append(warnings, fmt.Sprintf("no se monta %s: %v", n, err))
+			log.Printf("mountpoint: %s is not mounted: %v", n, err)
+			warnings = append(warnings, fmt.Sprintf("%s is not mounted: %v", n, err))
 			continue
 		}
 		if _, err := runZFS(ctx, 60*time.Second, "mount", n); err != nil && !strings.Contains(err.Error(), "already mounted") {
-			warnings = append(warnings, fmt.Sprintf("montar %s: %v", n, err))
+			warnings = append(warnings, fmt.Sprintf("mount %s: %v", n, err))
 			continue
 		}
 		// Put back what 'zfs mount' does not: the NFS/SMB export the dataset

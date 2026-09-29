@@ -25,7 +25,7 @@ import (
 func (s *Server) getPushVapidKey(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.PushEnabled() {
 		writeErr(w, http.StatusServiceUnavailable, "push_not_configured",
-			"notificaciones push no configuradas en el servidor (faltan claves VAPID)")
+			"push notifications not configured on the server (VAPID keys missing)")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"publicKey": s.cfg.VAPIDPublicKey})
@@ -47,7 +47,7 @@ type subscribeReq struct {
 func (s *Server) postPushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.PushEnabled() {
 		writeErr(w, http.StatusServiceUnavailable, "push_not_configured",
-			"notificaciones push no configuradas en el servidor (faltan claves VAPID)")
+			"push notifications not configured on the server (VAPID keys missing)")
 		return
 	}
 	var req subscribeReq
@@ -56,25 +56,25 @@ func (s *Server) postPushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	// Validación: endpoint HTTPS (capability URL) y claves presentes.
 	if req.Endpoint == "" || len(req.Endpoint) > 2048 || !strings.HasPrefix(req.Endpoint, "https://") {
-		writeErr(w, http.StatusBadRequest, "invalid_endpoint", "endpoint inválido (se requiere URL https://)")
+		writeErr(w, http.StatusBadRequest, "invalid_endpoint", "invalid endpoint (an https:// URL is required)")
 		return
 	}
 	// Formato de claves: p256dh = punto P256 sin comprimir (65 bytes) y
 	// auth = secreto de 16 bytes, ambos en base64url.
 	if !validKeys(req.Keys.P256dh, req.Keys.Auth) {
 		writeErr(w, http.StatusBadRequest, "invalid_keys",
-			"claves de suscripción inválidas (p256dh debe ser base64url de 65 bytes y auth de 16 bytes)")
+			"invalid subscription keys (p256dh must be 65 bytes of base64url and auth 16 bytes)")
 		return
 	}
 	// Origin: vacío (fallback a URLs relativas) o http(s)://…
 	if len(req.Origin) > 256 ||
 		(req.Origin != "" && !strings.HasPrefix(req.Origin, "https://") && !strings.HasPrefix(req.Origin, "http://")) {
-		writeErr(w, http.StatusBadRequest, "invalid_origin", "origin inválido (se requiere URL http(s)://)")
+		writeErr(w, http.StatusBadRequest, "invalid_origin", "invalid origin (an http(s):// URL is required)")
 		return
 	}
 	lang := req.Lang
 	if lang != "en" && lang != "es" {
-		lang = "" // desconocido/ausente: insert cae al default 'es' y el upsert conserva el existente
+		lang = "" // unknown or absent: the insert falls back to 'en', the upsert keeps what was there
 	}
 	ua := r.UserAgent()
 	if len(ua) > 512 {
@@ -115,7 +115,7 @@ func (s *Server) deletePushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Endpoint == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_endpoint", "falta el endpoint de la suscripción")
+		writeErr(w, http.StatusBadRequest, "invalid_endpoint", "the subscription endpoint is missing")
 		return
 	}
 	if err := s.push.Unsubscribe(r.Context(), auth.UserFromContext(r.Context()), req.Endpoint); err != nil {
@@ -152,7 +152,7 @@ func (s *Server) putPushPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	if !push.TipoValido(req.Tipo) {
 		writeErr(w, http.StatusBadRequest, "invalid_tipo",
-			fmt.Sprintf("tipo de alerta desconocido (válidos: %s)", strings.Join(push.Tipos, ", ")))
+			fmt.Sprintf("unknown alert type (valid: %s)", strings.Join(push.Tipos, ", ")))
 		return
 	}
 	if err := s.push.SetPreference(r.Context(), auth.UserFromContext(r.Context()), req.Tipo, req.Enabled); err != nil {
@@ -189,7 +189,7 @@ func (s *Server) putPushQuietHours(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled {
 		if req.Start < 0 || req.Start > 23 || req.End < 0 || req.End > 23 || req.Start == req.End {
 			writeErr(w, http.StatusBadRequest, "invalid_hours",
-				"horas inválidas: start y end entre 0 y 23, y distintas entre sí")
+				"invalid hours: start and end between 0 and 23, and different from each other")
 			return
 		}
 	}

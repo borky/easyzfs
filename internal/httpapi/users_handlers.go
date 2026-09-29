@@ -63,12 +63,12 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	self := auth.UserFromContext(r.Context())
 	if name == self {
-		writeErr(w, http.StatusBadRequest, "self_delete", "no puedes borrar tu propio usuario")
+		writeErr(w, http.StatusBadRequest, "self_delete", "you cannot delete your own user")
 		return
 	}
 	target, err := s.users.Get(r.Context(), name)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "not_found", "usuario no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "user not found")
 		return
 	}
 	if target.Role == "admin" {
@@ -78,7 +78,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if n <= 1 {
-			writeErr(w, http.StatusBadRequest, "last_admin", "no se puede borrar al último admin")
+			writeErr(w, http.StatusBadRequest, "last_admin", "the last admin cannot be deleted")
 			return
 		}
 	}

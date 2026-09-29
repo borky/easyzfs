@@ -13,24 +13,27 @@ import (
 	"testing"
 )
 
-// reSpanishText — a literal that reads as Spanish prose: an accented letter,
-// or a Spanish word that English never uses.
-var reSpanishText = regexp.MustCompile(`(?i)[áéíóúñ¿¡]|\b(el|la|los|las|del|al|lo|su|sus|para|con|sin|está|están|hay|puede|debe|que|una|uno|un|es|son|se|no|ningún|ninguna|ya|aún|también|desde|hasta|cuando|porque|sobre|entre|borrar|crear|leer|montar|desmontar|guardar|contraseña|usuario|entrada|inválid[ao]s?|válid[ao]s?|conflicto|papelera|almacenamiento|sesión|operación|disco|discos|réplica|origen|destino|nombre|clave|cifrado|puerto|ruta|fichero|archivo|encontrad[ao]s?|requerid[ao]s?|inexistente|desconocid[ao]s?|vací[ao]|demasiad[ao]s?|modo|solo|falta|faltan|falló|cancelad[ao]|tiene|tienen|existe|permitid[ao]|configurad[ao]|activ[ao]|pendiente|aviso|intento|intentos|petición|rechazad[ao]|cambiar|añadir|quitar|apagar|identificar|restaurar|mover|renombrar|sustituir|lanzar|comprobar|preparar|actualizaciones|nuevo|nueva|actual|propiedad|valor|tamaño|horas|día|minuto|semanal|mes|retención|tipo|terminado|iniciado|errores|en|nuevos|nuevas|histórico|estable|de|tras|fuera|ejecutando|ejecutar|comando|hora|rango|credenciales|importar|destruir|exportar|descartar|migrar|expandir|bloquear|desbloquear|clonar|promocionar|listar|vaciar|respuesta|inesperad[ao]|ilegible|umbral|esperad[ao]|mientras|todavía|ahora|antes|después)\b`)
+// reSpanishText — a literal that reads as Spanish: an accented letter, or
+// two Spanish words English never uses.
+var reSpanishText = regexp.MustCompile(`(?i)[áéíóúñ¿¡]|\b(el|la|los|las|del|para|con|sin|está|están|hay|que|una|uno|ningún|ninguna|también|desde|hasta|cuando|porque|sobre|entre|borrar|crear|leer|montar|desmontar|guardar|usuario|entrada|conflicto|papelera|almacenamiento|disco|discos|origen|destino|nombre|clave|cifrado|puerto|ruta|fichero|encontrad[ao]|requerid[ao]|desconocid[ao]|vací[ao]|demasiad[ao]s?|modo|falta|faltan|falló|cancelad[ao]|tiene|tienen|existe|permitid[ao]|configurad[ao]|pendiente|aviso|intentos|petición|cambiar|añadir|quitar|apagar|restaurar|mover|renombrar|sustituir|lanzar|comprobar|actualizaciones|nuevo|nueva|actual|propiedad|valor|tamaño|horas|día|minuto|semanal|retención|tipo|terminado|iniciado|errores|nuevos|histórico|estable|tras|fuera|ejecutando|ejecutar|comando|hora|rango|importar|destruir|exportar|descartar|migrar|expandir|bloquear|desbloquear|clonar|listar|vaciar|respuesta|ilegible|umbral|mientras|ahora|antes|después|sesión|operación|leído|escrito|un|sale|importada|instalada|reiniciando|migraciones|por|como|más|muy|pero|será|genera|imprime|muestra|usa|pulsa|elige|instala|ejecuta|reinicia|comprueba|arrancado|parado|iniciando|esperando|reintentando|recibido|enviado|borrado|creado|montado|desmontado|guardado|cargado|listo|fallo|aviso|crítica)\b`)
 
 var reSQL = regexp.MustCompile(`(?i)^\s*(SELECT|INSERT|CREATE|UPDATE|DELETE|ALTER|PRAGMA|WITH)\b`)
 
-// notProse — literals the detector catches that are not user-visible text:
-// identifiers, codes, English, and strings that never leave the process.
-var notProse = map[string]bool{
-	"es": true, "no": true, "tipo": true, "no-cache": true, "no such file": true,
-	"No other update is running.": true, "No update in progress": true,
-	"rollback: no backup available (.old not found)": true,
-	"en": true, "inválid": true, // a language code; a substring test in httpapi
-	`{"error":"streaming","message":"SSE no soportado"}`: true, // plain-text body of a failed SSE setup
-	"antes-de-migracion":                            true, // a pool name in the mock
-	"uso: easyzfs priv <herramienta> <argumentos…>": true, // usage line on a root terminal
-	// Messages that are already English (technical wrappers around zfs,
-	// sqlite or updater errors): nothing to translate.
+// spanishFiles, spanishOK — Spanish that is meant to stay: the Spanish side
+// of what is bilingual by design, and identifiers that only look Spanish.
+var spanishFiles = []string{
+	"internal/i18n/",        // this package: the Spanish translations
+	"internal/push/i18n.go", // push notifications: es/en templates
+}
+
+var spanishOK = map[string]bool{
+	"crítica": true, "aviso": true, // notifier's Spanish severity labels
+	"tipo": true, // a column and JSON field name
+}
+
+// noTranslate — messages that need no Spanish version: technical wrappers
+// around English tool errors (zfs, sqlite, the updater), names and codes.
+var noTranslate = map[string]bool{
 	"smart test: %w": true, "scrub %s: %w": true, "trim: %w": true, "autotrim: %w": true,
 	"checkpoint: %w": true, "vdev size: %w": true, "replace: %w": true, "set %s: %w": true,
 	"rollback: %w": true, "zfs get properties: %w": true, "zfs set %s: %w": true,
@@ -43,84 +46,92 @@ var notProse = map[string]bool{
 	"rollback: operation already in progress": true, "rollback: rename: %w": true,
 	"rollback: chmod: %w": true, "rollback: flag: %w": true, "bootstrap admin: %w": true,
 	"Pool %s DEGRADED": true, "Pool %s FAULTED": true,
-	"job.create": true, "job.delete": true, "job.finished": true, "job.patch": true,
+	// smartctl's own verdicts and counters, shown as they are.
+	"PASSED": true, "FAILED": true, "PASSED (realloc=2 pending=0)": true,
+	"%s (realloc=%d pending=%d offunc=%d)": true, "%s (nvme warning=%d)": true,
+	// Start-up and gateway failures: they reach the journal or a root
+	// terminal, never a user who chose a language.
+	"ping sqlite: %w": true, "migration %d: %w": true, "migration %d (record): %w": true,
+	"migration %d (commit): %w": true, "the privileged gateway only runs as root (via sudo)": true,
+	"usage: easyzfs priv <tool> <arguments…>": true,
 }
 
-// skipFiles — text that is already bilingual, or never shown in the UI.
-var skipFiles = []string{
-	"internal/i18n/",           // this package
-	"internal/push/i18n.go",    // push notifications: es/en templates
-	"internal/notifier/",       // e-mail: es/en templates
-	"internal/db/",             // migrations: logs and SQL
-	"internal/priv/priv.go:38", // printed to a root terminal only
+// proseFields — struct fields whose text the UI shows.
+var proseFields = map[string]bool{
+	"SmartDetail": true, "Detail": true, "Message": true, "LastError": true, "Text": true,
+	"Summary": true, "Title": true, "HostReason": true, "InUseReason": true, "Reason": true,
 }
 
-// hasWords — a literal with at least one word in it once its placeholders
-// are gone ("%w: %s" is not text).
-func hasWords(s string) bool {
-	return regexp.MustCompile(`\p{L}{2,}`).MatchString(reVerb.ReplaceAllString(s, ""))
+type literal struct {
+	s, pos string
+	msg    bool // a message: an error, an API message, an alert, a prose field
 }
 
-// userTexts — every Spanish-looking string literal outside log calls, SQL,
-// struct tags and imports, in the packages whose text reaches the API.
-func userTexts(t *testing.T) map[string]string {
+// literals — every string literal in the server's code, outside struct
+// tags, imports, regexps and SQL.
+func literals(t *testing.T) []literal {
 	t.Helper()
 	fset := token.NewFileSet()
-	found := map[string]string{} // literal → first position
-	root := "../../internal"
-	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
-			return err
+	var out []literal
+	var files []string
+	err := filepath.Walk("../../internal", func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(p, ".go") && !strings.HasSuffix(p, "_test.go") {
+			files = append(files, p)
 		}
-		rel := "internal/" + strings.TrimPrefix(filepath.ToSlash(p), "../../internal/")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, "../../main.go")
+	for _, p := range files {
+		rel := strings.TrimPrefix(filepath.ToSlash(p), "../../")
 		f, err := parser.ParseFile(fset, p, nil, 0)
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
 		skip := map[*ast.BasicLit]bool{}
-		msgs := map[*ast.BasicLit]bool{} // literals that are a message whatever their words
-		msgArg := func(call *ast.CallExpr) []ast.Expr {
-			switch fn := call.Fun.(type) {
-			case *ast.SelectorExpr:
-				if id, ok := fn.X.(*ast.Ident); ok {
-					switch id.Name + "." + fn.Sel.Name {
-					case "errors.New", "fmt.Errorf":
-						return call.Args[:1]
-					}
+		msgs := map[*ast.BasicLit]bool{}
+		mark := func(n ast.Node, set map[*ast.BasicLit]bool) {
+			ast.Inspect(n, func(m ast.Node) bool {
+				if bl, ok := m.(*ast.BasicLit); ok && bl.Kind == token.STRING {
+					set[bl] = true
 				}
-				if fn.Sel.Name == "RaiseKind" && len(call.Args) > 4 {
-					return call.Args[4:5]
-				}
-			case *ast.Ident:
-				switch {
-				case fn.Name == "writeErr" && len(call.Args) == 4:
-					return call.Args[3:]
-				case fn.Name == "refuse" && len(call.Args) == 2:
-					return call.Args[1:]
-				}
-			}
-			return nil
+				return true
+			})
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.CallExpr:
-				for _, a := range msgArg(x) {
-					ast.Inspect(a, func(m ast.Node) bool {
-						if bl, ok := m.(*ast.BasicLit); ok && bl.Kind == token.STRING {
-							msgs[bl] = true
+				switch fn := x.Fun.(type) {
+				case *ast.SelectorExpr:
+					if id, ok := fn.X.(*ast.Ident); ok {
+						switch id.Name + "." + fn.Sel.Name {
+						case "errors.New", "fmt.Errorf":
+							mark(x.Args[0], msgs)
+						case "regexp.MustCompile", "regexp.Compile":
+							mark(x, skip)
 						}
-						return true
-					})
+					}
+					if fn.Sel.Name == "RaiseKind" && len(x.Args) > 4 {
+						mark(x.Args[4], msgs)
+					}
+				case *ast.Ident:
+					switch {
+					case fn.Name == "writeErr" && len(x.Args) == 4:
+						mark(x.Args[3], msgs)
+					case fn.Name == "refuse" && len(x.Args) == 2:
+						mark(x.Args[1], msgs)
+					}
 				}
-				if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-					if id, ok := sel.X.(*ast.Ident); ok && (id.Name == "log" || id.Name == "regexp" ||
-						(id.Name == "fmt" && (strings.HasPrefix(sel.Sel.Name, "Print") || strings.HasPrefix(sel.Sel.Name, "Fprint")))) {
-						ast.Inspect(x, func(m ast.Node) bool {
-							if bl, ok := m.(*ast.BasicLit); ok {
-								skip[bl] = true
-							}
-							return true
-						})
+			case *ast.KeyValueExpr:
+				if id, ok := x.Key.(*ast.Ident); ok && proseFields[id.Name] {
+					mark(x.Value, msgs)
+				}
+			case *ast.AssignStmt:
+				for i, l := range x.Lhs {
+					if sel, ok := l.(*ast.SelectorExpr); ok && proseFields[sel.Sel.Name] && i < len(x.Rhs) {
+						mark(x.Rhs[i], msgs)
 					}
 				}
 			case *ast.Field:
@@ -138,54 +149,69 @@ func userTexts(t *testing.T) map[string]string {
 				return true
 			}
 			s, err := strconv.Unquote(bl.Value)
-			if err != nil || notProse[s] || reSQL.MatchString(s) || !hasWords(s) {
+			if err != nil || reSQL.MatchString(s) {
 				return true
 			}
-			if !msgs[bl] && !reSpanishText.MatchString(s) {
-				return true
-			}
-			pos := rel + ":" + strconv.Itoa(fset.Position(bl.Pos()).Line)
-			for _, sf := range skipFiles {
-				if strings.HasPrefix(pos, sf) {
-					return true
-				}
-			}
-			if _, ok := found[s]; !ok {
-				found[s] = pos
-			}
+			out = append(out, literal{s: s, pos: rel + ":" + strconv.Itoa(fset.Position(bl.Pos()).Line), msg: msgs[bl]})
 			return true
 		})
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	return found
+	return out
 }
 
-// Every user-visible Spanish string in the code has an English entry, so a
-// UI set to English never shows Spanish. A new message fails here until it
-// is added to catalogue.go.
-func TestCatalogueCoversTheCode(t *testing.T) {
-	texts := userTexts(t)
-	if len(texts) < 300 {
-		t.Fatalf("only %d texts found: the extractor no longer sees the code", len(texts))
-	}
-	var missing []string
-	for s, pos := range texts {
-		if _, ok := catalogue[s]; !ok {
-			missing = append(missing, pos+"\t"+strconv.Quote(s))
+// hasWords — a literal with at least one word once its placeholders are gone.
+func hasWords(s string) bool {
+	return regexp.MustCompile(`\p{L}{2,}`).MatchString(reVerb.ReplaceAllString(s, ""))
+}
+
+// English is the product's language: no Spanish left in the server's code —
+// messages, log lines, anything — outside the translations themselves.
+func TestSourceIsEnglish(t *testing.T) {
+	var bad []string
+	for _, l := range literals(t) {
+		skip := false
+		for _, f := range spanishFiles {
+			skip = skip || strings.HasPrefix(l.pos, f)
 		}
+		if !skip && !spanishOK[l.s] && reSpanishText.MatchString(l.s) {
+			bad = append(bad, l.pos+"\t"+strconv.Quote(l.s))
+		}
+	}
+	sort.Strings(bad)
+	if len(bad) > 0 {
+		t.Errorf("%d Spanish literals in the code (write English; Spanish goes in catalogue.go):\n%s",
+			len(bad), strings.Join(bad, "\n"))
+	}
+}
+
+// Every message the server writes for people has a Spanish entry, so a user
+// who selected Spanish never gets English. A new message fails here until it
+// is added to catalogue.go (or to noTranslate, if it needs no translation).
+func TestCatalogueCoversTheCode(t *testing.T) {
+	var missing []string
+	n := 0
+	seen := map[string]bool{}
+	for _, l := range literals(t) {
+		if !l.msg || !hasWords(l.s) || noTranslate[l.s] || seen[l.s] {
+			continue
+		}
+		seen[l.s] = true
+		n++
+		if _, ok := catalogue[l.s]; !ok {
+			missing = append(missing, l.pos+"\t"+strconv.Quote(l.s))
+		}
+	}
+	if n < 250 {
+		t.Fatalf("only %d messages found: the scan no longer sees the code", n)
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Errorf("%d user-visible Spanish strings have no English entry in catalogue.go:\n%s",
-			len(missing), strings.Join(missing, "\n"))
+		t.Errorf("%d messages have no Spanish entry in catalogue.go:\n%s", len(missing), strings.Join(missing, "\n"))
 	}
 }
 
-// Each English template uses the same placeholders as its Spanish key, and
-// is actually English.
+// Each translation uses the same placeholders as its key, and the keys are
+// English.
 func TestCatalogueEntriesAreWellFormed(t *testing.T) {
 	verbs := func(s string) []string {
 		var out []string
@@ -197,15 +223,15 @@ func TestCatalogueEntriesAreWellFormed(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
-	for es, en := range catalogue {
-		if strings.Join(verbs(es), ",") != strings.Join(verbs(en), ",") {
-			t.Errorf("placeholders differ:\n  es %q\n  en %q", es, en)
+	for en, es := range catalogue {
+		if strings.Join(verbs(en), ",") != strings.Join(verbs(es), ",") {
+			t.Errorf("placeholders differ:\n  en %q\n  es %q", en, es)
 		}
 		if reSpanishMark.MatchString(en) {
-			t.Errorf("English entry has Spanish letters: %q", en)
+			t.Errorf("key is not English: %q", en)
 		}
-		if _, err := compileEntry(es, en); err != nil {
-			t.Errorf("%q: %v", es, err)
+		if _, err := compileEntry(en, es); err != nil {
+			t.Errorf("%q: %v", en, err)
 		}
 	}
 }

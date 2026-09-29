@@ -107,7 +107,7 @@ func (s *Sender) Subscribe(ctx context.Context, userID, endpoint, p256dh, auth, 
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth, lang, origin, user_agent, updated_at)
-		VALUES (?,?,?,?,COALESCE(NULLIF(?,''),'es'),?,?,datetime('now'))
+		VALUES (?,?,?,?,COALESCE(NULLIF(?,''),'en'),?,?,datetime('now'))
 		ON CONFLICT(endpoint) DO UPDATE SET
 		  user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth,
 		  lang=COALESCE(NULLIF(excluded.lang,''), push_subscriptions.lang),
@@ -138,7 +138,7 @@ func (s *Sender) Unsubscribe(ctx context.Context, userID, endpoint string) error
 func (s *Sender) Notify(ctx context.Context, a Alert) {
 	if s.cfg.Demo {
 		// Modo demo: sin push real, jamás. La alerta ya llega in-app por SSE.
-		log.Printf("push: demo: alerta %s/%s no enviada (solo log)", a.Kind, a.Source)
+		log.Printf("push: demo: alert %s/%s not sent (log only)", a.Kind, a.Source)
 		return
 	}
 	if !s.cfg.PushEnabled() {
@@ -146,7 +146,7 @@ func (s *Sender) Notify(ctx context.Context, a Alert) {
 	}
 	subs, err := s.list(ctx)
 	if err != nil {
-		log.Printf("push: listar suscripciones: %v", err)
+		log.Printf("push: list subscriptions: %v", err)
 		return
 	}
 	// Preferencias y quiet hours se evalúan UNA vez por usuario (un usuario
@@ -163,7 +163,7 @@ func (s *Sender) Notify(ctx context.Context, a Alert) {
 				d.omitir = true
 			} else if a.Level != "crit" && s.inQuietHours(ctx, sub.userID, time.Now()) {
 				if err := s.enqueue(ctx, sub.userID, a); err != nil {
-					log.Printf("push: encolar alerta %s de %s: %v", a.Kind, sub.userID, err)
+					log.Printf("push: queue alert %s for %s: %v", a.Kind, sub.userID, err)
 				}
 				d.encolado = true
 			}
@@ -258,7 +258,7 @@ func (s *Sender) sendTo(ctx context.Context, sub subscription, a Alert) {
 				backoff *= 2
 				continue
 			}
-			log.Printf("push: envío a sub %s falló %d veces: %v", fp(sub.endpoint), intento, err)
+			log.Printf("push: sending to sub %s failed %d times: %v", fp(sub.endpoint), intento, err)
 			return
 		}
 		status := resp.StatusCode
@@ -272,7 +272,7 @@ func (s *Sender) sendTo(ctx context.Context, sub subscription, a Alert) {
 			// Suscripción muerta: no resucita jamás → borrar en el mismo envío.
 			if _, err := s.db.ExecContext(ctx,
 				"DELETE FROM push_subscriptions WHERE id=?", sub.id); err != nil {
-				log.Printf("push: borrar suscripción muerta %s: %v", fp(sub.endpoint), err)
+				log.Printf("push: delete dead subscription %s: %v", fp(sub.endpoint), err)
 			}
 			return
 		case status == http.StatusTooManyRequests || status >= 500:
@@ -283,12 +283,12 @@ func (s *Sender) sendTo(ctx context.Context, sub subscription, a Alert) {
 				backoff *= 2
 				continue
 			}
-			log.Printf("push: servicio responde HTTP %d tras %d intentos (sub %s): se conserva la suscripción",
+			log.Printf("push: service answers HTTP %d after %d attempts (sub %s): subscription kept",
 				status, intento, fp(sub.endpoint))
 			return
 		case status >= 400:
 			// 400/401/403/413: probablemente bug nuestro (VAPID/payload). Sin endpoint.
-			log.Printf("push: HTTP %d al enviar (sub %s)", status, fp(sub.endpoint))
+			log.Printf("push: HTTP %d on send (sub %s)", status, fp(sub.endpoint))
 			return
 		default:
 			return // 2xx: entregado al push service

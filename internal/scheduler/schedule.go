@@ -36,7 +36,7 @@ func ParseSchedule(raw string) (Schedule, error) {
 	s := Schedule{Raw: raw}
 	body, hm, found := strings.Cut(raw, "@")
 	if !found {
-		return s, fmt.Errorf("schedule inválido %q: falta '@'", raw)
+		return s, fmt.Errorf("invalid schedule %q: missing '@'", raw)
 	}
 	kind, mod, _ := strings.Cut(body, ":")
 	s.Kind = kind
@@ -47,37 +47,37 @@ func ParseSchedule(raw string) (Schedule, error) {
 		m := strings.TrimPrefix(hm, ":")
 		min, err := strconv.Atoi(m)
 		if err != nil || min < 0 || min > 59 || strings.Contains(m, ":") {
-			return s, fmt.Errorf("schedule inválido %q: minuto horario esperado ('hourly@:15')", raw)
+			return s, fmt.Errorf("invalid schedule %q: expected an hourly minute ('hourly@:15')", raw)
 		}
 		s.Minute = min
 	case "daily":
 		h, m, err := parseHM(hm)
 		if err != nil {
-			return s, fmt.Errorf("schedule inválido %q: %v", raw, err)
+			return s, fmt.Errorf("invalid schedule %q: %v", raw, err)
 		}
 		s.Hour, s.Minute = h, m
 	case "weekly":
 		wd, ok := weekdays[mod]
 		if !ok {
-			return s, fmt.Errorf("schedule inválido %q: día semanal desconocido (sun..sat)", raw)
+			return s, fmt.Errorf("invalid schedule %q: unknown weekday (sun..sat)", raw)
 		}
 		h, m, err := parseHM(hm)
 		if err != nil {
-			return s, fmt.Errorf("schedule inválido %q: %v", raw, err)
+			return s, fmt.Errorf("invalid schedule %q: %v", raw, err)
 		}
 		s.Weekday, s.Hour, s.Minute = wd, h, m
 	case "monthly":
 		d, err := strconv.Atoi(mod)
 		if err != nil || d < 1 || d > 28 {
-			return s, fmt.Errorf("schedule inválido %q: día del mes 1-28", raw)
+			return s, fmt.Errorf("invalid schedule %q: day of month 1-28", raw)
 		}
 		h, m, err := parseHM(hm)
 		if err != nil {
-			return s, fmt.Errorf("schedule inválido %q: %v", raw, err)
+			return s, fmt.Errorf("invalid schedule %q: %v", raw, err)
 		}
 		s.MonthDay, s.Hour, s.Minute = d, h, m
 	default:
-		return s, fmt.Errorf("schedule inválido %q: tipo desconocido (hourly|daily|weekly|monthly)", raw)
+		return s, fmt.Errorf("invalid schedule %q: unknown type (hourly|daily|weekly|monthly)", raw)
 	}
 	return s, nil
 }
@@ -86,12 +86,12 @@ func ParseSchedule(raw string) (Schedule, error) {
 func parseHM(s string) (int, int, error) {
 	hs, ms, found := strings.Cut(s, ":")
 	if !found {
-		return 0, 0, fmt.Errorf("hora esperada 'HH:MM'")
+		return 0, 0, fmt.Errorf("expected a time 'HH:MM'")
 	}
 	h, err1 := strconv.Atoi(hs)
 	m, err2 := strconv.Atoi(ms)
 	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
-		return 0, 0, fmt.Errorf("hora fuera de rango")
+		return 0, 0, fmt.Errorf("time out of range")
 	}
 	return h, m, nil
 }
@@ -142,12 +142,12 @@ func NextRun(raw string, from time.Time) (time.Time, error) {
 // ParseRetention — '7d' (días), '1m' (30 días), '3m', '1y' (365 días).
 func ParseRetention(s string) (time.Duration, error) {
 	if s == "" {
-		return 0, fmt.Errorf("retención vacía")
+		return 0, fmt.Errorf("empty retention")
 	}
 	unit := s[len(s)-1]
 	n, err := strconv.Atoi(s[:len(s)-1])
 	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("retención inválida %q (ej: 7d, 1m, 3m, 1y)", s)
+		return 0, fmt.Errorf("invalid retention %q (e.g. 7d, 1m, 3m, 1y)", s)
 	}
 	switch unit {
 	case 'd':
@@ -157,5 +157,5 @@ func ParseRetention(s string) (time.Duration, error) {
 	case 'y':
 		return time.Duration(n) * 365 * 24 * time.Hour, nil
 	}
-	return 0, fmt.Errorf("retención inválida %q (unidad d|m|y)", s)
+	return 0, fmt.Errorf("invalid retention %q (unit d|m|y)", s)
 }

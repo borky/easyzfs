@@ -85,7 +85,7 @@ export class MockProvider implements DataProvider {
   };
 
   private users: UserInfo[] = [
-    { user: 'admin', role: 'admin', language: 'auto', last_login: iso(daysAgo(0, 8)), sessions: 2 },
+    { user: 'admin', role: 'admin', language: 'en', last_login: iso(daysAgo(0, 8)), sessions: 2 },
     { user: 'maria', role: 'user', language: 'es', last_login: iso(daysAgo(1, 21)), sessions: 1 },
   ];
 
@@ -114,41 +114,41 @@ export class MockProvider implements DataProvider {
   ];
 
   private datasets: Dataset[] = [
-    { name: 'tank/documentos', type: 'fs', compression: 'lz4', used_bytes: Math.round(1.2 * TiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: 0, mountpoint: '/tank/documentos', encryption: 'off', keystatus: '-' },
-    { name: 'tank/fotos', type: 'fs', compression: 'lz4', used_bytes: Math.round(2.8 * TiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: Math.round(4 * TiB), mountpoint: '/tank/fotos', encryption: 'off', keystatus: '-' },
+    { name: 'tank/documents', type: 'fs', compression: 'lz4', used_bytes: Math.round(1.2 * TiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: 0, mountpoint: '/tank/documents', encryption: 'off', keystatus: '-' },
+    { name: 'tank/photos', type: 'fs', compression: 'lz4', used_bytes: Math.round(2.8 * TiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: Math.round(4 * TiB), mountpoint: '/tank/photos', encryption: 'off', keystatus: '-' },
     { name: 'tank/backups', type: 'fs', compression: 'zstd', used_bytes: Math.round(0.9 * TiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: Math.round(1 * TiB), mountpoint: '/tank/backups', encryption: 'off', keystatus: '-' },
     // Cifrado nativo desbloqueado (clave cargada, montado)
-    { name: 'tank/secretos', type: 'fs', compression: 'zstd', used_bytes: Math.round(42 * GiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: 0, mountpoint: '/tank/secretos', encryption: 'aes-256-gcm', keystatus: 'available' },
+    { name: 'tank/secrets', type: 'fs', compression: 'zstd', used_bytes: Math.round(42 * GiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: 0, mountpoint: '/tank/secrets', encryption: 'aes-256-gcm', keystatus: 'available' },
     // Cifrado nativo bloqueado (sin clave: no montado; se abre con Desbloquear)
-    { name: 'tank/boveda', type: 'fs', compression: 'zstd', used_bytes: Math.round(512 * GiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: 0, mountpoint: '—', encryption: 'aes-256-gcm', keystatus: 'unavailable' },
+    { name: 'tank/vault', type: 'fs', compression: 'zstd', used_bytes: Math.round(512 * GiB), avail_bytes: Math.round(2.3 * TiB), quota_bytes: 0, mountpoint: '—', encryption: 'aes-256-gcm', keystatus: 'unavailable' },
     { name: 'ssd/vm-docker', type: 'volume', compression: 'lz4', used_bytes: Math.round(180 * GiB), avail_bytes: Math.round(640 * GiB), quota_bytes: 0, mountpoint: '—', encryption: 'off', keystatus: '-' },
     { name: 'ssd/lxc-cache', type: 'fs', compression: 'lz4', used_bytes: Math.round(42 * GiB), avail_bytes: Math.round(640 * GiB), quota_bytes: 0, mountpoint: '/ssd/lxc-cache', encryption: 'off', keystatus: '-' },
   ];
 
   // 148 snapshots en total repartidos por dataset
   private snaps: SnapshotGroup[] = [
-    { dataset: 'tank/documentos', snaps: genSnaps('tank/documentos', 'auto', 61, 1, 110) },
-    { dataset: 'tank/fotos', snaps: genSnaps('tank/fotos', 'auto', 53, 7, 2400) },
-    { dataset: 'tank/backups', snaps: genSnaps('tank/backups', 'semanal', 30, 7, 300) },
+    { dataset: 'tank/documents', snaps: genSnaps('tank/documents', 'auto', 61, 1, 110) },
+    { dataset: 'tank/photos', snaps: genSnaps('tank/photos', 'auto', 53, 7, 2400) },
+    { dataset: 'tank/backups', snaps: genSnaps('tank/backups', 'weekly', 30, 7, 300) },
     { dataset: 'ssd/vm-docker', snaps: genSnaps('ssd/vm-docker', 'auto', 4, 1, 900) },
   ];
 
   private jobs: Job[] = [
-    { id: 1, tipo: 'snapshot', target: 'tank/documentos', schedule: 'daily@06:00', retention: '1m', enabled: true, last_run: iso(daysAgo(0, 6)), last_result: 'OK', next_run: iso(daysAgo(-1, 6)) },
-    { id: 2, tipo: 'snapshot', target: 'tank/fotos', schedule: 'weekly:sun@03:00', retention: '3m', enabled: true, last_run: iso(daysAgo(5, 3)), last_result: 'OK', next_run: iso(daysAgo(-2, 3)) },
+    { id: 1, tipo: 'snapshot', target: 'tank/documents', schedule: 'daily@06:00', retention: '1m', enabled: true, last_run: iso(daysAgo(0, 6)), last_result: 'OK', next_run: iso(daysAgo(-1, 6)) },
+    { id: 2, tipo: 'snapshot', target: 'tank/photos', schedule: 'weekly:sun@03:00', retention: '3m', enabled: true, last_run: iso(daysAgo(5, 3)), last_result: 'OK', next_run: iso(daysAgo(-2, 3)) },
     { id: 3, tipo: 'snapshot', target: 'tank/backups', schedule: 'weekly:sun@04:00', retention: '1y', enabled: false, last_run: iso(daysAgo(12, 4)), last_result: 'OK', next_run: '' },
-    { id: 4, tipo: 'scrub', target: 'tank', schedule: 'monthly:1@02:00', retention: '', enabled: true, last_run: iso(daysAgo(6, 2)), last_result: '0 errores (4h 12m)', next_run: iso(daysAgo(-2, 2)) },
-    { id: 5, tipo: 'scrub', target: 'ssd', schedule: 'weekly:sun@05:00', retention: '', enabled: true, last_run: iso(daysAgo(0, 5)), last_result: 'en curso', next_run: iso(daysAgo(-14, 5)) },
+    { id: 4, tipo: 'scrub', target: 'tank', schedule: 'monthly:1@02:00', retention: '', enabled: true, last_run: iso(daysAgo(6, 2)), last_result: '0 errors (4h 12m)', next_run: iso(daysAgo(-2, 2)) },
+    { id: 5, tipo: 'scrub', target: 'ssd', schedule: 'weekly:sun@05:00', retention: '', enabled: true, last_run: iso(daysAgo(0, 5)), last_result: 'running', next_run: iso(daysAgo(-14, 5)) },
     { id: 6, tipo: 'smart_short', target: 'all', schedule: 'weekly:sat@22:00', retention: '', enabled: true, last_run: iso(daysAgo(6, 22)), last_result: 'OK', next_run: iso(daysAgo(0, 22)) },
     { id: 7, tipo: 'smart_long', target: 'all', schedule: 'monthly:1@23:00', retention: '', enabled: true, last_run: iso(daysAgo(31, 23)), last_result: 'OK', next_run: iso(daysAgo(-31, 23)) },
   ];
   private jobSeq = 8;
 
   private history: JobHistoryItem[] = [
-    { ts: iso(daysAgo(6, 2)), tipo: 'scrub', target: 'tank', ok: true, detail: '0 errores · 4h 12m' },
-    { ts: iso(daysAgo(0, 6)), tipo: 'snapshot', target: 'tank/fotos', ok: true, detail: '2,4 GiB referenciados' },
-    { ts: iso(daysAgo(1, 22)), tipo: 'smart_short', target: 'nvme0n1', ok: true, detail: 'completado sin errores' },
-    { ts: iso(daysAgo(14, 5)), tipo: 'scrub', target: 'ssd', ok: false, detail: 'cancelado por el usuario al 31%' },
+    { ts: iso(daysAgo(6, 2)), tipo: 'scrub', target: 'tank', ok: true, detail: '0 errors · 4h 12m' },
+    { ts: iso(daysAgo(0, 6)), tipo: 'snapshot', target: 'tank/photos', ok: true, detail: '2,4 GiB referenciados' },
+    { ts: iso(daysAgo(1, 22)), tipo: 'smart_short', target: 'nvme0n1', ok: true, detail: 'completed without errors' },
+    { ts: iso(daysAgo(14, 5)), tipo: 'scrub', target: 'ssd', ok: false, detail: 'cancelled by the user at 31%' },
   ];
 
   // Discos físicos del caso real (tras filtrar loop/zvols): eMMC sin SMART ni
@@ -175,32 +175,32 @@ export class MockProvider implements DataProvider {
 
   private alerts: Alert[] = [
     { id: 1, ts: iso(daysAgo(2, 14)), level: 'crit', source: 'pool/tank', message: 'Pool tank DEGRADED', acked: false, target: 'pools:tank' },
-    { id: 2, ts: iso(new Date()), level: 'info', source: 'scrub/ssd', message: 'Scrub de ssd en curso (62%)', acked: false, target: 'pools:ssd' },
-    { id: 4, ts: iso(daysAgo(1, 3)), level: 'warn', source: 'cron/backup', message: 'El backup nocturno terminó con avisos · revisa /var/log/backup.log', acked: false, target: 'tasks' },
-    { id: 3, ts: iso(daysAgo(5, 9)), level: 'crit', source: 'smartd/nvme1n1', message: 'smartd: nvme1n1 a 48 °C de forma sostenida · revisar ventilación', acked: false, target: 'disks:nvme1n1' },
+    { id: 2, ts: iso(new Date()), level: 'info', source: 'scrub/ssd', message: 'Scrub of ssd running (62%)', acked: false, target: 'pools:ssd' },
+    { id: 4, ts: iso(daysAgo(1, 3)), level: 'warn', source: 'cron/backup', message: 'The nightly backup finished with warnings · check /var/log/backup.log', acked: false, target: 'tasks' },
+    { id: 3, ts: iso(daysAgo(5, 9)), level: 'crit', source: 'smartd/nvme1n1', message: 'smartd: nvme1n1 at a sustained 48 °C · check the cooling', acked: false, target: 'disks:nvme1n1' },
   ];
 
   private activity = [
-    { ts: iso(daysAgo(0, 6)), text: 'Snapshot automático creado', detail: 'tank/documentos@auto' },
-    { ts: iso(daysAgo(0, 5)), text: 'Scrub iniciado en ssd', detail: 'programación quincenal' },
-    { ts: iso(daysAgo(0, 2)), text: 'Inicio de sesión', detail: 'admin' },
-    { ts: iso(daysAgo(1, 21)), text: 'Inicio de sesión', detail: 'maria' },
+    { ts: iso(daysAgo(0, 6)), text: 'Automatic snapshot created', detail: 'tank/documents@auto' },
+    { ts: iso(daysAgo(0, 5)), text: 'Scrub started on ssd', detail: 'fortnightly schedule' },
+    { ts: iso(daysAgo(0, 2)), text: 'Sign-in', detail: 'admin' },
+    { ts: iso(daysAgo(1, 21)), text: 'Sign-in', detail: 'maria' },
     { ts: iso(daysAgo(1, 19)), text: 'Cuota modificada', detail: 'tank/backups → 1 TiB' },
-    { ts: iso(daysAgo(1, 9)), text: 'Respaldos automáticos', detail: 'cada 24 h · retención 3 días' },
-    { ts: iso(daysAgo(2, 14)), text: 'Snapshot automático creado', detail: 'tank/documentos@auto' },
-    { ts: iso(daysAgo(2, 8)), text: 'Scrub completado en tank', detail: '0 errores' },
-    { ts: iso(daysAgo(3, 17)), text: 'Usuario creado', detail: 'maria · rol usuario' },
-    { ts: iso(daysAgo(3, 11)), text: 'Contraseña cambiada', detail: 'admin' },
+    { ts: iso(daysAgo(1, 9)), text: 'Automatic backups', detail: 'every 24 h · 3-day retention' },
+    { ts: iso(daysAgo(2, 14)), text: 'Automatic snapshot created', detail: 'tank/documents@auto' },
+    { ts: iso(daysAgo(2, 8)), text: 'Scrub completed on tank', detail: '0 errors' },
+    { ts: iso(daysAgo(3, 17)), text: 'User created', detail: 'maria · user role' },
+    { ts: iso(daysAgo(3, 11)), text: 'Password changed', detail: 'admin' },
     { ts: iso(daysAgo(4, 3)), text: 'Alerta reconocida', detail: 'smartd/nvme1n1' },
-    { ts: iso(daysAgo(5, 22)), text: 'Snapshot automático creado', detail: 'tank/documentos@auto' },
-    { ts: iso(daysAgo(6, 15)), text: 'Inicio de sesión', detail: 'admin' },
-    { ts: iso(daysAgo(7, 4)), text: 'Respaldo manual de la base de datos', detail: 'app-20260727-040000.db' },
-    { ts: iso(daysAgo(8, 12)), text: 'Dataset creado', detail: 'tank/proyectos' },
-    { ts: iso(daysAgo(9, 6)), text: 'Scrub completado en tank', detail: '0 errores' },
-    { ts: iso(daysAgo(10, 18)), text: 'Inicio de sesión', detail: 'maria' },
-    { ts: iso(daysAgo(11, 9)), text: 'Snapshot automático creado', detail: 'tank/documentos@auto' },
+    { ts: iso(daysAgo(5, 22)), text: 'Automatic snapshot created', detail: 'tank/documents@auto' },
+    { ts: iso(daysAgo(6, 15)), text: 'Sign-in', detail: 'admin' },
+    { ts: iso(daysAgo(7, 4)), text: 'Manual database backup', detail: 'app-20260727-040000.db' },
+    { ts: iso(daysAgo(8, 12)), text: 'Dataset created', detail: 'tank/projects' },
+    { ts: iso(daysAgo(9, 6)), text: 'Scrub completed on tank', detail: '0 errors' },
+    { ts: iso(daysAgo(10, 18)), text: 'Sign-in', detail: 'maria' },
+    { ts: iso(daysAgo(11, 9)), text: 'Automatic snapshot created', detail: 'tank/documents@auto' },
     { ts: iso(daysAgo(12, 2)), text: 'Cuota modificada', detail: 'tank/media → 4 TiB' },
-    { ts: iso(daysAgo(13, 20)), text: 'Respaldo automático de la base de datos', detail: 'app-20260721-030000.db' },
+    { ts: iso(daysAgo(13, 20)), text: 'Automatic database backup', detail: 'app-20260721-030000.db' },
   ];
 
   constructor() {
@@ -215,11 +215,11 @@ export class MockProvider implements DataProvider {
         ssd.scrub = { state: 'done', pct: 100, eta_sec: 0, ts: iso(new Date()), errors: 0 };
         const alert: Alert = {
           id: ++this.alertSeq, ts: iso(new Date()), level: 'info',
-          source: 'scrub/ssd', message: 'Scrub de ssd completado · 0 errores', acked: false,
+          source: 'scrub/ssd', message: 'Scrub of ssd completed · 0 errors', acked: false,
           target: 'pools:ssd',
         };
         this.alerts.unshift(alert);
-        this.activity.unshift({ ts: alert.ts, text: 'Scrub completado en ssd', detail: '0 errores' });
+        this.activity.unshift({ ts: alert.ts, text: 'Scrub completed on ssd', detail: '0 errors' });
         emitEvent(demoText({ type: 'alert.new', alert }));
         emitEvent({ type: 'overview' });
       }
@@ -242,7 +242,7 @@ export class MockProvider implements DataProvider {
       const alert: Alert = {
         id: ++this.alertSeq, ts: iso(new Date()), level: 'crit',
         source: 'zed.ereport.fs.zfs.checksum',
-        message: 'Errores de checksum en nvme1n1 (evento ZFS, pool tank)',
+        message: 'Checksum errors on nvme1n1 (ZFS event, pool tank)',
         acked: false, target: 'disks:nvme1n1',
       };
       this.alerts.unshift(alert);
@@ -355,13 +355,13 @@ export class MockProvider implements DataProvider {
   };
   login2FA = async (_pending: string, _code: string): Promise<SessionUser> => {
     await delay(200);
-    if (!this.session) throw new ApiError(401, 'unauthorized', 'Sesión no iniciada');
+    if (!this.session) throw new ApiError(401, 'unauthorized', 'Not signed in');
     return { ...this.session };
   };
   logout = async () => { await delay(80); this.session = null; };
   me = async (): Promise<SessionUser> => {
     await delay(60);
-    if (!this.session) throw new ApiError(401, 'unauthorized', 'Sesión no iniciada');
+    if (!this.session) throw new ApiError(401, 'unauthorized', 'Not signed in');
     return { ...this.session };
   };
   setMyPassword = async (_c: string, _n: string) => { await delay(); };
@@ -378,16 +378,16 @@ export class MockProvider implements DataProvider {
     const secret = 'JBSWY3DPEHPK3PXP';
     return { secret, otpauth: `otpauth://totp/EasyZFS:demo?secret=${secret}&issuer=EasyZFS`, qr: '' };
   };
-  confirm2FA = async (): Promise<TwoFARecovery> => { await delay(); throw new ApiError(400, 'demo_disabled', 'En modo demo la verificación en dos pasos no está disponible'); };
+  confirm2FA = async (): Promise<TwoFARecovery> => { await delay(); throw new ApiError(400, 'demo_disabled', 'Two-step verification is not available in demo mode'); };
   disable2FA = async () => { await delay(); };
-  regenerateRecoveryCodes = async (): Promise<TwoFARecovery> => { await delay(); throw new ApiError(400, 'demo_disabled', 'En modo demo la verificación en dos pasos no está disponible'); };
+  regenerateRecoveryCodes = async (): Promise<TwoFARecovery> => { await delay(); throw new ApiError(400, 'demo_disabled', 'Two-step verification is not available in demo mode'); };
 
   // Avatares en memoria (object URLs): demo sin backend.
   private avatars = new Map<string, string>();
   setMyAvatar = async (blob: Blob) => {
     await delay();
-    if (!this.session) throw new ApiError(401, 'unauthorized', 'Sesión no iniciada');
-    if (blob.size > 512 * 1024) throw new ApiError(400, 'avatar_too_large', 'Imagen demasiado grande (máx. 512 KB)');
+    if (!this.session) throw new ApiError(401, 'unauthorized', 'Not signed in');
+    if (blob.size > 512 * 1024) throw new ApiError(400, 'avatar_too_large', 'Image too large (max. 512 KB)');
     const name = this.session.user;
     const old = this.avatars.get(name);
     if (old) URL.revokeObjectURL(old);
@@ -396,7 +396,7 @@ export class MockProvider implements DataProvider {
   };
   deleteMyAvatar = async () => {
     await delay();
-    if (!this.session) throw new ApiError(401, 'unauthorized', 'Sesión no iniciada');
+    if (!this.session) throw new ApiError(401, 'unauthorized', 'Not signed in');
     const name = this.session.user;
     const old = this.avatars.get(name);
     if (old) { URL.revokeObjectURL(old); this.avatars.delete(name); }
@@ -408,13 +408,13 @@ export class MockProvider implements DataProvider {
   getUsers = async () => { await delay(); return this.users.map((u) => ({ ...u })); };
   createUser = async (r: CreateUserReq) => {
     await delay();
-    if (this.users.some((u) => u.user === r.user)) throw new ApiError(409, 'conflict', 'El usuario ya existe');
-    this.users.push({ user: r.user, role: r.role, language: 'auto', last_login: iso(new Date()), sessions: 0 });
+    if (this.users.some((u) => u.user === r.user)) throw new ApiError(409, 'conflict', 'The user already exists');
+    this.users.push({ user: r.user, role: r.role, language: 'en', last_login: iso(new Date()), sessions: 0 });
   };
   deleteUser = async (name: string, confirm: string) => {
     await delay();
-    if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
-    if (this.session?.user === name) throw new ApiError(400, 'self_delete', 'No puedes eliminarte a ti mismo');
+    if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Wrong confirmation');
+    if (this.session?.user === name) throw new ApiError(400, 'self_delete', 'You cannot delete yourself');
     this.users = this.users.filter((u) => u.user !== name);
   };
   setUserPassword = async (_n: string, _p: string, _c: boolean) => { await delay(); };
@@ -442,7 +442,7 @@ export class MockProvider implements DataProvider {
   getMissingPools = async () => { await delay(); return []; };
   createPool = async (r: CreatePoolReq) => {
     await delay(400);
-    if (r.confirm !== r.name) throw new ApiError(400, 'confirm_required', `Escribe "${r.name}" para confirmar`);
+    if (r.confirm !== r.name) throw new ApiError(400, 'confirm_required', `Type "${r.name}" to confirm`);
     const size = this.disks.filter((d) => r.disks.includes(d.dev)).reduce((n, d) => n + d.size_bytes, 0);
     const usable = r.topo === 'mirror' ? size / Math.max(1, r.disks.length) : size;
     this.pools.push({
@@ -456,18 +456,18 @@ export class MockProvider implements DataProvider {
     this.disks.forEach((d) => { if (r.disks.includes(d.dev)) d.pool = r.name; });
     emitEvent({ type: 'overview' });
   };
-  importPool = async (name?: string) => { await delay(); return name ? { importable: [], warnings: [] } : { importable: ['archivo-antiguo'], warnings: [] }; };
+  importPool = async (name?: string) => { await delay(); return name ? { importable: [], warnings: [] } : { importable: ['old-archive'], warnings: [] }; };
   scrubAction = async (pool: string, action: 'start' | 'pause' | 'stop') => {
     await delay();
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
     if (action === 'start') p.scrub = { state: 'running', pct: 0, eta_sec: 3600, ts: iso(new Date()), errors: 0 };
     if (action === 'pause') p.scrub.state = 'none';
     if (action === 'stop') p.scrub = { state: 'done', pct: p.scrub.pct, eta_sec: 0, ts: iso(new Date()), errors: p.scrub.errors };
   };
   exportPool = async (name: string, confirm: string, _f: boolean, destroy: boolean) => {
     await delay(400);
-    if (confirm !== name) throw new ApiError(400, 'confirm_required', `Escribe "${name}" para confirmar`);
+    if (confirm !== name) throw new ApiError(400, 'confirm_required', `Type "${name}" to confirm`);
     if (destroy) {
       this.pools = this.pools.filter((p) => p.name !== name);
       this.datasets = this.datasets.filter((d) => !d.name.startsWith(name + '/') && d.name !== name);
@@ -478,9 +478,9 @@ export class MockProvider implements DataProvider {
   };
   addVdev = async (pool: string, topo: string, disks: string[], confirm: string, _checkpoint = false) => {
     await delay(300);
-    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
+    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Type "${pool}" to confirm`);
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
     const role = topo === 'stripe' ? '—' : `${topo}-${p.vdevs.length}`;
     disks.forEach((dev) => {
       p.vdevs.push({ dev, role, status: 'ONLINE', temp_c: 33 });
@@ -491,9 +491,9 @@ export class MockProvider implements DataProvider {
   };
   replaceDisk = async (pool: string, oldDev: string, newDev: string, confirm: string) => {
     await delay(300);
-    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
+    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Type "${pool}" to confirm`);
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
     const v = p.vdevs.find((x) => x.dev === oldDev);
     if (v) { v.dev = newDev; v.path = '/dev/' + newDev; v.status = 'ONLINE'; }
     const oldD = this.disks.find((x) => x.dev === oldDev);
@@ -505,27 +505,27 @@ export class MockProvider implements DataProvider {
   vdevAction = async (pool: string, dev: string, action: 'offline' | 'online' | 'detach', confirm?: string, ack = false) => {
     await delay(300);
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
     const v = p.vdevs.find((x) => x.dev === dev);
-    if (!v) throw new ApiError(404, 'not_found', 'Vdev no encontrado');
+    if (!v) throw new ApiError(404, 'not_found', 'Vdev not found');
     // Same gate as the server (vdevActionRisk), for the demo.
     if (!ack && action !== 'online' && p.status !== 'ONLINE') {
-      throw new ApiError(409, 'risk_ack_required', `el pool está ${p.status}: quitar otro disco ahora puede dejarlo sin redundancia`);
+      throw new ApiError(409, 'risk_ack_required', `the pool is ${p.status}: removing another disk now can leave it without redundancy`);
     }
     // Same per-vdev rule as the server's vdevActionRisk (mirror left with one disk).
     if (!ack && action === 'detach' && v.role === 'mirror' &&
         p.vdevs.filter((x) => x.dev !== dev && x.role === 'mirror' && x.status === 'ONLINE' && (x.group ?? '') === (v.group ?? '')).length < 2) {
-      throw new ApiError(409, 'risk_ack_required', 'es un mirror de dos discos: al retirar uno, el pool se queda sin redundancia');
+      throw new ApiError(409, 'risk_ack_required', 'it is a two-disk mirror: removing one leaves the pool without redundancy');
     }
     const parity = /^raidz(\d)$/.exec(v.role)?.[1];
     if (!ack && action === 'offline' && parity) {
       const missing = p.vdevs.filter((x) => x.dev !== dev && x.role === v.role && (x.group ?? '') === (v.group ?? '') && x.status !== 'ONLINE').length;
       if (missing + 1 >= Number(parity)) {
-        throw new ApiError(409, 'risk_ack_required', `${v.group ?? v.role} se queda sin paridad: sin redundancia, un fallo más pierde los datos`);
+        throw new ApiError(409, 'risk_ack_required', `${v.group ?? v.role} is left without parity: without redundancy, one more failure loses the data`);
       }
     }
     if (action === 'detach') {
-      if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
+      if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Type "${pool}" to confirm`);
       p.vdevs = p.vdevs.filter((x) => x.dev !== dev);
     } else {
       v.status = action === 'offline' ? 'OFFLINE' : 'ONLINE';
@@ -535,15 +535,15 @@ export class MockProvider implements DataProvider {
   setAutotrim = async (pool: string, enabled: boolean) => {
     await delay(250);
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
     p.autotrim = enabled;
     emitEvent({ type: 'overview' });
   };
   checkpointPool = async (pool: string, action: 'create' | 'discard', confirm: string) => {
     await delay(300);
-    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
+    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Type "${pool}" to confirm`);
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
     p.checkpoint = action === 'create';
     emitEvent({ type: 'overview' });
   };
@@ -599,7 +599,7 @@ export class MockProvider implements DataProvider {
   createDataset = async (r: CreateDatasetReq) => {
     await delay(250);
     if (r.encryption && (r.passphrase ?? '').length < 8) {
-      throw new ApiError(400, 'invalid_input', 'La passphrase debe tener al menos 8 caracteres');
+      throw new ApiError(400, 'invalid_input', 'The passphrase must be at least 8 characters long');
     }
     this.datasets.push({
       name: `${r.pool}/${r.name}`, type: r.type, compression: r.compression,
@@ -615,41 +615,41 @@ export class MockProvider implements DataProvider {
   unlockDataset = async (name: string, key: string) => {
     await delay(400);
     const d = this.datasets.find((x) => x.name === name);
-    if (!d || d.encryption === 'off' || d.encryption === '-') throw new ApiError(400, 'invalid_input', 'El dataset no está cifrado');
-    if (!key) throw new ApiError(400, 'invalid_input', 'Se requiere la passphrase');
+    if (!d || d.encryption === 'off' || d.encryption === '-') throw new ApiError(400, 'invalid_input', 'The dataset is not encrypted');
+    if (!key) throw new ApiError(400, 'invalid_input', 'The passphrase is required');
     d.keystatus = 'available';
     if (d.type === 'fs' && (!d.mountpoint || d.mountpoint === '—')) d.mountpoint = '/' + name;
-    this.activity.unshift({ ts: iso(new Date()), text: 'Dataset desbloqueado', detail: name });
+    this.activity.unshift({ ts: iso(new Date()), text: 'Dataset unlocked', detail: name });
     emitEvent({ type: 'overview' });
   };
   lockDataset = async (name: string) => {
     await delay(300);
     const d = this.datasets.find((x) => x.name === name);
-    if (!d || d.encryption === 'off' || d.encryption === '-') throw new ApiError(400, 'invalid_input', 'El dataset no está cifrado');
+    if (!d || d.encryption === 'off' || d.encryption === '-') throw new ApiError(400, 'invalid_input', 'The dataset is not encrypted');
     d.keystatus = 'unavailable';
     d.mountpoint = '—';
-    this.activity.unshift({ ts: iso(new Date()), text: 'Dataset bloqueado', detail: name });
+    this.activity.unshift({ ts: iso(new Date()), text: 'Dataset locked', detail: name });
     emitEvent({ type: 'overview' });
   };
   changeDatasetKey = async (name: string, currentKey: string, newKey: string) => {
     await delay(400);
     const d = this.datasets.find((x) => x.name === name);
-    if (!d || d.encryption === 'off' || d.encryption === '-') throw new ApiError(400, 'invalid_input', 'El dataset no está cifrado');
-    if (!currentKey) throw new ApiError(400, 'invalid_input', 'Se requiere la passphrase actual');
-    if (newKey.length < 8) throw new ApiError(400, 'invalid_input', 'La passphrase nueva debe tener al menos 8 caracteres');
-    this.activity.unshift({ ts: iso(new Date()), text: 'Clave de cifrado cambiada', detail: name });
+    if (!d || d.encryption === 'off' || d.encryption === '-') throw new ApiError(400, 'invalid_input', 'The dataset is not encrypted');
+    if (!currentKey) throw new ApiError(400, 'invalid_input', 'The current passphrase is required');
+    if (newKey.length < 8) throw new ApiError(400, 'invalid_input', 'The new passphrase must be at least 8 characters long');
+    this.activity.unshift({ ts: iso(new Date()), text: 'Encryption key changed', detail: name });
   };
 
   // ---- RAID-Z expansion (lote D; gate capability + disco libre) ----
   expandPool = async (pool: string, vdev: string, disk: string, confirm: string) => {
     await delay(400);
-    if (!this.version.capabilities?.raidz_expansion) throw new ApiError(400, 'not_supported', 'RAID-Z expansion requiere OpenZFS ≥ 2.3');
-    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Escribe "${pool}" para confirmar`);
+    if (!this.version.capabilities?.raidz_expansion) throw new ApiError(400, 'not_supported', 'RAID-Z expansion needs OpenZFS ≥ 2.3');
+    if (confirm !== pool) throw new ApiError(400, 'confirm_required', `Type "${pool}" to confirm`);
     const p = this.pools.find((x) => x.name === pool);
-    if (!p) throw new ApiError(404, 'not_found', 'Pool no encontrado');
-    if (!(p.raidz_vdevs ?? []).includes(vdev)) throw new ApiError(400, 'invalid_input', `El vdev '${vdev}' no es un raidz del pool`);
+    if (!p) throw new ApiError(404, 'not_found', 'Pool not found');
+    if (!(p.raidz_vdevs ?? []).includes(vdev)) throw new ApiError(400, 'invalid_input', `Vdev '${vdev}' is not a raidz of the pool`);
     const d = this.disks.find((x) => x.dev === disk);
-    if (!d || (d.pool !== '—' && d.pool !== '') || d.in_use) throw new ApiError(409, 'dev_in_use', `El disco '${disk}' no está libre`);
+    if (!d || (d.pool !== '—' && d.pool !== '') || d.in_use) throw new ApiError(409, 'dev_in_use', `Disk '${disk}' is not free`);
     const role = vdev.replace(/-\d+$/, '');
     p.vdevs.push({ dev: disk, path: '/dev/' + disk, role, status: 'ONLINE', temp_c: d.temp_c ?? 33 });
     d.pool = pool;
@@ -662,7 +662,7 @@ export class MockProvider implements DataProvider {
       emitEvent({ type: 'scrub.progress', pool, pct: p.scrub.pct, eta_sec: p.scrub.eta_sec, kind: 'expand' });
       if (p.scrub.pct >= 100) {
         p.scrub = { state: 'done', kind: 'expand', pct: 100, eta_sec: 0, ts: iso(new Date()), errors: 0 };
-        this.activity.unshift({ ts: iso(new Date()), text: 'Expansión RAID-Z completada', detail: `${pool} · ${vdev} + ${disk}` });
+        this.activity.unshift({ ts: iso(new Date()), text: 'RAID-Z expansion completed', detail: `${pool} · ${vdev} + ${disk}` });
         clearInterval(timer);
         emitEvent({ type: 'overview' });
       }
@@ -721,9 +721,9 @@ export class MockProvider implements DataProvider {
   getDiskSmart = async (dev: string): Promise<DiskSmartResp> => {
     await delay();
     const d = this.disks.find((x) => x.dev === dev);
-    if (!d) throw new ApiError(404, 'not_found', 'Disco no encontrado');
+    if (!d) throw new ApiError(404, 'not_found', 'Disk not found');
     const proto = dev.startsWith('nvme') ? 'nvme' : 'ata';
-    if (d.smart === 'unknown') return { dev, model: d.model, serial: d.serial, smart: 'unknown', smart_detail: 'no disponible', hours: d.hours, attributes: [] };
+    if (d.smart === 'unknown') return { dev, model: d.model, serial: d.serial, smart: 'unknown', smart_detail: 'not available', hours: d.hours, attributes: [] };
     const attrs = proto === 'nvme' ? [
       { id: 1, name: 'temperature', value: Math.round(d.temp_c ?? 0), worst: 0, thresh: 0, raw: String(Math.round(d.temp_c ?? 0)), when_failed: '-' },
       { id: 2, name: 'available_spare', value: 100, worst: 100, thresh: 10, raw: '100%', when_failed: '-' },
@@ -741,7 +741,7 @@ export class MockProvider implements DataProvider {
   getDiskSmartLog = async (dev: string): Promise<DiskSmartLogResp> => {
     await delay();
     const d = this.disks.find((x) => x.dev === dev);
-    if (!d) throw new ApiError(404, 'not_found', 'Disco no encontrado');
+    if (!d) throw new ApiError(404, 'not_found', 'Disk not found');
     if (d.smart === 'unknown') return { dev, selftests: [], error_log: { count: 0, entries: [] } };
     const selftests: SmartSelftest[] = [
       { type: 'Short self-test', status: 'Completed without error', lifetime_hours: d.hours, percent: 100 },
@@ -754,10 +754,10 @@ export class MockProvider implements DataProvider {
   };
   deleteDataset = async (name: string, confirm: string, _r: boolean, permanent = false) => {
     await delay(300);
-    if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
+    if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Wrong confirmation');
     const gone = this.datasets.find((d) => d.name === name);
     const hasChildren = this.datasets.some((d) => d.name.startsWith(name + '/'));
-    if (hasChildren && !_r) throw new ApiError(400, 'invalid_input', `${name} tiene datasets hijos; márcalo como recursivo`);
+    if (hasChildren && !_r) throw new ApiError(400, 'invalid_input', `${name} has child datasets; mark it recursive`);
     this.datasets = this.datasets.filter((d) => d.name !== name && !d.name.startsWith(name + '/'));
     this.snaps = this.snaps.filter((g) => g.dataset !== name && !g.dataset.startsWith(name + '/'));
     if (!permanent && gone) {
@@ -782,8 +782,8 @@ export class MockProvider implements DataProvider {
   restoreTrash = async (id: number) => {
     await delay(300);
     const it = this.trash.find((x) => x.id === id);
-    if (!it) throw new ApiError(404, 'not_found', 'no existe en la papelera');
-    if (this.datasets.some((d) => d.name === it.original)) throw new ApiError(409, 'conflict', `ya existe ${it.original}`);
+    if (!it) throw new ApiError(404, 'not_found', 'it is not in the recycle bin');
+    if (this.datasets.some((d) => d.name === it.original)) throw new ApiError(409, 'conflict', `${it.original} already exists`);
     this.datasets.push(it.ds);
     this.datasets.sort((a, b) => a.name.localeCompare(b.name));
     this.trash = this.trash.filter((x) => x.id !== id);
@@ -792,8 +792,8 @@ export class MockProvider implements DataProvider {
   purgeTrash = async (id: number, confirm: string) => {
     await delay(300);
     const it = this.trash.find((x) => x.id === id);
-    if (!it) throw new ApiError(404, 'not_found', 'no existe en la papelera');
-    if (confirm !== it.original) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
+    if (!it) throw new ApiError(404, 'not_found', 'it is not in the recycle bin');
+    if (confirm !== it.original) throw new ApiError(400, 'confirm_required', 'Wrong confirmation');
     this.trash = this.trash.filter((x) => x.id !== id);
   };
 
@@ -802,7 +802,7 @@ export class MockProvider implements DataProvider {
     {
       id: 'op-demo-1', type: 'rewrite', target: 'tank/backups', pid: 4213,
       started: iso(daysAgo(2, 11)), ended: iso(daysAgo(2, 12)), status: 'done',
-      lines: ['Reescritura completada'],
+      lines: ['Rewrite completed'],
     },
   ];
   private longopSeq = 1;
@@ -815,29 +815,29 @@ export class MockProvider implements DataProvider {
   cancelLongOp = async (id: string) => {
     await delay(150);
     const op = this.longops.find((o) => o.id === id);
-    if (!op) throw new ApiError(404, 'not_found', 'Operación no encontrada');
-    if (op.status !== 'running') throw new ApiError(409, 'not_running', 'La operación ya no está en curso');
+    if (!op) throw new ApiError(404, 'not_found', 'Operation not found');
+    if (op.status !== 'running') throw new ApiError(409, 'not_running', 'The operation is no longer running');
     op.status = 'canceled';
     op.ended = iso(new Date());
-    op.lines.push('Cancelada por el usuario');
+    op.lines.push('Cancelled by the user');
     emitEvent({ type: 'longop.update', op: { ...op } });
   };
 
   rewriteDataset = async (name: string, confirm: string): Promise<{ op_id: string }> => {
     await delay(300);
-    if (!this.version.capabilities?.rewrite) throw new ApiError(400, 'not_supported', 'zfs rewrite requiere OpenZFS ≥ 2.3.4');
-    if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
+    if (!this.version.capabilities?.rewrite) throw new ApiError(400, 'not_supported', 'zfs rewrite needs OpenZFS ≥ 2.3.4');
+    if (confirm !== name) throw new ApiError(400, 'confirm_required', 'Wrong confirmation');
     const d = this.datasets.find((x) => x.name === name);
     if (!d || d.type !== 'fs' || !d.mountpoint || d.mountpoint === '—') {
-      throw new ApiError(400, 'invalid_input', 'Dataset inexistente, no es filesystem o no está montado');
+      throw new ApiError(400, 'invalid_input', 'The dataset does not exist, is not a filesystem, or is not mounted');
     }
     if (this.longops.some((o) => o.status === 'running' && o.target === name)) {
-      throw new ApiError(409, 'already_running', `Ya hay una operación en curso sobre ${name}`);
+      throw new ApiError(409, 'already_running', `An operation is already running on ${name}`);
     }
     const op: LongOp = {
       id: `op-demo-${++this.longopSeq}`, type: 'rewrite', target: name,
       pid: 4300 + this.longopSeq, started: iso(new Date()), status: 'running',
-      lines: ['Reescribiendo bloques de ' + d.mountpoint + '…'],
+      lines: [`Rewriting the blocks of ${d.mountpoint}…`],
     };
     this.longops.unshift(op);
     emitEvent({ type: 'longop.update', op: { ...op } });
@@ -849,11 +849,11 @@ export class MockProvider implements DataProvider {
       if (step >= 3) {
         op.status = 'done';
         op.ended = iso(new Date());
-        op.lines.push('Reescritura completada');
-        this.activity.unshift({ ts: op.ended, text: 'Reescritura de datos completada', detail: name });
+        op.lines.push('Rewrite completed');
+        this.activity.unshift({ ts: op.ended, text: 'Data rewrite completed', detail: name });
         clearInterval(timer);
       } else {
-        op.lines.push(`Procesados ${step * 38} % de los bloques…`);
+        op.lines.push(`${step * 38} % of the blocks processed…`);
       }
       emitEvent({ type: 'longop.update', op: { ...op } });
     }, 3000);
@@ -878,13 +878,13 @@ export class MockProvider implements DataProvider {
       if (!g) { g = { dataset: ds, snaps: [] }; this.snaps.unshift(g); }
       g.snaps.unshift({ name: r.name, full: `${ds}@${r.name}`, ts: stamp, used_bytes: 0, kind: 'manual' });
     }
-    this.activity.unshift({ ts: stamp, text: 'Snapshot manual creado', detail: `${r.dataset}@${r.name}` });
+    this.activity.unshift({ ts: stamp, text: 'Manual snapshot created', detail: `${r.dataset}@${r.name}` });
     emitEvent({ type: 'overview' });
   };
   deleteSnapshot = async (full: string, confirm: string) => {
     await delay(200);
     if (confirm !== full.split('@')[1] && confirm !== full)
-      throw new ApiError(400, 'confirm_required', 'Confirmación incorrecta');
+      throw new ApiError(400, 'confirm_required', 'Wrong confirmation');
     const [ds, name] = full.split('@');
     const g = this.snaps.find((x) => x.dataset === ds);
     if (g) g.snaps = g.snaps.filter((s) => s.name !== name);
@@ -892,26 +892,26 @@ export class MockProvider implements DataProvider {
   rollback = async (full: string, confirm: string) => {
     await delay(300);
     const [ds] = full.split('@');
-    if (confirm !== ds && confirm !== full) throw new ApiError(400, 'confirm_required', `Escribe "${ds}" para confirmar`);
+    if (confirm !== ds && confirm !== full) throw new ApiError(400, 'confirm_required', `Type "${ds}" to confirm`);
     this.activity.unshift({ ts: iso(new Date()), text: 'Rollback ejecutado', detail: full });
   };
 
   // ---- Replicación (demo: 1 local OK, 1 SSH con error de autenticación) ----
   private replJobs: ReplicationJob[] = [
     {
-      id: 1, source: 'tank/fotos', dest_type: 'local', dest_dataset: 'tank/backups/fotos',
+      id: 1, source: 'tank/photos', dest_type: 'local', dest_dataset: 'tank/backups/photos',
       host: '', user: '', port: 22, raw: false, force_full: false,
       schedule: 'daily@06:30', enabled: true,
       last_bookmark: 'ezrepl-20260801-063000', last_run: iso(daysAgo(0, 6)),
       last_ok: true, last_error: '', next_run: iso(daysAgo(-1, 6)),
     },
     {
-      id: 2, source: 'tank/documentos', dest_type: 'ssh', dest_dataset: 'bak/documentos',
+      id: 2, source: 'tank/documents', dest_type: 'ssh', dest_dataset: 'bak/documents',
       host: 'nas-backup.lan', user: 'zfsrepl', port: 22, raw: true, force_full: false,
       schedule: 'hourly@:20', enabled: true,
       last_bookmark: 'ezrepl-20260730-112000', last_run: iso(daysAgo(0, 3)),
       last_ok: false,
-      last_error: 'ssh: Permission denied (publickey) — instala la clave pública del servidor en el destino',
+      last_error: "ssh: Permission denied (publickey) — install the server's public key on the destination",
       next_run: iso(daysAgo(-1, 3)),
     },
   ];
@@ -939,10 +939,10 @@ export class MockProvider implements DataProvider {
   runReplicationJob = async (id: number) => {
     await delay(200);
     const j = this.replJobs.find((x) => x.id === id);
-    if (!j) throw new ApiError(404, 'not_found', 'Job de replicación no encontrado');
+    if (!j) throw new ApiError(404, 'not_found', 'Replication job not found');
     const target = j.dest_type === 'ssh' ? `${j.source} → ${j.user}@${j.host}:${j.dest_dataset}` : `${j.source} → ${j.dest_dataset}`;
     if (this.longops.some((o) => o.status === 'running' && o.type === 'replication' && o.target === target)) {
-      throw new ApiError(409, 'already_running', 'Ya hay una replicación en curso para este job');
+      throw new ApiError(409, 'already_running', 'A replication is already running for this job');
     }
     const op: LongOp = {
       id: `op-demo-${++this.longopSeq}`, type: 'replication', target,
@@ -964,9 +964,9 @@ export class MockProvider implements DataProvider {
         if (fail) {
           op.error = 'exit status 255';
           op.lines.push('zfsrepl@' + j.host + ': Permission denied (publickey).');
-          j.last_error = 'ssh: Permission denied (publickey) — instala la clave pública del servidor en el destino';
+          j.last_error = "ssh: Permission denied (publickey) — install the server's public key on the destination";
         } else {
-          op.lines.push('Replicación completada');
+          op.lines.push('Replication completed');
           j.last_error = '';
           j.last_bookmark = 'ezrepl-' + new Date().toISOString().slice(0, 10).replaceAll('-', '') + '-000000';
         }
@@ -984,12 +984,12 @@ export class MockProvider implements DataProvider {
     await delay();
     return {
       public_key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDemoKeyEasyZFSReplication0123456789abcdef easyzfs-replication',
-      instructions: 'Añade esta clave a ~/.ssh/authorized_keys del usuario destino. Para no usar root: zfs allow -u <usuario> snapshot,send,receive,destroy,hold,bookmark <pool>',
+      instructions: 'Add this key to ~/.ssh/authorized_keys of the destination user. To avoid root: zfs allow -u <user> snapshot,send,receive,destroy,hold,bookmark <pool>',
     };
   };
   testReplication = async (_h: string, _u: string, _p: number): Promise<ReplicationTestResult> => {
     await delay(700);
-    return { ok: false, error: 'autenticación fallida (Permission denied): instala la clave pública del servidor en el authorized_keys del usuario destino' };
+    return { ok: false, error: "authentication failed (Permission denied): install the server's public key in the destination user's authorized_keys" };
   };
 
   // ---- Tareas ----
@@ -1028,14 +1028,14 @@ export class MockProvider implements DataProvider {
   setSystemTimerSchedule = async (task: SystemTimer, schedule: string) => {
     await delay(300);
     const t = this.systemTimers.find((x) => x.source === task.source && x.name === task.name && x.line === task.line);
-    if (!t || !t.editable) throw new ApiError(404, 'not_found', 'tarea no encontrada o no editable');
+    if (!t || !t.editable) throw new ApiError(404, 'not_found', 'task not found or not editable');
     t.schedule = schedule;
   };
   migrateSystemTimer = async (task: SystemTimer, newName: string) => {
     await delay(400);
     const i = this.systemTimers.findIndex((x) => x.source === task.source && x.name === task.name && x.line === task.line);
     if (i < 0 || !this.systemTimers[i].editable || this.systemTimers[i].source !== 'cron') {
-      throw new ApiError(404, 'not_found', 'tarea no encontrada o no migrable');
+      throw new ApiError(404, 'not_found', 'task not found or cannot be migrated');
     }
     const old = this.systemTimers[i];
     this.systemTimers.splice(i, 1, {
@@ -1048,20 +1048,20 @@ export class MockProvider implements DataProvider {
   getDisks = async () => { await delay(); return this.disks.map((d) => ({ ...d })); };
   getRecommendations = async () => { await delay(); return computeRecommendations(this.disks, this.pools); };
   smartTest = async (dev: string, type: 'short' | 'long') => {    await delay(200);
-    this.history.unshift({ ts: iso(new Date()), tipo: type === 'short' ? 'smart_short' : 'smart_long', target: dev, ok: true, detail: 'test iniciado' });
+    this.history.unshift({ ts: iso(new Date()), tipo: type === 'short' ? 'smart_short' : 'smart_long', target: dev, ok: true, detail: 'test started' });
   };
   poweroffDisk = async (dev: string) => {
     await delay(300);
     const d = this.disks.find((x) => x.dev === dev);
-    if (!d) throw new ApiError(404, 'not_found', 'Disco no encontrado');
-    if (d.pool !== '—' && d.pool !== '') throw new ApiError(409, 'dev_in_use', `el disco pertenece al pool '${d.pool}'`);
-    if (d.in_use) throw new ApiError(409, 'dev_mounted', 'el disco tiene particiones montadas o swap activo');
-    this.history.unshift({ ts: iso(new Date()), tipo: 'poweroff', target: dev, ok: true, detail: 'disco apagado' });
+    if (!d) throw new ApiError(404, 'not_found', 'Disk not found');
+    if (d.pool !== '—' && d.pool !== '') throw new ApiError(409, 'dev_in_use', `the disk belongs to pool '${d.pool}'`);
+    if (d.in_use) throw new ApiError(409, 'dev_mounted', 'the disk has mounted partitions or active swap');
+    this.history.unshift({ ts: iso(new Date()), tipo: 'poweroff', target: dev, ok: true, detail: 'disk powered off' });
   };
   identifyDisk = async (dev: string) => {
     await delay(400);
     const d = this.disks.find((x) => x.dev === dev);
-    if (!d) throw new ApiError(404, 'not_found', 'Disco no encontrado');
+    if (!d) throw new ApiError(404, 'not_found', 'Disk not found');
     this.history.unshift({ ts: iso(new Date()), tipo: 'identify', target: dev, ok: true, detail: 'LED parpadeando (actividad I/O)' });
   };
 

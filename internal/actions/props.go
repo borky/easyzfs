@@ -25,7 +25,7 @@ import (
 )
 
 // ErrNotLocal — la propiedad no es local, no se puede heredar (409).
-var ErrNotLocal = errors.New("la propiedad no es local (no se puede heredar)")
+var ErrNotLocal = errors.New("the property is not local (it cannot be inherited)")
 
 // propKind — tipo de validación de una propiedad editable.
 type propKind int
@@ -232,7 +232,7 @@ func trustedDir(dir string) error {
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok || !fi.IsDir() || int(st.Uid) != mountTrustedUID || fi.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("%s no es un directorio de root protegido contra escritura", dir)
+		return fmt.Errorf("%s is not a root-owned directory protected against writes", dir)
 	}
 	return nil
 }
@@ -273,10 +273,10 @@ func checkMountpointPath(base, p string, trustDirs bool) error {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("no se puede inspeccionar %s: %w", next, err)
+			return fmt.Errorf("cannot inspect %s: %w", next, err)
 		}
 		if fi.Mode()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("%s es un enlace simbólico", next)
+			return fmt.Errorf("%s is a symbolic link", next)
 		}
 		cur = next
 	}
@@ -297,20 +297,20 @@ func checkMountpoint(ctx context.Context, v, dataset string) error {
 		return nil
 	}
 	if !reMountpoint.MatchString(v) {
-		return fmt.Errorf("%w: mountpoint no válido: %q", ErrInvalidInput, v)
+		return fmt.Errorf("%w: invalid mountpoint: %q", ErrInvalidInput, v)
 	}
 	clean := path.Clean(v)
 	pool, _, _ := strings.Cut(dataset, "/")
 	trees := poolTrees(ctx, pool)
 	if !underAllowedRoot(clean, trees) {
-		return fmt.Errorf("%w: mountpoint fuera de las rutas permitidas (%s, /mnt/…, /media/…, /srv/…, /home/…): %s",
+		return fmt.Errorf("%w: mountpoint outside the allowed paths (%s, /mnt/…, /media/…, /srv/…, /home/…): %s",
 			ErrInvalidInput, strings.Join(trees, ", "), clean)
 	}
 	if deniedMountpoint(clean) {
-		return fmt.Errorf("%w: mountpoint en una ruta de sistema: %s", ErrInvalidInput, clean)
+		return fmt.Errorf("%w: mountpoint on a system path: %s", ErrInvalidInput, clean)
 	}
 	if err := checkMountpointPath("/", clean, true); err != nil {
-		return fmt.Errorf("%w: mountpoint no seguro: %v", ErrInvalidInput, err)
+		return fmt.Errorf("%w: unsafe mountpoint: %v", ErrInvalidInput, err)
 	}
 	return nil
 }
@@ -400,15 +400,15 @@ func (p propSpec) describeKind() string {
 	case propBool:
 		return "on|off"
 	case propEnum:
-		return fmt.Sprintf("uno de: %s", strings.Join(p.enum, ", "))
+		return fmt.Sprintf("one of: %s", strings.Join(p.enum, ", "))
 	case propSize:
-		return "tamaño (none o número con sufijo K/M/G/T)"
+		return "size (none or a number with a K/M/G/T suffix)"
 	case propSizePow2:
-		return fmt.Sprintf("potencia de 2 entre %d y %d bytes", p.minBytes, p.maxBytes)
+		return fmt.Sprintf("power of 2 between %d and %d bytes", p.minBytes, p.maxBytes)
 	case propPath:
-		return "none, legacy, o una ruta bajo /<pool>, /mnt, /media, /srv o /home"
+		return "none, legacy, or a path under /<pool>, /mnt, /media, /srv or /home"
 	}
-	return "valor válido"
+	return "valid value"
 }
 
 // DatasetPropsGet — 'zfs get -H -o name,property,value,source all <ds>'.
@@ -445,13 +445,13 @@ func (s *Service) DatasetPropSet(ctx context.Context, actor, name, property, val
 	}
 	spec, ok := propValidators[property]
 	if !ok {
-		return fmt.Errorf("%w: propiedad no editable (%s)", ErrInvalidInput, property)
+		return fmt.Errorf("%w: property not editable (%s)", ErrInvalidInput, property)
 	}
 	if dsType != "" && !spec.appliesTo(dsType) {
-		return fmt.Errorf("%w: %s no aplica a un %s", ErrInvalidInput, property, dsType)
+		return fmt.Errorf("%w: %s does not apply to a %s", ErrInvalidInput, property, dsType)
 	}
 	if !spec.valid(value) {
-		return fmt.Errorf("%w: valor inválido para %s (%s)", ErrInvalidInput, property, spec.describeKind())
+		return fmt.Errorf("%w: invalid value for %s (%s)", ErrInvalidInput, property, spec.describeKind())
 	}
 	if err := setuidDevicesOn(property, value); err != nil {
 		return err
@@ -495,10 +495,10 @@ func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property 
 		return ErrInvalidName
 	}
 	if _, ok := propValidators[property]; !ok {
-		return fmt.Errorf("%w: propiedad no editable (%s)", ErrInvalidInput, property)
+		return fmt.Errorf("%w: property not editable (%s)", ErrInvalidInput, property)
 	}
 	if property == "setuid" || property == "devices" {
-		return fmt.Errorf("%w: %s no se hereda desde EasyZFS: el valor heredado o recibido suele ser on (ver setuidDevicesOn)", ErrInvalidInput, property)
+		return fmt.Errorf("%w: %s is not inherited from EasyZFS: the inherited or received value is usually on (see setuidDevicesOn)", ErrInvalidInput, property)
 	}
 	if err := guardHost(ctx, propHostOp(property), "", name); err != nil {
 		return err
@@ -532,17 +532,17 @@ func (s *Service) DatasetPropInherit(ctx context.Context, actor, name, property 
 // ErrRiskAck — the change is allowed but can lose data or break things; the
 // caller must repeat it with acknowledge_risk. Mapped to 409 risk_ack_required.
 // The UI asks first with its own translated text; this makes API clients ask too.
-var ErrRiskAck = errors.New("cambio de alto impacto: repite la petición con acknowledge_risk=true si es lo que quieres")
+var ErrRiskAck = errors.New("high-impact change: repeat the request with acknowledge_risk=true if this is what you want")
 
 // riskText — what each high-impact change does, in plain words.
 var riskText = map[string]string{
-	"sync_disabled":  "sync=disabled pierde los últimos segundos de escrituras si se corta la luz; máquinas virtuales y bases de datos pueden quedar corruptas",
-	"copies":         "copies solo afecta a lo que se escriba a partir de ahora y no sustituye a la redundancia del pool",
-	"readonly_on":    "readonly=on hace fallar a todo lo que escriba en este dataset",
-	"canmount_off":   "con canmount=off/noauto el dataset deja de montarse, también al arrancar",
-	"mountpoint":     "cambiar el punto de montaje mueve los datos de sitio: lo que los busque en la ruta anterior (aplicaciones, almacenamiento de Proxmox) deja de encontrarlos",
-	"acl_semantics":  "acltype/xattr cambian cómo se interpretan los permisos de los ficheros existentes",
-	"volsize_shrink": "reducir volsize destruye los datos que queden más allá del nuevo tamaño",
+	"sync_disabled":  "sync=disabled loses the last seconds of writes on a power cut; virtual machines and databases can end up corrupted",
+	"copies":         "copies only affects what is written from now on and does not replace the pool's redundancy",
+	"readonly_on":    "readonly=on makes everything that writes to this dataset fail",
+	"canmount_off":   "with canmount=off/noauto the dataset stops being mounted, at boot too",
+	"mountpoint":     "changing the mountpoint moves the data: whatever looks for it at the old path (applications, Proxmox storage) stops finding it",
+	"acl_semantics":  "acltype/xattr change how the permissions of existing files are interpreted",
+	"volsize_shrink": "shrinking volsize destroys the data beyond the new size",
 }
 
 // PropRisk — the risk key of setting property=value, or "" when it is
@@ -618,7 +618,7 @@ func propHostOp(property string) HostOp {
 // case that does.
 func setuidDevicesOn(property, value string) error {
 	if (property == "setuid" || property == "devices") && value == "on" {
-		return fmt.Errorf("%w: %s=on no se activa desde EasyZFS: haría efectivos los ficheros setuid o de dispositivo de lo que se haya recibido", ErrInvalidInput, property)
+		return fmt.Errorf("%w: %s=on is not enabled from EasyZFS: it would make setuid or device files in received data effective", ErrInvalidInput, property)
 	}
 	return nil
 }

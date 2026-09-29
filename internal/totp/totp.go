@@ -25,7 +25,7 @@ const (
 )
 
 // ErrBadCode — el código TOTP proporcionado no es válido.
-var ErrBadCode = errors.New("código TOTP incorrecto")
+var ErrBadCode = errors.New("wrong TOTP code")
 
 // Secret codifica un secreto aleatorio en base32 sin padding (formato otpauth).
 func Secret() (string, error) {

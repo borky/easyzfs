@@ -101,7 +101,7 @@ func (n *Notifier) Notify(ev Event) {
 	select {
 	case n.ch <- ev:
 	default:
-		log.Printf("webhook: cola llena, evento de alerta %d descartado", ev.ID)
+		log.Printf("webhook: queue full, alert event %d dropped", ev.ID)
 	}
 }
 
@@ -154,7 +154,7 @@ func (n *Notifier) sendWithRetry(ev Event) {
 	}
 	body, err := payloadJSON(ev)
 	if err != nil {
-		log.Printf("webhook: payload no serializable: %v", err)
+		log.Printf("webhook: payload not serialisable: %v", err)
 		return
 	}
 	var lastErr error
@@ -168,7 +168,7 @@ func (n *Notifier) sendWithRetry(ev Event) {
 		if httpErr, ok := err.(*httpStatusError); ok {
 			// 4xx (salvo 429): error del emisor, no reintentar jamás.
 			if httpErr.status >= 400 && httpErr.status < 500 && httpErr.status != http.StatusTooManyRequests {
-				log.Printf("webhook: %d permanente en alerta %d, no se reintenta", httpErr.status, ev.ID)
+				log.Printf("webhook: permanent %d on alert %d, not retried", httpErr.status, ev.ID)
 				n.saveDLQ(ev, body, lastErr.Error())
 				return
 			}
@@ -226,7 +226,7 @@ func (n *Notifier) saveDLQ(ev Event, body []byte, reason string) {
 		"INSERT OR REPLACE INTO webhook_events (event_id, payload, sent_at, error) VALUES (?, ?, ?, ?)",
 		fmt.Sprintf("%d", ev.ID), string(body), time.Now().UTC().Format(time.RFC3339), reason,
 	); err != nil {
-		log.Printf("webhook: no se pudo guardar en DLQ: %v", err)
+		log.Printf("webhook: could not save to the DLQ: %v", err)
 		return
 	}
 	log.Printf("webhook: alerta %d a DLQ (%s)", ev.ID, reason)

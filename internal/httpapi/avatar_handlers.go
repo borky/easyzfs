@@ -39,7 +39,7 @@ func (s *Server) putMyAvatar(w http.ResponseWriter, r *http.Request) {
 		ext = ".jpeg"
 	default:
 		writeErr(w, http.StatusUnsupportedMediaType, "invalid_type",
-			"el avatar debe ser image/webp o image/jpeg")
+			"the avatar must be image/webp or image/jpeg")
 		return
 	}
 
@@ -60,11 +60,11 @@ func (s *Server) putMyAvatar(w http.ResponseWriter, r *http.Request) {
 	n, err := io.Copy(tmp, r.Body)
 	tmp.Close()
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "avatar_too_large", "imagen demasiado grande (máx. 512 KB)")
+		writeErr(w, http.StatusBadRequest, "avatar_too_large", "image too large (max. 512 KB)")
 		return
 	}
 	if n == 0 {
-		writeErr(w, http.StatusBadRequest, "empty_body", "el body está vacío")
+		writeErr(w, http.StatusBadRequest, "empty_body", "the body is empty")
 		return
 	}
 
@@ -113,21 +113,21 @@ func (s *Server) getAvatar(w http.ResponseWriter, r *http.Request) {
 	u, err := s.users.Get(r.Context(), name)
 	if err != nil {
 		if errors.Is(err, users.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", "usuario no encontrado")
+			writeErr(w, http.StatusNotFound, "not_found", "user not found")
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
 	}
 	if u.Avatar == "" {
-		writeErr(w, http.StatusNotFound, "no_avatar", "el usuario no tiene foto de perfil")
+		writeErr(w, http.StatusNotFound, "no_avatar", "the user has no profile picture")
 		return
 	}
 	// u.Avatar viene de la BD (lo escribe el server con user+ext), pero se
 	// sanea igualmente por si acaso.
 	clean := filepath.Base(u.Avatar)
 	if clean != u.Avatar || strings.Contains(clean, "..") {
-		writeErr(w, http.StatusNotFound, "no_avatar", "avatar inválido")
+		writeErr(w, http.StatusNotFound, "no_avatar", "invalid avatar")
 		return
 	}
 	path := filepath.Join(s.avatarDir(), clean)

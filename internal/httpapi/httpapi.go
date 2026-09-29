@@ -329,7 +329,7 @@ func (s *Server) rateGuard(next http.Handler) http.Handler {
 		}
 		if !bucket.allow(ip, time.Now(), 30, time.Minute) {
 			writeErr(w, http.StatusTooManyRequests, "rate_limited",
-				"demasiadas peticiones; inténtalo de nuevo en unos segundos")
+				"too many requests; try again in a few seconds")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -374,7 +374,7 @@ func (s *Server) csrfGuard(next http.Handler) http.Handler {
 			}
 			if origin != host {
 				writeErr(w, http.StatusForbidden, "csrf",
-					fmt.Sprintf("petición rechazada: origen '%s' no coincide con el host '%s'", origin, host))
+					fmt.Sprintf("request refused: origin '%s' does not match host '%s'", origin, host))
 				return
 			}
 		}
@@ -390,12 +390,12 @@ func (s *Server) demoGuard(next http.Handler) http.Handler {
 			allowed := r.URL.Path == "/api/logout" ||
 				(strings.HasPrefix(r.URL.Path, "/api/alerts/") && strings.HasSuffix(r.URL.Path, "/ack"))
 			if !allowed {
-				writeErr(w, http.StatusForbidden, "demo_mode", "modo demo: las mutaciones están desactivadas")
+				writeErr(w, http.StatusForbidden, "demo_mode", "demo mode: changes are disabled")
 				return
 			}
 		}
 		if s.cfg.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead && storageRoute(r.URL.Path) {
-			writeErr(w, http.StatusForbidden, "read_only", "modo solo lectura: EasyZFS no modifica el almacenamiento")
+			writeErr(w, http.StatusForbidden, "read_only", "read-only mode: EasyZFS does not change storage")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -481,7 +481,7 @@ func writeErr(w http.ResponseWriter, code int, errCode, msg string) {
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err := dec.Decode(dst); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_json", fmt.Sprintf("body JSON inválido: %v", err))
+		writeErr(w, http.StatusBadRequest, "bad_json", fmt.Sprintf("invalid JSON body: %v", err))
 		return false
 	}
 	return true
@@ -491,7 +491,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 func requireConfirm(w http.ResponseWriter, confirm, target string) bool {
 	if confirm != target || target == "" {
 		writeErr(w, http.StatusBadRequest, "confirm_required",
-			fmt.Sprintf(`se requiere {"confirm":"%s"} para confirmar la operación`, target))
+			fmt.Sprintf(`{"confirm":"%s"} is required to confirm the operation`, target))
 		return false
 	}
 	return true
@@ -526,7 +526,7 @@ func actionErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, actions.ErrWrongKey):
 		// 403, not 401: the frontend treats any 401 as an expired session.
 		writeErr(w, http.StatusForbidden, "wrong_key", err.Error())
-	case strings.Contains(err.Error(), "inválid"):
+	case strings.Contains(err.Error(), "invalid"):
 		writeErr(w, http.StatusBadRequest, "invalid_input", err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, "exec_error", err.Error())

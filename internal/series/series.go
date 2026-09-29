@@ -185,7 +185,7 @@ func ValidSource(src string) bool {
 // (5 años de tendencia diaria; la retención larga la garantiza series_daily).
 func ParseDays(days int) (from, to int64, err error) {
 	if days < 1 || days > 1825 {
-		return 0, 0, fmt.Errorf("days fuera de rango (1-1825): %d", days)
+		return 0, 0, fmt.Errorf("days out of range (1-1825): %d", days)
 	}
 	now := time.Now().UTC()
 	to = now.Unix()

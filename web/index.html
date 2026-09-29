@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1210">
-<meta name="description" content="EasyZFS — Gestión ZFS ligera para servidores caseros">
+<meta name="description" content="EasyZFS — lightweight ZFS management for home servers">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icons/logo.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
-<title>EasyZFS - Gestión ZFS</title>
+<title>EasyZFS - ZFS management</title>
 <script>
 // Apariencia inicial antes del primer paint (evita parpadeo):
 // tema (auto = prefers-color-scheme del SO), acento, densidad y
@@ -72,10 +72,11 @@
   if(ls.getItem('easyzfs-reduce-motion')==='1'){
     document.documentElement.classList.add('reduce-motion');
   }
-  // Idioma guardado (auto = navigator) fijado antes del primer paint
+  // Saved language set before the first paint, resolved as the app does:
+  // English unless Spanish was chosen (or 'auto' and the browser is Spanish).
   var L=getk('easyzfs-lang','zfc-lang');
   document.documentElement.lang=(L==='es'||L==='en')?L:
-    (((navigator.language||'es').toLowerCase().indexOf('en')===0)?'en':'es');
+    ((L==='auto'&&(navigator.language||'').toLowerCase().indexOf('es')===0)?'es':'en');
 }catch(e){}})();
 </script>
 </head>

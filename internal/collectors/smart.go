@@ -104,7 +104,7 @@ func (c *SmartCollector) Run(ctx context.Context) {
 			}
 			if c.fails >= 3 {
 				if !c.stale {
-					log.Printf("smart: fuente stale tras %d fallos; backoff", c.fails)
+					log.Printf("smart: source stale after %d failures; backing off", c.fails)
 				}
 				c.stale = true
 				interval = min(2*interval, smartMaxBackoff)
@@ -235,7 +235,7 @@ func (c *SmartCollector) collectOnce(ctx context.Context) error {
 			// Por defecto "unknown": eMMC / USB sin SAT no hablan smartctl
 			// y no deben aparecer como error ni como "ok".
 			Smart:       "unknown",
-			SmartDetail: "no disponible",
+			SmartDetail: "not available",
 		}
 		c.fillSmart(ctx, &d)
 		// Delta CRC por serial (sobrevive a cambios de bahía/sdX).
@@ -309,11 +309,11 @@ func (c *SmartCollector) fillSmart(ctx context.Context, d *model.Disk) {
 	// self-test log con errores en un disco muriendo) pero su JSON es válido.
 	out, err := executil.RunTolerant(ctx, 60*time.Second, "smartctl", "-j", "-a", "/dev/"+d.Dev)
 	if err != nil && len(out) == 0 {
-		d.SmartDetail = "smartctl no disponible"
+		d.SmartDetail = "smartctl not available"
 		return
 	}
 	if err := parseSmartJSON(out, d); err != nil {
-		d.SmartDetail = "salida smartctl no parseable"
+		d.SmartDetail = "smartctl output could not be parsed"
 		return
 	}
 }
@@ -346,7 +346,7 @@ func parseSmartJSON(out []byte, d *model.Disk) error {
 		// error "Unable to detect device type" con exit != 0): no es un FALLO
 		// del disco, es que el dispositivo no habla SMART.
 		d.Smart = "unknown"
-		d.SmartDetail = "no disponible"
+		d.SmartDetail = "not available"
 	} else {
 		d.Smart = "ok"
 		d.SmartDetail = "PASSED"
@@ -476,10 +476,10 @@ func applyCrcDelta(d *model.Disk, prev int64, ok bool) {
 		if d.Smart == "ok" {
 			d.Smart = "warn"
 		}
-		d.SmartDetail = fmt.Sprintf("%s (crc=%d, +%d nuevos)", d.SmartDetail, d.CrcErrors, d.CrcRecent)
+		d.SmartDetail = fmt.Sprintf("%s (crc=%d, +%d new)", d.SmartDetail, d.CrcErrors, d.CrcRecent)
 	case d.CrcErrors >= crcHistoryWarn:
 		// Histórico estable: contexto, no alarma (el estado no cambia).
-		d.SmartDetail = fmt.Sprintf("%s (crc=%d histórico, estable)", d.SmartDetail, d.CrcErrors)
+		d.SmartDetail = fmt.Sprintf("%s (crc=%d historical, stable)", d.SmartDetail, d.CrcErrors)
 	}
 }
 

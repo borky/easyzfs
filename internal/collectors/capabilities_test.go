@@ -42,7 +42,7 @@ func TestCapabilitiesFromOutput(t *testing.T) {
 		{
 			name: "salida sin versión reconocible",
 			out:  "no zfs here",
-			want: model.Capabilities{Version: "desconocida"},
+			want: model.Capabilities{Version: "unknown"},
 		},
 	}
 	for _, c := range cases {

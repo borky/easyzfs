@@ -46,11 +46,11 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if !scheduler.ValidTipos[body.Tipo] {
 		writeErr(w, http.StatusBadRequest, "invalid_input",
-			"tipo inválido (snapshot|scrub|trim|smart_short|smart_long)")
+			"invalid type (snapshot|scrub|trim|smart_short|smart_long)")
 		return
 	}
 	if body.Target == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "target requerido")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "target required")
 		return
 	}
 	if _, err := scheduler.ParseSchedule(body.Schedule); err != nil {
@@ -102,7 +102,7 @@ func (s *Server) patchJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := s.jstore.Get(r.Context(), id); err != nil {
-		writeErr(w, http.StatusNotFound, "not_found", "job no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "job not found")
 		return
 	}
 	if err := s.jstore.Update(r.Context(), id, body.Enabled, body.Schedule, body.Retention); err != nil {
@@ -121,7 +121,7 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 	j, err := s.jstore.Get(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "not_found", "job no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "job not found")
 		return
 	}
 	var body struct {
@@ -149,7 +149,7 @@ func (s *Server) runJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.sched.RunNow(r.Context(), id); err != nil {
 		if errors.Is(err, scheduler.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", "job no encontrado")
+			writeErr(w, http.StatusNotFound, "not_found", "job not found")
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
@@ -172,7 +172,7 @@ func (s *Server) jobsHistory(w http.ResponseWriter, r *http.Request) {
 func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid_id", "id de job inválido")
+		writeErr(w, http.StatusBadRequest, "invalid_id", "invalid job id")
 		return 0, false
 	}
 	return id, true

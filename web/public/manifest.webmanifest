@@ -1,14 +1,14 @@
 {
-  "name": "EasyZFS - Gestión ZFS",
+  "name": "EasyZFS - ZFS management",
   "short_name": "EasyZFS",
-  "description": "Gestión ZFS ligera para servidores caseros",
+  "description": "Lightweight ZFS management for home servers",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0e1210",
   "theme_color": "#0e1210",
-  "lang": "es",
+  "lang": "en",
   "icons": [
     { "src": "/icons/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

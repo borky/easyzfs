@@ -60,7 +60,7 @@ func TestTrackPools_PoolAusenteAlerta(t *testing.T) {
 	if level != "crit" || kind != "pool_missing" {
 		t.Errorf("level/kind = %s/%s, esperado crit/pool_missing", level, kind)
 	}
-	if !strings.Contains(msg, "tank") || !strings.Contains(msg, "no importado") {
+	if !strings.Contains(msg, "tank") || !strings.Contains(msg, "not imported") {
 		t.Errorf("mensaje inesperado: %q", msg)
 	}
 }

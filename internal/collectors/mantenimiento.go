@@ -64,17 +64,17 @@ func (m *Mantenimiento) purge(ctx context.Context) {
 	if n, err := db.RollupSeriesToDaily(ctx, m.db, m.retentionDays); err != nil {
 		log.Printf("mantenimiento: rollup series→daily: %v", err)
 	} else if n > 0 {
-		log.Printf("mantenimiento: %d puntos de serie agregados a diario", n)
+		log.Printf("maintenance: %d series points aggregated to daily", n)
 	}
 	if n, err := db.PurgeSeries(ctx, m.db, m.retentionDays); err != nil {
 		log.Printf("mantenimiento: purga series: %v", err)
 	} else if n > 0 {
-		log.Printf("mantenimiento: %d puntos de serie purgados", n)
+		log.Printf("maintenance: %d series points purged", n)
 	}
 	if n, err := db.PurgeSeriesDaily(ctx, m.db, seriesDailyRetentionDays); err != nil {
 		log.Printf("mantenimiento: purga series_daily: %v", err)
 	} else if n > 0 {
-		log.Printf("mantenimiento: %d días de serie diaria purgados", n)
+		log.Printf("maintenance: %d days of daily series purged", n)
 	}
 	if err := db.PurgeSessions(ctx, m.db); err != nil {
 		log.Printf("mantenimiento: purga sesiones: %v", err)

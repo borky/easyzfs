@@ -250,15 +250,15 @@ func Migrate(ctx context.Context, d *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx, m); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("migración %d: %w", v, err)
+			return fmt.Errorf("migration %d: %w", v, err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO migrations(version) VALUES (?)", v); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("migración %d (registro): %w", v, err)
+			return fmt.Errorf("migration %d (record): %w", v, err)
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("migración %d (commit): %w", v, err)
+			return fmt.Errorf("migration %d (commit): %w", v, err)
 		}
 	}
 	return nil

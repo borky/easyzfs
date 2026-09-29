@@ -44,7 +44,7 @@ var ValidTipos = map[string]bool{
 }
 
 // ErrNotFound — job inexistente.
-var ErrNotFound = errors.New("job no encontrado")
+var ErrNotFound = errors.New("job not found")
 
 // Store — persistencia de jobs e historial.
 type Store struct {
@@ -240,7 +240,7 @@ func (s *Scheduler) check(ctx context.Context) {
 		}
 		next, err := NextRun(j.Schedule, base)
 		if err != nil {
-			log.Printf("scheduler: job %d schedule inválido: %v", j.ID, err)
+			log.Printf("scheduler: job %d invalid schedule: %v", j.ID, err)
 			continue
 		}
 		if next.After(now) {
@@ -296,7 +296,7 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 		// delete every automatic snapshot they have.
 		skipped, createErr := s.actions.SnapshotTree(ctx, "scheduler", j.Target, name)
 		if len(skipped) > 0 {
-			log.Printf("scheduler: snapshot de %s sin %d discos de Proxmox (%s…)", j.Target, len(skipped), skipped[0])
+			log.Printf("scheduler: snapshot of %s without %d Proxmox disks (%s…)", j.Target, len(skipped), skipped[0])
 		}
 		if j.Retention != "" {
 			dur, err := ParseRetention(j.Retention)
@@ -308,7 +308,7 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 				return fmt.Errorf("prune: %w", err)
 			}
 			if n > 0 {
-				log.Printf("scheduler: %d snapshots viejos purgados de %s", n, j.Target)
+				log.Printf("scheduler: %d old snapshots purged from %s", n, j.Target)
 			}
 		}
 		return createErr
@@ -323,7 +323,7 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 		}
 		if j.Target == "all" {
 			if s.disks == nil {
-				return fmt.Errorf("sin caché de discos disponible")
+				return fmt.Errorf("no disk cache available")
 			}
 			var firstErr error
 			for _, d := range s.disks() {
@@ -338,7 +338,7 @@ func (s *Scheduler) execute(ctx context.Context, j Job) error {
 		}
 		return s.actions.SmartTest(ctx, "scheduler", j.Target, testType)
 	}
-	return fmt.Errorf("tipo de job desconocido %q", j.Tipo)
+	return fmt.Errorf("unknown job type %q", j.Tipo)
 }
 
 // parseTS tolera RFC3339 y formato SQLite.

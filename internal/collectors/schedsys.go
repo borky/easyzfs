@@ -168,7 +168,7 @@ func (c *SchedSysCollector) systemdTimers(ctx context.Context) []model.SysTimer 
 	}
 	var raw []sysdTimerJSON
 	if err := json.Unmarshal(out, &raw); err != nil {
-		log.Printf("schedsys: JSON de systemctl list-timers no soportado: %v", err)
+		log.Printf("schedsys: systemctl list-timers JSON not supported: %v", err)
 		return nil
 	}
 	timers := make([]model.SysTimer, 0, len(raw))

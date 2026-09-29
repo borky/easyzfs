@@ -277,9 +277,10 @@ func TestCatalogoIdiomaDispositivo(t *testing.T) {
 	if bodyES != "El pool tank está al 85% de capacidad (umbral 80%)." {
 		t.Errorf("cuerpo ES = %q", bodyES)
 	}
-	// Idioma desconocido → fallback ES; kind desconocido → genérico.
-	if _, b := catalog("fr", a.Kind, a.Params); b != bodyES {
-		t.Errorf("fallback de idioma no devolvió ES: %q", b)
+	// An unknown language falls back to English; an unknown kind to the
+	// generic text.
+	if _, b := catalog("fr", a.Kind, a.Params); b != bodyEN {
+		t.Errorf("unknown language did not fall back to English: %q", b)
 	}
 	if _, b := catalog("en", "desconocido", nil); b != "You have a new alert." {
 		t.Errorf("fallback genérico EN = %q", b)
@@ -430,9 +431,9 @@ func TestUserLanguageWinsOverTheDevice(t *testing.T) {
 }
 
 // Text values inside an English notification are translated too.
-func TestEnglishTranslatesParams(t *testing.T) {
-	_, body := catalog("en", "smart_status", map[string]any{"dev": "sdb", "detail": "no disponible"})
-	if body != "sdb: not available." {
+func TestSpanishTranslatesParams(t *testing.T) {
+	_, body := catalog("es", "smart_status", map[string]any{"dev": "sdb", "detail": "not available"})
+	if body != "sdb: no disponible." {
 		t.Errorf("body = %q", body)
 	}
 }
@@ -455,9 +456,9 @@ func TestQueuedPushUsesTheUserLanguage(t *testing.T) {
 }
 
 // Names inside a notification are never translated, only its prose.
-func TestEnglishKeepsNames(t *testing.T) {
-	_, body := catalog("en", "pool_capacity", map[string]any{"pool": "conflicto", "pct": 95, "threshold": 90})
-	if body != "Pool conflicto is at 95% capacity (threshold 90%)." {
+func TestTranslationKeepsNames(t *testing.T) {
+	_, body := catalog("es", "pool_capacity", map[string]any{"pool": "conflict", "pct": 95, "threshold": 90})
+	if body != "El pool conflict está al 95% de capacidad (umbral 90%)." {
 		t.Errorf("body = %q", body)
 	}
 }

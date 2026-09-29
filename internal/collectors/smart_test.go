@@ -45,7 +45,7 @@ func TestParseSmartJSON_DiscoMuriendoExit192(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	d := model.Disk{Dev: "sdb", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "sdb", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestParseSmartJSON_TormentaCRC(t *testing.T) {
 			{"name": "UDMA_CRC_Error_Count", "raw": {"value": 1184752}}
 		]}
 	}`)
-	d := model.Disk{Dev: "sdc", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "sdc", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}
@@ -105,11 +105,11 @@ func TestApplyCrcDelta(t *testing.T) {
 		wantRecent int64
 		wantDetail string
 	}{
-		{"tormenta activa", 417, 284, true, "ok", "warn", 133, "+133 nuevos"},
-		{"histórico congelado", 1196981, 1196981, true, "ok", "ok", 0, "histórico, estable"},
-		{"primera pasada", 417, 0, false, "ok", "ok", 0, "histórico, estable"},
+		{"tormenta activa", 417, 284, true, "ok", "warn", 133, "+133 new"},
+		{"histórico congelado", 1196981, 1196981, true, "ok", "ok", 0, "historical, stable"},
+		{"primera pasada", 417, 0, false, "ok", "ok", 0, "historical, stable"},
 		{"sano", 2, 2, true, "ok", "ok", 0, "PASSED"},
-		{"contador no crece", 500, 600, true, "ok", "ok", 0, "histórico, estable"},
+		{"contador no crece", 500, 600, true, "ok", "ok", 0, "historical, stable"},
 	}
 	for _, c := range casos {
 		d := model.Disk{Dev: "sdx", Smart: c.smart, SmartDetail: "PASSED", CrcErrors: c.crc}
@@ -134,14 +134,14 @@ func TestParseSmartJSON_SinSmart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	d := model.Disk{Dev: "mmcblk0", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "mmcblk0", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}
 	if d.Smart != "unknown" {
 		t.Errorf("Smart = %q, esperado unknown", d.Smart)
 	}
-	if d.SmartDetail != "no disponible" {
+	if d.SmartDetail != "not available" {
 		t.Errorf("SmartDetail = %q, esperado 'no disponible'", d.SmartDetail)
 	}
 }
@@ -159,7 +159,7 @@ func TestParseSmartJSON_SanoConCRCHistorico(t *testing.T) {
 			{"name": "UDMA_CRC_Error_Count", "raw": {"value": 3}}
 		]}
 	}`)
-	d := model.Disk{Dev: "sdd", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "sdd", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestParseSmartDetail_ATA(t *testing.T) {
 			{"error_type": {"string": "ABRT"}, "lba": {"string": "0"}}
 		]}}
 	}`)
-	d := model.Disk{Dev: "sde", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "sde", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestParseSmartDetail_NVMe(t *testing.T) {
 			{"type": {"string": "Short self-test"}, "status": {"string": "Completed without error"}, "power_on_hours": 120, "completion_percent": 100}
 		]}
 	}`)
-	d := model.Disk{Dev: "nvme0n1", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "nvme0n1", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestParseSmartDetail_SinSmart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	d := model.Disk{Dev: "mmcblk0", Smart: "unknown", SmartDetail: "no disponible"}
+	d := model.Disk{Dev: "mmcblk0", Smart: "unknown", SmartDetail: "not available"}
 	if err := parseSmartJSON(out, &d); err != nil {
 		t.Fatalf("parseSmartJSON: %v", err)
 	}

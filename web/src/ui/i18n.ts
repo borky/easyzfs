@@ -515,7 +515,7 @@ const es = {
   al_goto: 'Ver la causa',
 
   // Ajustes
-  s_general: 'General', s_lang: 'Idioma', s_lang_auto: 'Automático',
+  s_general: 'General', s_lang: 'Idioma', s_lang_auto: 'Automático (idioma del navegador)',
   s_ch_lang: 'Idioma de las notificaciones',
   s_ch_lang_d: 'Para ntfy, Gotify, Telegram, syslog y el webhook. El email y las notificaciones push llegan a cada usuario en su propio idioma.',
   s_ch_lang_auto: 'Automático (el del último admin activo)',
@@ -1225,7 +1225,7 @@ const en: Record<I18nKey, string> = {
   al_ack_all: 'Mark all as read',
   al_goto: 'View the cause',
 
-  s_general: 'General', s_lang: 'Language', s_lang_auto: 'Automatic',
+  s_general: 'General', s_lang: 'Language', s_lang_auto: 'Automatic (browser language)',
   s_ch_lang: 'Notification language',
   s_ch_lang_d: 'For ntfy, Gotify, Telegram, syslog and the webhook. E-mail and push notifications reach each user in their own language.',
   s_ch_lang_auto: 'Automatic (the last active admin\'s)',
@@ -1455,7 +1455,9 @@ export function setDemoServer(v: boolean): void {
 export function resolveLang(mode: LangMode): 'es' | 'en' {
   if (mode === 'auto') {
     if (demoServer) return 'en';
-    return (navigator.language || 'es').toLowerCase().startsWith('en') ? 'en' : 'es';
+    // Follow the browser only when it asks for Spanish: anything else is
+    // English, the product's language.
+    return (navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
   }
   return mode;
 }
@@ -1469,7 +1471,9 @@ export function getLangMode(): LangMode {
     localStorage.removeItem(LANG_KEY_LEGACY);
     return old as LangMode;
   }
-  return 'auto';
+  // Nothing chosen yet: English, the product's language. 'auto' (follow
+  // the browser) is an option the user picks, not the default.
+  return 'en';
 }
 
 export function setLangMode(mode: LangMode): void {
@@ -1486,7 +1490,7 @@ export function initLang(): void {
 
 // Traducción con interpolación simple {clave}
 export function t(key: I18nKey, vars?: Record<string, string | number>): string {
-  let s = DICTS[currentLang][key] ?? DICTS.es[key] ?? key;
+  let s = DICTS[currentLang][key] ?? DICTS.en[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
   return s;
 }

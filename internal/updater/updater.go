@@ -396,7 +396,7 @@ func (u *Updater) Apply(ctx context.Context) error {
 	u.mu.Lock()
 	if u.inProgress {
 		u.mu.Unlock()
-		return errors.New("updater: apply ya en curso")
+		return errors.New("updater: an apply is already running")
 	}
 	u.inProgress = true
 	u.mu.Unlock()
@@ -416,7 +416,7 @@ func (u *Updater) Apply(ctx context.Context) error {
 		return fmt.Errorf("updater: detect: %w", err)
 	}
 	if !found {
-		return errors.New("updater: no hay versión más reciente")
+		return errors.New("updater: no newer version")
 	}
 	// ¿Es realmente más reciente? (comparación semver defensiva, sin panic).
 	latestV := stripV(latest.Version())
@@ -431,7 +431,7 @@ func (u *Updater) Apply(ctx context.Context) error {
 		newer = latestV != "" && latestV != u.current
 	}
 	if !newer {
-		return errors.New("updater: no hay versión más reciente")
+		return errors.New("updater: no newer version")
 	}
 
 	// A new attempt: the previous refusal no longer describes it.
@@ -439,7 +439,7 @@ func (u *Updater) Apply(ctx context.Context) error {
 
 	// Registrar pending apply para confirmación post-reinicio
 	if err := u.WritePendingApply(u.current, latestV); err != nil {
-		log.Printf("updater: no se pudo escribir pending-apply: %v", err)
+		log.Printf("updater: could not write pending-apply: %v", err)
 	}
 
 	// Descarga + validación + descompresión a un path temporal, y lo movemos al
@@ -488,7 +488,7 @@ func (u *Updater) Apply(ctx context.Context) error {
 	// Progreso: listo (el .path hará el restart)
 	u.setProgress("restarting", 100)
 
-	log.Printf("[easyzfs] actualización %s descargada y validada → %s (flag .restart-me)", stripV(latest.Version()), u.NewBinary())
+	log.Printf("[easyzfs] update %s downloaded and validated → %s (flag .restart-me)", stripV(latest.Version()), u.NewBinary())
 	return nil
 }
 

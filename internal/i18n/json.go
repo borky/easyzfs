@@ -22,7 +22,7 @@ func proseKey(k string) bool {
 		strings.HasSuffix(k, "_detail") || strings.HasSuffix(k, "_result")
 }
 
-// JSON translates the prose inside a JSON document. ok is false when b is
+// JSON translates the prose inside a JSON document into Spanish. ok is false when b is
 // not JSON (it is then returned untouched).
 func JSON(b []byte) (out []byte, ok bool) {
 	dec := json.NewDecoder(bytes.NewReader(b))
@@ -46,7 +46,7 @@ func walk(v any, key string) any {
 		if !proseKey(key) {
 			return x
 		}
-		return English(x)
+		return Spanish(x)
 	case []any:
 		for i := range x {
 			x[i] = walk(x[i], key) // a list of prose ("warnings") keeps its key

@@ -121,7 +121,7 @@ func (s *Store) Status(ctx context.Context) Status {
 // Devuelve el fichero creado.
 func (s *Store) Run(ctx context.Context) (*File, error) {
 	if s.running {
-		return nil, fmt.Errorf("ya hay un respaldo en curso")
+		return nil, fmt.Errorf("a backup is already running")
 	}
 	s.running = true
 	defer func() { s.running = false }()
@@ -141,14 +141,14 @@ func (s *Store) Run(ctx context.Context) (*File, error) {
 		return nil, err
 	}
 	f := &File{Name: name, TS: fi.ModTime(), Bytes: fi.Size()}
-	log.Printf("backup: creado %s (%d bytes)", name, f.Bytes)
+	log.Printf("backup: created %s (%d bytes)", name, f.Bytes)
 
 	st, err := s.settings.Load(ctx)
 	if err != nil {
 		st = settings.Defaults()
 	}
 	if err := s.purge(st.BackupRetentionDays); err != nil {
-		log.Printf("backup: purga de respaldos antiguos: %v", err)
+		log.Printf("backup: purge old backups: %v", err)
 	}
 	return f, nil
 }
@@ -165,7 +165,7 @@ func (s *Store) purge(days int) error {
 			if err := os.Remove(filepath.Join(s.dir, f.Name)); err != nil {
 				return err
 			}
-			log.Printf("backup: purgado %s (>%d días)", f.Name, days)
+			log.Printf("backup: purged %s (>%d days)", f.Name, days)
 		}
 	}
 	return nil
@@ -198,7 +198,7 @@ func (s *Store) maybeRun(ctx context.Context) {
 		return
 	}
 	if _, err := s.Run(ctx); err != nil {
-		log.Printf("backup: respaldo automático: %v", err)
+		log.Printf("backup: automatic backup: %v", err)
 	}
 }
 
@@ -211,11 +211,11 @@ func CheckSQLite(path string) error {
 	magic := make([]byte, 16)
 	if _, err := io.ReadFull(f, magic); err != nil {
 		f.Close()
-		return fmt.Errorf("fichero demasiado pequeño o ilegible")
+		return fmt.Errorf("file too small or unreadable")
 	}
 	f.Close()
 	if string(magic) != "SQLite format 3\x00" {
-		return fmt.Errorf("no es una base de datos SQLite")
+		return fmt.Errorf("not an SQLite database")
 	}
 	d, err := sql.Open("sqlite", "file:"+path+"?_pragma=query_only(1)")
 	if err != nil {

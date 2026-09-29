@@ -234,7 +234,7 @@ func (s *Server) replaceDisk(w http.ResponseWriter, r *http.Request) {
 	newCanonical, newBase, _ := s.resolveNewDev(body.NewDev)
 	oldBase := stripPart(strings.TrimPrefix(body.OldDev, "/dev/"))
 	if body.OldDev == body.NewDev || oldBase == newBase {
-		writeErr(w, http.StatusConflict, "same_dev", "el disco nuevo no puede ser el mismo que el sustituido")
+		writeErr(w, http.StatusConflict, "same_dev", "the new disk cannot be the one being replaced")
 		return
 	}
 	// Guarda: el disco nuevo no puede ser miembro de ningún pool (evita el
@@ -247,7 +247,7 @@ func (s *Server) replaceDisk(w http.ResponseWriter, r *http.Request) {
 			}
 			if key != "" && key == newBase {
 				writeErr(w, http.StatusConflict, "dev_in_use",
-					fmt.Sprintf("el disco nuevo ya pertenece al pool '%s'", p.Name))
+					fmt.Sprintf("the new disk already belongs to pool '%s'", p.Name))
 				return
 			}
 		}
@@ -257,7 +257,7 @@ func (s *Server) replaceDisk(w http.ResponseWriter, r *http.Request) {
 		for _, d := range s.disks.Disks() {
 			if d.Dev == newBase && d.SizeBytes > 0 && d.SizeBytes < oldSz {
 				writeErr(w, http.StatusConflict, "dev_too_small",
-					"el disco nuevo es más pequeño que el sustituido")
+					"the new disk is smaller than the one being replaced")
 				return
 			}
 		}
@@ -359,7 +359,7 @@ func (s *Server) poolCheckpoint(w http.ResponseWriter, r *http.Request) {
 			s.act.AuditOnly(r.Context(), actor(r), "pool.checkpoint."+body.Action, name, nil)
 			w.WriteHeader(http.StatusAccepted)
 		default:
-			writeErr(w, http.StatusBadRequest, "invalid_input", "action debe ser create|discard")
+			writeErr(w, http.StatusBadRequest, "invalid_input", "action must be create|discard")
 		}
 		return
 	}
@@ -370,7 +370,7 @@ func (s *Server) poolCheckpoint(w http.ResponseWriter, r *http.Request) {
 	case "discard":
 		err = s.act.CheckpointDiscard(r.Context(), actor(r), name)
 	default:
-		writeErr(w, http.StatusBadRequest, "invalid_input", "action debe ser create|discard")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "action must be create|discard")
 		return
 	}
 	if err != nil {
@@ -396,7 +396,7 @@ func (s *Server) expandPool(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.caps.Capabilities().RaidzExpansion {
 		writeErr(w, http.StatusBadRequest, "not_supported",
-			"RAID-Z expansion requiere OpenZFS ≥ 2.3 en este host")
+			"RAID-Z expansion needs OpenZFS ≥ 2.3 on this host")
 		return
 	}
 	if !requireConfirm(w, body.Confirm, name) {
@@ -417,12 +417,12 @@ func (s *Server) expandPool(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		writeErr(w, http.StatusNotFound, "not_found", "pool no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "pool not found")
 		return
 	}
 	if !vdevOK {
 		writeErr(w, http.StatusBadRequest, "invalid_input",
-			fmt.Sprintf("el vdev '%s' no es un raidz del pool '%s'", body.Vdev, name))
+			fmt.Sprintf("vdev '%s' is not a raidz of pool '%s'", body.Vdev, name))
 		return
 	}
 	// El disco debe ser un físico conocido, libre y no en uso por ningún pool.
@@ -435,7 +435,7 @@ func (s *Server) expandPool(w http.ResponseWriter, r *http.Request) {
 	}
 	if !diskOK {
 		writeErr(w, http.StatusConflict, "dev_in_use",
-			fmt.Sprintf("el disco '%s' no está libre (en uso o desconocido)", body.Disk))
+			fmt.Sprintf("disk '%s' is not free (in use or unknown)", body.Disk))
 		return
 	}
 	for _, p := range s.pools.Pools() {
@@ -446,7 +446,7 @@ func (s *Server) expandPool(w http.ResponseWriter, r *http.Request) {
 			}
 			if key != "" && key == base {
 				writeErr(w, http.StatusConflict, "dev_in_use",
-					fmt.Sprintf("el disco '%s' ya pertenece al pool '%s'", body.Disk, p.Name))
+					fmt.Sprintf("disk '%s' already belongs to pool '%s'", body.Disk, p.Name))
 				return
 			}
 		}
@@ -575,15 +575,15 @@ func vdevActionRisk(p model.Pool, action, dev string) string {
 		return ""
 	}
 	if p.Status != "ONLINE" {
-		return fmt.Sprintf("el pool está %s: quitar otro disco ahora puede dejarlo sin redundancia, o sin datos si falla uno más", p.Status)
+		return fmt.Sprintf("the pool is %s: removing another disk now can leave it without redundancy, or without data if one more fails", p.Status)
 	}
 	if p.Scrub.State == "running" && (p.Scrub.Kind == "resilver" || p.Scrub.Kind == "expand") {
-		return fmt.Sprintf("hay un %s en curso: espera a que termine antes de quitar un disco", p.Scrub.Kind)
+		return fmt.Sprintf("a %s is running: wait for it to finish before removing a disk", p.Scrub.Kind)
 	}
 	var target *model.Vdev
 	for i, v := range p.Vdevs {
 		if v.Replacing {
-			return "hay una sustitución de disco en curso: espera a que termine antes de quitar otro"
+			return "a disk replacement is running: wait for it to finish before removing another"
 		}
 		if v.Dev == dev {
 			target = &p.Vdevs[i]
@@ -605,11 +605,11 @@ func vdevActionRisk(p model.Pool, action, dev string) string {
 	}
 	switch {
 	case target.Role == "mirror" && healthy < 2:
-		return fmt.Sprintf("%s se queda con un solo disco sano: sin redundancia, un fallo más pierde los datos", target.Group)
+		return fmt.Sprintf("%s is left with a single healthy disk: without redundancy, one more failure loses the data", target.Group)
 	case strings.HasPrefix(target.Role, "raidz"):
 		parity, _ := strconv.Atoi(strings.TrimPrefix(target.Role, "raidz"))
 		if missing+1 >= parity {
-			return fmt.Sprintf("%s se queda sin paridad: sin redundancia, un fallo más pierde los datos", target.Group)
+			return fmt.Sprintf("%s is left without parity: without redundancy, one more failure loses the data", target.Group)
 		}
 	}
 	return ""

@@ -105,12 +105,12 @@ func (s *Server) backupImport(w http.ResponseWriter, r *http.Request) {
 	// renombrar y salir (systemd Restart=always relanza el proceso).
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		log.Println("backup: importando — cierre de BD y swap")
+		log.Println("backup: importing — closing the database and swapping")
 		_ = s.db.Close()
 		preImport := dbPath + ".pre-import"
 		_ = os.Remove(preImport)
 		if err := os.Rename(dbPath, preImport); err != nil {
-			log.Fatalf("backup: import: no se pudo preservar la BD actual: %v", err)
+			log.Fatalf("backup: import: could not preserve the current database: %v", err)
 		}
 		// Limpiar restos WAL/SHM de la BD anterior (pertenecen al fichero viejo)
 		_ = os.Remove(dbPath + "-wal")
@@ -118,9 +118,9 @@ func (s *Server) backupImport(w http.ResponseWriter, r *http.Request) {
 		if err := os.Rename(tmpPath, dbPath); err != nil {
 			// Intentar restaurar la original antes de morir
 			_ = os.Rename(preImport, dbPath)
-			log.Fatalf("backup: import: no se pudo instalar la BD importada (restaurada la anterior): %v", err)
+			log.Fatalf("backup: import: could not install the imported database (the previous one was restored): %v", err)
 		}
-		log.Println("backup: BD importada instalada; reiniciando proceso")
+		log.Println("backup: imported database installed; restarting the process")
 		os.Exit(0)
 	}()
 }

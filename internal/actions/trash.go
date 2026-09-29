@@ -38,10 +38,10 @@ const TrashDir = "easyzfs-trash"
 
 var (
 	// ErrNotFound — no such dataset or trash entry. Mapped to 404.
-	ErrNotFound = errors.New("no existe")
+	ErrNotFound = errors.New("does not exist")
 	// ErrConflict — the operation cannot proceed in the current state.
 	// Mapped to 409.
-	ErrConflict = errors.New("conflicto")
+	ErrConflict = errors.New("conflict")
 )
 
 // inUse — whether any process has path open: a zvol's device (mount=false)
@@ -141,8 +141,8 @@ func setMountpoints(ctx context.Context, rows []propRow, received map[string]boo
 			_, err = runZFS(ctx, 60*time.Second, "set", "mountpoint="+r.value, r.name)
 		}
 		if err != nil {
-			problems = append(problems, fmt.Sprintf("mountpoint de %s: %v", r.name, err))
-			log.Printf("papelera: mountpoint de %s: %v", r.name, err)
+			problems = append(problems, fmt.Sprintf("mountpoint of %s: %v", r.name, err))
+			log.Printf("trash: mountpoint of %s: %v", r.name, err)
 		}
 	}
 	return problems
@@ -157,10 +157,10 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 	}
 	pool, _, ok := strings.Cut(name, "/")
 	if !ok {
-		return fmt.Errorf("%w: el dataset raíz de un pool no se puede mover a la papelera", ErrInvalidInput)
+		return fmt.Errorf("%w: a pool's root dataset cannot be moved to the recycle bin", ErrInvalidInput)
 	}
 	if InTrash(name) {
-		return fmt.Errorf("%w: ya está en la papelera; bórralo desde allí", ErrInvalidInput)
+		return fmt.Errorf("%w: it is already in the recycle bin; delete it from there", ErrInvalidInput)
 	}
 	if err := guardHost(ctx, OpDatasetRemove, "", name); err != nil {
 		return err
@@ -172,7 +172,7 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 	// whether it is mounted or a volume (for the in-use check).
 	all, err := s.zfsGetRows(ctx, "-r", "-t", "filesystem,volume", "mountpoint,mounted,type", name)
 	if err != nil {
-		return fmt.Errorf("leer %s: %w", name, err)
+		return fmt.Errorf("read %s: %w", name, err)
 	}
 	var rows []propRow
 	info := map[string]map[string]string{}
@@ -189,7 +189,7 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 	if len(rows) > 1 && !recursive {
-		return fmt.Errorf("%w: %s tiene datasets hijos; márcalo como recursivo para moverlos también", ErrInvalidInput, name)
+		return fmt.Errorf("%w: %s has child datasets; mark it recursive to move them too", ErrInvalidInput, name)
 	}
 	// Something still using it (a VM on a zvol, a container on a subvolume)
 	// is refused, as destroy refused it with "busy": moved to the bin it
@@ -210,10 +210,10 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 		}
 		busy, err := inUse(ctx, path, mount)
 		if err != nil {
-			return fmt.Errorf("%w: no se pudo comprobar si %s está en uso (%v); no se mueve a la papelera", ErrConflict, r.name, err)
+			return fmt.Errorf("%w: could not check whether %s is in use (%v); it is not moved to the recycle bin", ErrConflict, r.name, err)
 		}
 		if busy {
-			return fmt.Errorf("%w: %s está en uso (¿una VM o un contenedor en marcha?); detenlo antes de borrarlo", ErrConflict, r.name)
+			return fmt.Errorf("%w: %s is in use (a running VM or container?); stop it before deleting", ErrConflict, r.name)
 		}
 	}
 	st := trashState{Mountpoints: map[string]string{}, Received: map[string]bool{}}
@@ -247,16 +247,16 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 	for _, r := range own {
 		if _, err := runZFS(ctx, 60*time.Second, "set", "mountpoint=none", r.name); err != nil {
 			undo()
-			return fmt.Errorf("desmontar %s (¿en uso?): %w", r.name, err)
+			return fmt.Errorf("unmount %s (in use?): %w", r.name, err)
 		}
 		done = append(done, r)
 	}
 	if _, err := runZFS(ctx, 60*time.Second, "rename", name, target); err != nil {
 		undo()
 		if strings.Contains(err.Error(), "encryption root") {
-			return fmt.Errorf("%w: %s hereda el cifrado de su padre y no puede salir de él; bórralo de forma permanente", ErrConflict, name)
+			return fmt.Errorf("%w: %s inherits its parent's encryption and cannot leave it; delete it permanently", ErrConflict, name)
 		}
-		return fmt.Errorf("mover %s a la papelera: %w", name, err)
+		return fmt.Errorf("move %s to the recycle bin: %w", name, err)
 	}
 	state, _ := json.Marshal(st)
 	if _, err := s.db.ExecContext(ctx,
@@ -265,10 +265,10 @@ func (s *Service) DatasetTrash(ctx context.Context, actor, name string, recursiv
 		// Without the row the views hide it and nothing would ever restore
 		// or purge it: put it back where it was instead.
 		if _, rerr := runZFS(ctx, 60*time.Second, "rename", target, name); rerr != nil {
-			return fmt.Errorf("%s quedó en %s sin registrar (%v) y no se pudo devolver: %w", name, target, err, rerr)
+			return fmt.Errorf("%s was left at %s unrecorded (%v) and could not be moved back: %w", name, target, err, rerr)
 		}
 		undo()
-		return fmt.Errorf("no se pudo registrar en la papelera; %s sigue donde estaba: %w", name, err)
+		return fmt.Errorf("could not record it in the recycle bin; %s is still where it was: %w", name, err)
 	}
 	return nil
 }
@@ -285,13 +285,13 @@ func freeTrashName(ctx context.Context, pool, name string) (string, error) {
 			target += "-" + strconv.Itoa(i)
 		}
 		if !reDataset.MatchString(target) {
-			return "", fmt.Errorf("%w: nombre de papelera no válido: %s", ErrInvalidInput, target)
+			return "", fmt.Errorf("%w: invalid recycle bin name: %s", ErrInvalidInput, target)
 		}
 		if _, err := runZFS(ctx, 15*time.Second, "get", "-H", "-o", "value", "type", target); err != nil {
 			return target, nil
 		}
 	}
-	return "", fmt.Errorf("%w: no hay un nombre libre en la papelera para %s", ErrConflict, name)
+	return "", fmt.Errorf("%w: no free name in the recycle bin for %s", ErrConflict, name)
 }
 
 // ownTrashRoot — whether root is a bin this app made: unmountable, with
@@ -323,13 +323,13 @@ func (s *Service) ensureTrashRoot(ctx context.Context, pool string) error {
 	root := TrashRoot(pool)
 	exists, ours := ownTrashRoot(ctx, root)
 	if exists && !ours {
-		return fmt.Errorf("%w: %s existe pero no es la papelera de EasyZFS (no tiene canmount=off y mountpoint=none); renómbrala o bórrala permanentemente", ErrConflict, root)
+		return fmt.Errorf("%w: %s exists but is not the EasyZFS recycle bin (it lacks canmount=off and mountpoint=none); rename it or delete it permanently", ErrConflict, root)
 	}
 	if exists {
 		return nil
 	}
 	if _, err := runZFS(ctx, 30*time.Second, "create", "-o", "mountpoint=none", "-o", "canmount=off", root); err != nil {
-		return fmt.Errorf("crear la papelera %s: %w", root, err)
+		return fmt.Errorf("create the recycle bin %s: %w", root, err)
 	}
 	return nil
 }
@@ -389,16 +389,16 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 		return nil, ErrInvalidName
 	}
 	if _, err := runZFS(ctx, 15*time.Second, "get", "-H", "-o", "value", "type", e.Original); err == nil {
-		return nil, fmt.Errorf("%w: ya existe un dataset llamado %s; renómbralo antes de restaurar", ErrConflict, e.Original)
+		return nil, fmt.Errorf("%w: a dataset named %s already exists; rename it before restoring", ErrConflict, e.Original)
 	}
 	s.audit(ctx, actor, "dataset.restore", e.Original, map[string]any{"from": e.Trashed}, false)
 	if _, err := runZFS(ctx, 60*time.Second, "rename", e.Trashed, e.Original); err != nil {
-		return nil, fmt.Errorf("restaurar %s: %w", e.Original, err)
+		return nil, fmt.Errorf("restore %s: %w", e.Original, err)
 	}
 	// The row goes first: from here on the dataset is back, whatever else
 	// fails, and a purge must never reach it under its old trash name.
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM trash WHERE id = ?", id); err != nil {
-		log.Printf("papelera: borrar fila %d: %v", id, err)
+		log.Printf("trash: delete row %d: %v", id, err)
 	}
 	s.dropEmptyTrashRoot(ctx, e.Pool)
 
@@ -408,7 +408,7 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 	for rel, mp := range st.Mountpoints {
 		ds := e.Original + rel
 		if !reDataset.MatchString(ds) || (!st.Received[rel] && !reMountpoint.MatchString(mp)) {
-			warnings = append(warnings, fmt.Sprintf("mountpoint de %s no válido; no se restaura", ds))
+			warnings = append(warnings, fmt.Sprintf("invalid mountpoint of %s; it is not restored", ds))
 			continue
 		}
 		// Putting the value back *mounts* the dataset there and then: zfs
@@ -423,8 +423,8 @@ func (s *Service) TrashRestore(ctx context.Context, actor string, id int64) (war
 		if strings.HasPrefix(mp, "/") {
 			t := mountTarget{path: path.Clean(mp), recorded: true}
 			if err := res.checkTarget(ctx, ds, t, false); err != nil {
-				log.Printf("papelera: mountpoint de %s no se restaura: %v", ds, err)
-				warnings = append(warnings, fmt.Sprintf("mountpoint de %s no se restaura: %v", ds, err))
+				log.Printf("trash: mountpoint of %s is not restored: %v", ds, err)
+				warnings = append(warnings, fmt.Sprintf("mountpoint of %s is not restored: %v", ds, err))
 				continue
 			}
 		}
@@ -456,7 +456,7 @@ func (s *Service) TrashPurge(ctx context.Context, actor string, id int64) error 
 func (s *Service) purge(ctx context.Context, actor string, e TrashEntry) error {
 	// Belt and braces: only ever destroy something inside a recycle bin.
 	if !reDataset.MatchString(e.Trashed) || !InTrash(e.Trashed) || e.Trashed == TrashRoot(e.Pool) {
-		return fmt.Errorf("%w: %s no está en la papelera; no se destruye", ErrInvalidInput, e.Trashed)
+		return fmt.Errorf("%w: %s is not in the recycle bin; it is not destroyed", ErrInvalidInput, e.Trashed)
 	}
 	s.audit(ctx, actor, "dataset.purge", e.Original, map[string]any{"trashed": e.Trashed}, true)
 	if _, err := runZFS(ctx, 120*time.Second, "destroy", "-r", e.Trashed); err != nil &&
@@ -464,7 +464,7 @@ func (s *Service) purge(ctx context.Context, actor string, e TrashEntry) error {
 		// Shown on the entry: an hourly retry that keeps failing in silence
 		// would leave a purge date in the past and the space still used.
 		_, _ = s.db.ExecContext(ctx, "UPDATE trash SET last_error = ? WHERE id = ?", err.Error(), e.ID)
-		return fmt.Errorf("vaciar %s: %w", e.Trashed, err)
+		return fmt.Errorf("empty %s: %w", e.Trashed, err)
 	}
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM trash WHERE id = ?", e.ID); err != nil {
 		return err
@@ -486,7 +486,7 @@ func (s *Service) dropEmptyTrashRoot(ctx context.Context, pool string) {
 		return // unreadable, or not empty
 	}
 	if _, err := runZFS(ctx, 30*time.Second, "destroy", root); err != nil {
-		log.Printf("papelera: quitar %s vacía: %v", root, err)
+		log.Printf("trash: remove empty %s: %v", root, err)
 	}
 }
 
@@ -498,7 +498,7 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) {
 	defer s.trashMu.Unlock()
 	list, err := s.TrashList(ctx)
 	if err != nil {
-		log.Printf("papelera: listar: %v", err)
+		log.Printf("trash: list: %v", err)
 		return
 	}
 	for _, e := range list {
@@ -507,14 +507,14 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) {
 			// row could only mislead, so it goes now rather than in a week.
 			if _, err := runZFS(ctx, 15*time.Second, "get", "-H", "-o", "value", "type", e.Trashed); err != nil &&
 				strings.Contains(err.Error(), "does not exist") {
-				log.Printf("papelera: %s ya no existe; se quita de la lista", e.Trashed)
+				log.Printf("trash: %s no longer exists; removed from the list", e.Trashed)
 				_, _ = s.db.ExecContext(ctx, "DELETE FROM trash WHERE id = ?", e.ID)
 				s.dropEmptyTrashRoot(ctx, e.Pool)
 			}
 			continue
 		}
 		if err := s.purge(ctx, "system", e); err != nil {
-			log.Printf("papelera: %v", err)
+			log.Printf("trash: %v", err)
 		}
 	}
 }

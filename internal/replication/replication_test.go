@@ -304,7 +304,7 @@ func TestTestConnection(t *testing.T) {
 	}
 	t.Setenv("SSH_MODE", "deny")
 	if _, err := r.TestConnection(context.Background(), "nas.local", "zfsrepl", 22); err == nil ||
-		!strings.Contains(err.Error(), "autenticación") {
+		!strings.Contains(err.Error(), "authentication failed") {
 		t.Errorf("fallo de auth debería dar error legible: %v", err)
 	}
 	if _, err := r.TestConnection(context.Background(), "h; rm -rf", "u", 22); err == nil {

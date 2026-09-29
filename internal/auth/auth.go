@@ -234,7 +234,7 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			}
 			// Cookie presente pero inválida: no caer en la API key (sesión
 			// corrupta debe reautenticarse).
-			writeAuthErr(w, http.StatusUnauthorized, "unauthorized", "sesión inválida o expirada")
+			writeAuthErr(w, http.StatusUnauthorized, "unauthorized", "invalid or expired session")
 			return
 		}
 		// 2. API key de solo lectura.
@@ -243,7 +243,7 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			if strings.HasPrefix(authz, "Bearer ") && len(authz) > 7 {
 				if name, ok := m.keys.Validate(r.Context(), strings.TrimPrefix(authz, "Bearer ")); ok {
 					if r.Method != http.MethodGet && r.Method != http.MethodHead {
-						writeAuthErr(w, http.StatusForbidden, "readonly_key", "la API key es de solo lectura")
+						writeAuthErr(w, http.StatusForbidden, "readonly_key", "the API key is read-only")
 						return
 					}
 					ctx := context.WithValue(r.Context(), ctxUser, "apikey:"+name)
@@ -253,7 +253,7 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 				}
 			}
 		}
-		writeAuthErr(w, http.StatusUnauthorized, "unauthorized", "sesión requerida")
+		writeAuthErr(w, http.StatusUnauthorized, "unauthorized", "session required")
 	})
 }
 
@@ -261,7 +261,7 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 func (m *Manager) RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if RoleFromContext(r.Context()) != "admin" {
-			writeAuthErr(w, http.StatusForbidden, "forbidden", "se requiere rol admin")
+			writeAuthErr(w, http.StatusForbidden, "forbidden", "admin role required")
 			return
 		}
 		next(w, r)
@@ -306,4 +306,4 @@ func writeAuthErr(w http.ResponseWriter, code int, errCode, msg string) {
 }
 
 // ErrNoSession — error interno para handlers que esperan usuario en ctx.
-var ErrNoSession = errors.New("no hay sesión en el contexto")
+var ErrNoSession = errors.New("no session in the context")

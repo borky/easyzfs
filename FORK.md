@@ -376,6 +376,20 @@ the installer's template loses the three lines or gains a rejected one. The
 real protection stays where it was: the gateway's checks, which run as
 root outside the service.
 
+### English by default, Spanish when chosen
+
+The product now speaks English: every message the server writes (API
+errors, reasons, notifications), the service's log lines in the journal,
+the installer's and helper scripts' output, and the UI for a new user or a
+first visit. Spanish is what a user gets when they select it, from the
+catalogue in `internal/i18n` (English → Spanish) and the `es` half of the
+UI's dictionary. The source strings were rewritten from the same catalogue
+that used to translate them the other way; `TestSourceIsEnglish` keeps
+Spanish out of the Go code, and `TestCatalogueCoversTheCode` keeps every
+message translatable. New users are created with English; "Automatic" is
+still available and follows the browser (Spanish only for a Spanish
+browser). The demo's sample data is English too.
+
 ### Everything in the language the user chose
 
 The UI's own text was always translated; what the server wrote was not.
@@ -398,8 +412,8 @@ Now, with the UI in English:
   translated too, and a test notification uses the tester's UI language.
 - A 403 now shows its reason (host storage, a gateway refusal, demo mode…)
   instead of a generic "no permission"; only a missing role still does.
-- Still Spanish: the installer's terminal output, and the service's log lines
-  in the journal.
+- (Superseded: the section above made English the source; the mechanism
+  described here now translates to Spanish instead.)
 
 ### Secure cookie, mode sweep, proxy docs (spec P8)
 

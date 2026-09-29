@@ -35,7 +35,7 @@ func (s *Server) diffSnapshots(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from == "" || to == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "from y to son requeridos (dataset@snapshot)")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "from and to are required (dataset@snapshot)")
 		return
 	}
 	entries, err := s.act.SnapshotDiff(r.Context(), from, to)
@@ -57,7 +57,7 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Name == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "name requerido")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "name required")
 		return
 	}
 	if err := s.act.SnapshotCreate(r.Context(), actor(r), body.Dataset, body.Name, body.Recursive); err != nil {
@@ -79,7 +79,7 @@ func (s *Server) deleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !strings.Contains(full, "@") {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "se esperaba 'dataset@snapshot'")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "expected 'dataset@snapshot'")
 		return
 	}
 	if !requireConfirm(w, body.Confirm, full) {
@@ -105,7 +105,7 @@ func (s *Server) cloneSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Target == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "target requerido (nombre completo del nuevo dataset)")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "target required (full name of the new dataset)")
 		return
 	}
 	if s.cfg.Mock {

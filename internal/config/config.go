@@ -163,7 +163,7 @@ func Load() *Config {
 		low := strings.ToLower(kv.val)
 		for _, m := range placeholderMarkers {
 			if kv.val != "" && strings.Contains(low, m) {
-				log.Fatalf("config: %s contiene un valor de ejemplo del .env.example; genera un secreto real", kv.key)
+				log.Fatalf("config: %s holds an example value from .env.example; generate a real secret", kv.key)
 			}
 		}
 	}
@@ -172,10 +172,10 @@ func Load() *Config {
 	if secret == "" {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
-			log.Fatalf("no se pudo generar SESSION_SECRET efímero: %v", err)
+			log.Fatalf("could not generate an ephemeral SESSION_SECRET: %v", err)
 		}
 		cfg.SessionSecret = b
-		log.Println("aviso: SESSION_SECRET no definido; usando secreto efímero (las sesiones no sobreviven a reinicios)")
+		log.Println("warning: SESSION_SECRET not set; using an ephemeral secret (sessions do not survive restarts)")
 	} else {
 		sum := sha256.Sum256([]byte(secret))
 		cfg.SessionSecret = sum[:]
@@ -184,16 +184,16 @@ func Load() *Config {
 	// (deploy/install.sh la autoconfigura con `-generate-vapid`).
 	if cfg.VAPIDPrivateKey == "" {
 		if cfg.VAPIDPublicKey != "" {
-			log.Println("aviso: VAPID_PUBLIC_KEY sin VAPID_PRIVATE_KEY; notificaciones push desactivadas")
+			log.Println("warning: VAPID_PUBLIC_KEY without VAPID_PRIVATE_KEY; push notifications disabled")
 		} else {
-			log.Println("aviso: claves VAPID no configuradas; notificaciones push desactivadas (deploy/install.sh las genera)")
+			log.Println("warning: VAPID keys not configured; push notifications disabled (deploy/install.sh generates them)")
 		}
 	}
 	// Email es opcional: sin SMTP_HOST no se sale; se desactiva con aviso.
 	if cfg.SMTPHost == "" {
-		log.Println("aviso: SMTP_HOST no configurado; notificaciones por email desactivadas")
+		log.Println("warning: SMTP_HOST not configured; email notifications disabled")
 	} else if cfg.SMTPFrom == "" {
-		log.Println("aviso: SMTP_FROM no configurado; notificaciones por email desactivadas")
+		log.Println("warning: SMTP_FROM not configured; email notifications disabled")
 	}
 	// Telegram (#134): requiere bot token Y chat id.
 	if (cfg.TelegramBotToken == "") != (cfg.TelegramChatID == "") {
@@ -201,7 +201,7 @@ func Load() *Config {
 		if cfg.TelegramChatID != "" {
 			missing = "TELEGRAM_BOT_TOKEN"
 		}
-		log.Printf("aviso: %s sin valor; canal de Telegram incompleto y desactivado (faltan ambos: TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID)", missing)
+		log.Printf("warning: %s has no value; Telegram channel incomplete and disabled (both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are needed)", missing)
 	}
 	return cfg
 }

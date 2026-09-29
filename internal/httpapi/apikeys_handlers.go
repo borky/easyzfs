@@ -30,7 +30,7 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Name) == 0 || len(body.Name) > 32 {
-		writeErr(w, http.StatusBadRequest, "invalid_name", "nombre de clave requerido (máx. 32 caracteres)")
+		writeErr(w, http.StatusBadRequest, "invalid_name", "key name required (max. 32 characters)")
 		return
 	}
 	key, err := s.apiKeys.Create(r.Context(), body.Name)
@@ -45,7 +45,7 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid_id", "id inválido")
+		writeErr(w, http.StatusBadRequest, "invalid_id", "invalid id")
 		return
 	}
 	if err := s.apiKeys.Delete(r.Context(), id); err != nil {

@@ -55,14 +55,14 @@ func TestRender_Ingles(t *testing.T) {
 	}
 }
 
-// Idiomas desconocidos caen a es (fallback).
-func TestRender_FallbackES(t *testing.T) {
+// An unknown language falls back to English, the product's language.
+func TestRender_FallbackEN(t *testing.T) {
 	_, text, err := render("de", testAlert(), "X", "Y")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "Severidad:") {
-		t.Errorf("fallback no fue ES:\n%s", text)
+	if !strings.Contains(text, "Severity:") {
+		t.Errorf("fallback was not English:\n%s", text)
 	}
 }
 

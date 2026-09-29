@@ -162,7 +162,7 @@ func (c *ZpoolCollector) Run(ctx context.Context) {
 			}
 			if c.fails >= 3 {
 				if !c.stale {
-					log.Printf("zpool: fuente stale tras %d fallos; backoff", c.fails)
+					log.Printf("zpool: source stale after %d failures; backing off", c.fails)
 				}
 				c.stale = true
 				interval = min(2*interval, zpoolMaxBackoff)
@@ -328,7 +328,7 @@ func (c *ZpoolCollector) listPools(ctx context.Context) ([]model.Pool, error) {
 		}
 		f := strings.Split(line, "\t")
 		if len(f) < 5 {
-			log.Printf("zpool list: línea con %d campos (esperaba 5): %q", len(f), line)
+			log.Printf("zpool list: line with %d fields (expected 5): %q", len(f), line)
 			continue
 		}
 		p := model.Pool{
@@ -947,7 +947,7 @@ func (c *ZpoolCollector) listDatasets(ctx context.Context) ([]model.Dataset, err
 		}
 		f := strings.Split(line, "\t")
 		if len(f) < 9 {
-			log.Printf("zfs list: línea con %d campos (esperaba 9): %q", len(f), line)
+			log.Printf("zfs list: line with %d fields (expected 9): %q", len(f), line)
 			continue
 		}
 		typ := "fs"

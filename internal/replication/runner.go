@@ -62,7 +62,7 @@ func Target(j *Job) string {
 }
 
 // ErrAlreadyRunning — ya hay una ejecución en curso de ese job (HTTP 409).
-var ErrAlreadyRunning = errors.New("ya hay una replicación en curso para este job")
+var ErrAlreadyRunning = errors.New("a replication is already running for this job")
 
 // TryAcquire reserva el slot del job de forma atómica. Si el slot ya está tomado
 // devuelve false; si está libre lo toma y devuelve true. Release() lo libera.
@@ -146,7 +146,7 @@ func (r *Runner) check(ctx context.Context) {
 		}
 		next, err := scheduler.NextRun(j.Schedule, base)
 		if err != nil {
-			log.Printf("replication: job %d schedule inválido: %v", j.ID, err)
+			log.Printf("replication: job %d invalid schedule: %v", j.ID, err)
 			continue
 		}
 		if next.After(now) {
@@ -235,37 +235,37 @@ func (r *Runner) run(ctx context.Context, j *Job) error {
 	}
 	op, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, incremental, volume)...)
 	if err != nil {
-		return fmt.Errorf("lanzar replicación: %w", err)
+		return fmt.Errorf("start replication: %w", err)
 	}
 	res := r.waitOp(ctx, op.ID)
 	if res.Status == longops.StatusDone {
 		return r.postSuccess(ctx, j, snap)
 	}
 	if res.Status == longops.StatusCanceled {
-		return errors.New("cancelada por el usuario")
+		return errors.New("cancelled by the user")
 	}
 	sendErr := opError(res)
 	if !incremental {
-		return fmt.Errorf("envío completo falló: %s", sendErr)
+		return fmt.Errorf("full send failed: %s", sendErr)
 	}
 	// Incremental falló: posible divergencia (bookmark/snapshot ausente o
 	// destino modificado). Sin force_full: error claro, sin tocar el destino.
 	if !j.ForceFull {
-		return fmt.Errorf("incremental falló (posible divergencia origen/destino); "+
-			"activa force_full en el job para reiniciar con un envío completo destruyendo el destino. Detalle: %s", sendErr)
+		return fmt.Errorf("incremental failed (source and destination may have diverged); "+
+			"enable force_full on the job to start over with a full send that destroys the destination. Detail: %s", sendErr)
 	}
 	// Con force_full: destruir destino y reintentar completo UNA vez.
-	log.Printf("replication: job %d: incremental falló (%s); reintentando completo con force_full", j.ID, sendErr)
+	log.Printf("replication: job %d: incremental failed (%s); retrying a full send with force_full", j.ID, sendErr)
 	if err := r.destroyDest(ctx, j); err != nil {
-		return fmt.Errorf("force_full: no se pudo destruir el destino: %w", err)
+		return fmt.Errorf("force_full: could not destroy the destination: %w", err)
 	}
 	op2, err := r.ops.StartPipeline("replication", Target(j), r.stages(j, fullSnap, false, volume)...)
 	if err != nil {
-		return fmt.Errorf("force_full: lanzar envío completo: %w", err)
+		return fmt.Errorf("force_full: start full send: %w", err)
 	}
 	res2 := r.waitOp(ctx, op2.ID)
 	if res2.Status != longops.StatusDone {
-		return fmt.Errorf("force_full: el envío completo también falló: %s", opError(res2))
+		return fmt.Errorf("force_full: the full send failed too: %s", opError(res2))
 	}
 	return r.postSuccess(ctx, j, snap)
 }
@@ -416,7 +416,7 @@ func (r *Runner) mockRun(ctx context.Context, j *Job) error {
 	}
 	res := r.waitOp(ctx, op.ID)
 	if fail {
-		return fmt.Errorf("ssh: Permission denied (publickey) — instala la clave pública del servidor en el destino (GET /api/replication/sshkey)")
+		return fmt.Errorf("ssh: Permission denied (publickey) — install the server's public key on the destination (GET /api/replication/sshkey)")
 	}
 	if res.Status != longops.StatusDone {
 		return fmt.Errorf("%s", opError(res))
@@ -430,7 +430,7 @@ func (r *Runner) mockRun(ctx context.Context, j *Job) error {
 var sourceIsVolume = func(ctx context.Context, source string) (bool, error) {
 	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "type", source)
 	if err != nil {
-		return false, fmt.Errorf("tipo de %s: %w", source, err)
+		return false, fmt.Errorf("type of %s: %w", source, err)
 	}
 	return strings.TrimSpace(string(out)) == "volume", nil
 }

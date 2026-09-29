@@ -74,11 +74,11 @@ func main() {
 	}
 	// -generate-vapid: imprime un par de claves VAPID para /etc/easyzfs/env
 	// (lo usa deploy/install.sh) y sale 0. No toca BD ni configuración.
-	genVapid := flag.Bool("generate-vapid", false, "genera un par de claves VAPID (Web Push) y sale")
+	genVapid := flag.Bool("generate-vapid", false, "generates a VAPID key pair (Web Push) and exits")
 	// -update-channel: prints the update channel and exits. deploy/install.sh
 	// asks the binary it installs, and skips the root update units for a
 	// binary that is updated from its checkout instead.
-	printChannel := flag.Bool("update-channel", false, "imprime el canal de actualización (local|github) y sale")
+	printChannel := flag.Bool("update-channel", false, "prints the update channel (local|github) and exits")
 	flag.Parse()
 	if *printChannel {
 		fmt.Println(updateChannel)
@@ -100,7 +100,7 @@ func main() {
 	// without being "priv" here, and would otherwise start the whole daemon
 	// as root.
 	if os.Geteuid() == 0 && os.Getenv("SUDO_USER") != "" {
-		fmt.Fprintln(os.Stderr, "easyzfs: bajo sudo solo se admite 'easyzfs priv …'")
+		fmt.Fprintln(os.Stderr, "easyzfs: under sudo only 'easyzfs priv …' is accepted")
 		os.Exit(3)
 	}
 
@@ -117,7 +117,7 @@ func main() {
 	if os.Getenv("GOMEMLIMIT") == "" {
 		if max := cgroupMemoryMax("/proc/self/cgroup", "/sys/fs/cgroup"); max > 0 {
 			debug.SetMemoryLimit(max * 3 / 4)
-			log.Printf("límite de memoria de Go: %d MiB (3/4 del MemoryMax del servicio)", max*3/4>>20)
+			log.Printf("Go memory limit: %d MiB (3/4 of the service's MemoryMax)", max*3/4>>20)
 		}
 	}
 
@@ -143,7 +143,7 @@ func main() {
 		log.Fatalf("sqlite: %v", err)
 	}
 	if err := db.Migrate(ctx, database); err != nil {
-		log.Fatalf("migraciones: %v", err)
+		log.Fatalf("migrations: %v", err)
 	}
 
 	stStore, err := settings.NewStore(database)
@@ -190,7 +190,7 @@ func main() {
 	channelStore := channels.NewStore(database)
 	channelCfg, ok, err := channelStore.Load(ctx)
 	if err != nil {
-		log.Printf("aviso: no se pudo leer la config de canales: %v", err)
+		log.Printf("warning: could not read the channel config: %v", err)
 	}
 	if !ok {
 		channelCfg = channels.Config{
@@ -212,14 +212,14 @@ func main() {
 			SMTPEncryption:   cfg.SMTPEncryption,
 		}
 		if err := channelStore.Save(ctx, channelCfg); err != nil {
-			log.Printf("aviso: no se pudo sembrar la config de canales: %v", err)
+			log.Printf("warning: could not seed the channel config: %v", err)
 		}
 	}
 	channelsClient := channels.New(channelCfg)
 	// El alerter SIEMPRE recibe el cliente: al configurar un canal desde la UI
 	// entra en vigor sin reiniciar (el cliente decide por config en cada evento).
 	alerter.SetChannels(channelsClient)
-	log.Printf("canales de alerta: ntfy=%v gotify=%v telegram=%v syslog=%v email=%v",
+	log.Printf("alert channels: ntfy=%v gotify=%v telegram=%v syslog=%v email=%v",
 		channelsClient.Configured("ntfy"), channelsClient.Configured("gotify"),
 		channelsClient.Configured("telegram"), channelsClient.Configured("syslog"),
 		channelsClient.Configured("email"))
@@ -263,9 +263,9 @@ func main() {
 	// Chequeo inicial + ticker de 24 h: el estado se cachea y /api/update/status
 	// lo lee sin tocar GitHub (evita el rate-limit de la API, patrón NetPulse).
 	if updaterSvc == nil {
-		log.Println("actualizaciones: desde el checkout local (sin updater, sin contacto con GitHub)")
+		log.Println("updates: from the local checkout (no updater, no contact with GitHub)")
 	} else if cfg.NoUpdateCheck {
-		log.Println("comprobación automática de actualizaciones desactivada (EASYZFS_NO_UPDATE_CHECK)")
+		log.Println("automatic update check disabled (EASYZFS_NO_UPDATE_CHECK)")
 	} else {
 		updaterSvc.Start(ctx)
 	}
@@ -318,7 +318,7 @@ func main() {
 		go c.Run(ctx)
 	}
 	if !runSched {
-		log.Println("modo solo lectura o demo: tareas programadas y replicación desactivadas")
+		log.Println("read-only or demo mode: scheduled jobs and replication disabled")
 	}
 	if runSched {
 		go sched.Run(ctx)
@@ -328,14 +328,14 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("EasyZFS %s escuchando en %s (mock=%v demo=%v)", version, cfg.ListenAddr, cfg.Mock, cfg.Demo)
+		log.Printf("EasyZFS %s listening on %s (mock=%v demo=%v)", version, cfg.ListenAddr, cfg.Mock, cfg.Demo)
 		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("http: %v", err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("apagando: drenando conexiones SSE y HTTP…")
+	log.Println("shutting down: draining SSE and HTTP connections…")
 	h.Close() // cierra clientes SSE con evento 'bye'
 	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

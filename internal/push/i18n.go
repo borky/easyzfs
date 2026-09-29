@@ -74,7 +74,7 @@ func Compose(lang, kind string, params map[string]any) (title, body string) {
 func catalog(lang, kind string, params map[string]any) (title, body string) {
 	dict, ok := catalogo[lang]
 	if !ok {
-		dict = catalogo["es"]
+		dict = catalogo["en"] // the product's language
 	}
 	tx, ok := dict[kind]
 	if !ok {
@@ -82,7 +82,7 @@ func catalog(lang, kind string, params map[string]any) (title, body string) {
 	}
 	// ES traduce los estados de pool (DEGRADED→degradado, FAULTED→fallado);
 	// EN los deja tal cual. (lang≠"en" siempre resuelve al diccionario ES.)
-	if lang != "en" && kind == "pool_status" {
+	if lang == "es" && kind == "pool_status" {
 		if traducido, ok2 := estadosES[fmt.Sprint(params["status"])]; ok2 {
 			p := make(map[string]any, len(params))
 			for k, v := range params {
@@ -92,16 +92,16 @@ func catalog(lang, kind string, params map[string]any) (title, body string) {
 			params = p
 		}
 	}
-	// Values can be text the server wrote in Spanish (a SMART detail such
-	// as "no disponible"): translated with everything else (internal/i18n).
-	// Only the prose ones: pool, dev and vdev are names, and a pool called
-	// "conflicto" must keep its name.
-	if s, ok := params["detail"].(string); ok && lang == "en" {
+	// Values can be text the server wrote (a SMART detail such as "not
+	// available"): translated with everything else (internal/i18n). Only
+	// the prose ones: pool, dev and vdev are names, and a pool called
+	// "conflict" must keep its name.
+	if s, ok := params["detail"].(string); ok && lang == "es" {
 		p := make(map[string]any, len(params))
 		for k, v := range params {
 			p[k] = v
 		}
-		p["detail"] = i18n.English(s)
+		p["detail"] = i18n.Spanish(s)
 		params = p
 	}
 	return interp(tx.title, params), interp(tx.body, params)

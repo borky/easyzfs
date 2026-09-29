@@ -16,6 +16,7 @@ import (
 
 	"easyzfs/internal/auth"
 	"easyzfs/internal/channels"
+	"easyzfs/internal/i18n"
 	"easyzfs/internal/notifier"
 )
 
@@ -133,7 +134,7 @@ func (s *Server) getChannels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) putChannel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !editableChannel(name) {
-		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("canal desconocido: %s", name))
+		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("unknown channel: %s", name))
 		return
 	}
 	var p channelPatch
@@ -215,8 +216,8 @@ func (s *Server) putChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.channelStore.Save(r.Context(), cfg); err != nil {
-		log.Printf("channels: guardar %s: %v", name, err)
-		writeErr(w, http.StatusInternalServerError, "save_failed", "no se pudo guardar la configuración")
+		log.Printf("channels: save %s: %v", name, err)
+		writeErr(w, http.StatusInternalServerError, "save_failed", "could not save the configuration")
 		return
 	}
 	s.channels.Apply(cfg)
@@ -236,19 +237,19 @@ func (s *Server) putWebhook(w http.ResponseWriter, r *http.Request, p channelPat
 	if raw != "" {
 		u, err := url.Parse(raw)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			writeErr(w, http.StatusBadRequest, "invalid_url", "la URL del webhook debe ser http(s)://…")
+			writeErr(w, http.StatusBadRequest, "invalid_url", "the webhook URL must be http(s)://…")
 			return
 		}
 	}
 	st, err := s.settings.Load(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "load_failed", "no se pudieron leer los ajustes")
+		writeErr(w, http.StatusInternalServerError, "load_failed", "could not read the settings")
 		return
 	}
 	st.Webhook = raw
 	if err := s.settings.Save(r.Context(), st); err != nil {
-		log.Printf("channels: guardar webhook: %v", err)
-		writeErr(w, http.StatusInternalServerError, "save_failed", "no se pudo guardar la configuración")
+		log.Printf("channels: save webhook: %v", err)
+		writeErr(w, http.StatusInternalServerError, "save_failed", "could not save the configuration")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "channel": "webhook"})
@@ -276,7 +277,7 @@ func MailerFromConfig(cfg channels.Config) *notifier.Mailer {
 		From: cfg.SMTPFrom, Encryption: cfg.SMTPEncryption, Timeout: 10 * time.Second,
 	})
 	if err != nil {
-		log.Printf("channels: cliente SMTP inválido: %v", err)
+		log.Printf("channels: invalid SMTP client: %v", err)
 		return nil
 	}
 	return m
@@ -286,7 +287,7 @@ func MailerFromConfig(cfg channels.Config) *notifier.Mailer {
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !editableChannel(name) {
-		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("canal desconocido: %s", name))
+		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("unknown channel: %s", name))
 		return
 	}
 	if name == "webhook" {
@@ -308,7 +309,7 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.channelStore.Save(r.Context(), cfg); err != nil {
 		log.Printf("channels: desactivar %s: %v", name, err)
-		writeErr(w, http.StatusInternalServerError, "save_failed", "no se pudo guardar la configuración")
+		writeErr(w, http.StatusInternalServerError, "save_failed", "could not save the configuration")
 		return
 	}
 	s.channels.Apply(cfg)
@@ -343,10 +344,10 @@ func validateChannel(name string, cfg channels.Config) (string, string) {
 		}
 		u, err := url.Parse(cfg.NtfyURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return "la URL de ntfy debe ser http(s)://servidor/topic", "invalid_url"
+			return "the ntfy URL must be http(s)://server/topic", "invalid_url"
 		}
 		if strings.Trim(u.Path, "/") == "" {
-			return "la URL de ntfy debe incluir el topic (p.ej. https://ntfy.sh/mi-topic)", "invalid_topic"
+			return "the ntfy URL must include the topic (e.g. https://ntfy.sh/my-topic)", "invalid_topic"
 		}
 	case "gotify":
 		if cfg.GotifyURL == "" {
@@ -354,7 +355,7 @@ func validateChannel(name string, cfg channels.Config) (string, string) {
 		}
 		u, err := url.Parse(cfg.GotifyURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return "la URL de Gotify debe ser http(s)://servidor", "invalid_url"
+			return "the Gotify URL must be http(s)://server", "invalid_url"
 		}
 	case "telegram":
 		token, chat := cfg.TelegramBotToken != "", cfg.TelegramChatID != ""
@@ -362,23 +363,23 @@ func validateChannel(name string, cfg channels.Config) (string, string) {
 			return "", "" // desactivado
 		}
 		if token != chat {
-			return "Telegram requiere bot token Y chat id (o ninguno de los dos)", "incomplete"
+			return "Telegram needs a bot token AND a chat id (or neither)", "incomplete"
 		}
 		if !telegramTokenRe.MatchString(cfg.TelegramBotToken) {
-			return "el bot token no tiene el formato de @BotFather (<id>:<secreto>)", "invalid_token"
+			return "the bot token does not have the @BotFather format (<id>:<secret>)", "invalid_token"
 		}
 	case "syslog":
 		if cfg.SyslogHost == "" {
 			return "", "" // desactivado
 		}
 		if cfg.SyslogPort < 1 || cfg.SyslogPort > 65535 {
-			return "el puerto de syslog debe estar entre 1 y 65535", "invalid_port"
+			return "the syslog port must be between 1 and 65535", "invalid_port"
 		}
 		if cfg.SyslogProto != "udp" && cfg.SyslogProto != "tcp" {
-			return "el protocolo de syslog debe ser udp o tcp", "invalid_proto"
+			return "the syslog protocol must be udp or tcp", "invalid_proto"
 		}
 		if cfg.SyslogFacility < 0 || cfg.SyslogFacility > 23 {
-			return "la facility de syslog debe estar entre 0 y 23", "invalid_facility"
+			return "the syslog facility must be between 0 and 23", "invalid_facility"
 		}
 	case "email":
 		host, from := cfg.SMTPHost != "", cfg.SMTPFrom != ""
@@ -386,15 +387,15 @@ func validateChannel(name string, cfg channels.Config) (string, string) {
 			return "", "" // desactivado
 		}
 		if host != from {
-			return "el email requiere servidor SMTP Y remitente (o ninguno de los dos)", "incomplete"
+			return "email needs an SMTP server AND a sender (or neither)", "incomplete"
 		}
 		if cfg.SMTPPort < 1 || cfg.SMTPPort > 65535 {
-			return "el puerto SMTP debe estar entre 1 y 65535", "invalid_port"
+			return "the SMTP port must be between 1 and 65535", "invalid_port"
 		}
 		switch cfg.SMTPEncryption {
 		case "none", "starttls", "tls":
 		default:
-			return "el cifrado SMTP debe ser none, starttls o tls", "invalid_encryption"
+			return "SMTP encryption must be none, starttls or tls", "invalid_encryption"
 		}
 	}
 	return "", ""
@@ -406,12 +407,12 @@ func validateChannel(name string, cfg channels.Config) (string, string) {
 func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !testableChannel(name) {
-		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("canal desconocido: %s", name))
+		writeErr(w, http.StatusNotFound, "unknown_channel", fmt.Sprintf("unknown channel: %s", name))
 		return
 	}
 	if s.channels == nil || !s.channels.Configured(name) {
 		writeErr(w, http.StatusBadRequest, "channel_not_configured",
-			fmt.Sprintf("el canal %s no está configurado", name))
+			fmt.Sprintf("the %s channel is not configured", name))
 		return
 	}
 	// In the language of the UI the admin pressed the button in.
@@ -425,17 +426,17 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		u, err := s.users.Get(r.Context(), auth.UserFromContext(r.Context()))
 		if err != nil || u.Email == "" {
 			writeErr(w, http.StatusBadRequest, "no_recipient",
-				"tu usuario no tiene email configurado en Mi perfil: la prueba necesita un destinatario")
+				"your user has no email set in My profile: the test needs a recipient")
 			return
 		}
 		if s.mailer == nil {
-			writeErr(w, http.StatusBadRequest, "channel_not_configured", "el canal email no está configurado")
+			writeErr(w, http.StatusBadRequest, "channel_not_configured", "the email channel is not configured")
 			return
 		}
 		if err := s.mailer.Send(ctx, []string{u.Email}, lang,
 			notifier.Alert{Level: "info", Source: "test", Target: "settings", Timestamp: time.Now()},
 			title, body); err != nil {
-			log.Printf("channels: prueba de email falló: %v", err)
+			log.Printf("channels: email test failed: %v", err)
 			writeErr(w, http.StatusBadGateway, "channel_test_failed", err.Error())
 			return
 		}
@@ -444,19 +445,20 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.channels.Test(ctx, name, title, body); err != nil {
-		log.Printf("channels: prueba de %s falló: %v", name, err)
+		log.Printf("channels: %s test failed: %v", name, err)
 		writeErr(w, http.StatusBadGateway, "channel_test_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "channel": name})
 }
 
-// testMessage — texto de la notificación de prueba en el idioma del admin.
+// testMessage — the test notification, in the language of the UI that
+// asked for it.
 func testMessage(lang string) (title, body string) {
-	if lang == "en" {
-		return "EasyZFS test notification",
-			"If you can read this, the alert channel is configured correctly."
+	title, body = "EasyZFS test notification",
+		"If you can read this, the alert channel is configured correctly."
+	if lang == "es" {
+		return i18n.Spanish(title), i18n.Spanish(body)
 	}
-	return "Notificación de prueba de EasyZFS",
-		"Si lees esto, el canal de alertas está bien configurado."
+	return title, body
 }

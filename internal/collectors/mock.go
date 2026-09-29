@@ -55,7 +55,7 @@ func (m *Mock) Run(ctx context.Context) {
 		case <-ctx.Done():
 		case <-time.After(12 * time.Second):
 			m.al.RaiseKind(ctx, "crit", "zed.ereport.fs.zfs.checksum", "disks:sdd",
-				"Errores de checksum en sdd (evento ZFS, pool tank)",
+				"Checksum errors on sdd (ZFS event, pool tank)",
 				"zfs_checksum_error", map[string]any{"pool": "tank", "vdev": "sdd"})
 		}
 	}()
@@ -418,12 +418,12 @@ func (m *Mock) build() {
 	m.datasets = []model.Dataset{
 		{Name: "tank", Type: "fs", Compression: "lz4", UsedBytes: 6*uint64(tib) + 420*uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "/tank", Encryption: "off", KeyStatus: "-"},
 		{Name: "tank/docs", Type: "fs", Compression: "lz4", UsedBytes: 220 * uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 512 * uint64(gib), Mountpoint: "/tank/docs", Encryption: "off", KeyStatus: "-"},
-		{Name: "tank/fotos", Type: "fs", Compression: "lz4", UsedBytes: 3*uint64(tib) + 100*uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "/tank/fotos", Encryption: "off", KeyStatus: "-"},
+		{Name: "tank/photos", Type: "fs", Compression: "lz4", UsedBytes: 3*uint64(tib) + 100*uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "/tank/photos", Encryption: "off", KeyStatus: "-"},
 		{Name: "tank/backups", Type: "fs", Compression: "zstd", UsedBytes: 3*uint64(tib) + 40*uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 4 * uint64(tib), Mountpoint: "/tank/backups", Encryption: "off", KeyStatus: "-"},
 		// Cifrado nativo desbloqueado (clave cargada, montado).
-		{Name: "tank/secretos", Type: "fs", Compression: "zstd", UsedBytes: 42 * uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "/tank/secretos", Encryption: "aes-256-gcm", KeyStatus: "available"},
+		{Name: "tank/secrets", Type: "fs", Compression: "zstd", UsedBytes: 42 * uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "/tank/secrets", Encryption: "aes-256-gcm", KeyStatus: "available"},
 		// Cifrado nativo bloqueado (sin clave: no montado; se desbloquea con unlock).
-		{Name: "tank/boveda", Type: "fs", Compression: "zstd", UsedBytes: 512 * uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "-", Encryption: "aes-256-gcm", KeyStatus: "unavailable"},
+		{Name: "tank/vault", Type: "fs", Compression: "zstd", UsedBytes: 512 * uint64(gib), AvailBytes: 5 * uint64(tib), QuotaBytes: 0, Mountpoint: "-", Encryption: "aes-256-gcm", KeyStatus: "unavailable"},
 		{Name: "ssd", Type: "fs", Compression: "lz4", UsedBytes: 420 * uint64(gib), AvailBytes: 1500 * uint64(gib), QuotaBytes: 0, Mountpoint: "/ssd", Encryption: "off", KeyStatus: "-"},
 		{Name: "ssd/vm", Type: "volume", Compression: "zstd", UsedBytes: 320 * uint64(gib), AvailBytes: 1500 * uint64(gib), QuotaBytes: 400 * uint64(gib), Mountpoint: "-", Encryption: "off", KeyStatus: "-"},
 	}
@@ -434,8 +434,8 @@ func (m *Mock) build() {
 	m.snaps = []model.Snapshot{
 		mkSnap("tank/docs", "easyzfs-auto-20250101-0600", 48*time.Hour, 1*uint64(gib), "auto"),
 		mkSnap("tank/docs", "easyzfs-auto-20250102-0600", 24*time.Hour, 800*(1<<20), "auto"),
-		mkSnap("tank/docs", "antes-de-migracion", 30*24*time.Hour, 2*uint64(gib), "manual"),
-		mkSnap("tank/fotos", "easyzfs-auto-20250102-0600", 24*time.Hour, 3*uint64(gib), "auto"),
+		mkSnap("tank/docs", "pre-migration", 30*24*time.Hour, 2*uint64(gib), "manual"),
+		mkSnap("tank/photos", "easyzfs-auto-20250102-0600", 24*time.Hour, 3*uint64(gib), "auto"),
 		mkSnap("tank/backups", "easyzfs-auto-20250102-0600", 24*time.Hour, 12*uint64(gib), "auto"),
 		mkSnap("ssd/vm", "pre-upgrade", 7*24*time.Hour, 20*uint64(gib), "manual"),
 	}
@@ -453,7 +453,7 @@ func (m *Mock) build() {
 		// lectura de temperatura → TempC nil, JSON null). En el sistema también
 		// había zd0 y mmcblk0boot0/boot1, pero el filtro de discos físicos los
 		// excluye (ver smart.go).
-		{Dev: "mmcblk0", Model: "S008G1 eMMC", Serial: "0x2c8f1a3b", SizeBytes: 8 * uint64(gib), TempC: nil, Smart: "unknown", SmartDetail: "no disponible", Pool: "", Hours: 0},
+		{Dev: "mmcblk0", Model: "S008G1 eMMC", Serial: "0x2c8f1a3b", SizeBytes: 8 * uint64(gib), TempC: nil, Smart: "unknown", SmartDetail: "not available", Pool: "", Hours: 0},
 	}
 }
 

@@ -42,12 +42,12 @@ func TestVdevActionRisk(t *testing.T) {
 		{"detach from the mirrored log", mirrors, "detach", "sdf", "mirror-2"},
 		{"detach from a 3-way mirror", threeWay, "detach", "sda", ""},
 		{"online", mirrors, "online", "sda", ""},
-		{"offline from a healthy raidz1", raidz1, "offline", "sdb", "sin paridad"},
+		{"offline from a healthy raidz1", raidz1, "offline", "sdb", "without parity"},
 		{"offline from a healthy raidz2", raidz2, "offline", "sdb", ""},
 		{"offline on a degraded pool", degraded, "offline", "sdb", "DEGRADED"},
 		{"offline during resilver", resilver, "offline", "sdb", "resilver"},
 		{"offline during scrub", scrubbing, "offline", "sdb", ""},
-		{"offline while replacing", replacing, "offline", "sda", "sustitución"},
+		{"offline while replacing", replacing, "offline", "sda", "replacement"},
 		{"unknown disk", raidz2, "offline", "sdz", ""},
 	} {
 		got := vdevActionRisk(c.pool, c.action, c.dev)

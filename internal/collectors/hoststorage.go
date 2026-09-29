@@ -58,7 +58,7 @@ func (c *HostStorageCollector) collect(ctx context.Context) {
 	defer cancel()
 	v, err := c.read(cctx)
 	if err != nil {
-		log.Printf("hoststorage: %v (se mantiene la última lectura buena)", err)
+		log.Printf("hoststorage: %v (keeping the last good reading)", err)
 		return
 	}
 	v.LogIfStorageUnknown()

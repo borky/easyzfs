@@ -32,7 +32,7 @@ import (
 )
 
 // ErrNotConfigured — el canal pedido no tiene configuración mínima.
-var ErrNotConfigured = errors.New("canal no configurado")
+var ErrNotConfigured = errors.New("channel not configured")
 
 // Config — configuración de los canales (BD; el env siembra la primera vez).
 // Los tokens nunca se exponen en la API.
@@ -171,7 +171,7 @@ func (c *Client) Test(ctx context.Context, name, title, body string) error {
 	case "syslog":
 		return c.sendSyslog(ctx, cfg, title, body)
 	default:
-		return fmt.Errorf("canal desconocido: %q", name)
+		return fmt.Errorf("unknown channel: %q", name)
 	}
 }
 

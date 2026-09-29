@@ -48,7 +48,7 @@ func (s *Server) rewriteDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.caps.Capabilities().Rewrite {
 		writeErr(w, http.StatusBadRequest, "not_supported",
-			"zfs rewrite requiere OpenZFS ≥ 2.3.4 en este host")
+			"zfs rewrite needs OpenZFS ≥ 2.3.4 on this host")
 		return
 	}
 	if !requireConfirm(w, body.Confirm, name) {
@@ -77,12 +77,12 @@ func (s *Server) rewriteDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if mount == "" {
 		writeErr(w, http.StatusBadRequest, "invalid_input",
-			"dataset inexistente, no es filesystem o no está montado")
+			"the dataset does not exist, is not a filesystem, or is not mounted")
 		return
 	}
 	if s.longOps.RunningFor(name) {
 		writeErr(w, http.StatusConflict, "already_running",
-			fmt.Sprintf("ya hay una operación en curso sobre %s", name))
+			fmt.Sprintf("an operation is already running on %s", name))
 		return
 	}
 	s.act.AuditOnly(r.Context(), actor(r), "dataset.rewrite", name, map[string]any{"mountpoint": mount})
@@ -96,7 +96,7 @@ func (s *Server) rewriteDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "exec_error",
-			fmt.Sprintf("lanzar rewrite: %v", err))
+			fmt.Sprintf("start rewrite: %v", err))
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"op_id": op.ID})

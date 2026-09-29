@@ -79,7 +79,7 @@ func (s *Server) powerOff(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if p := poolForDisk(names, vdevs, dev, aliases...); p != "" {
-		writeErr(w, http.StatusConflict, "dev_in_use", fmt.Sprintf("el disco pertenece al pool '%s'", p))
+		writeErr(w, http.StatusConflict, "dev_in_use", fmt.Sprintf("the disk belongs to pool '%s'", p))
 		return
 	}
 	// Whether it is mounted, swap or otherwise busy is checked live by
@@ -144,7 +144,7 @@ func (s *Server) diskSmart(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeErr(w, http.StatusNotFound, "not_found", "disco no encontrado")
+	writeErr(w, http.StatusNotFound, "not_found", "disk not found")
 }
 
 // diskSmartLog — GET /api/disks/{dev}/smart-log (U1): historial de selftests
@@ -165,7 +165,7 @@ func (s *Server) diskSmartLog(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeErr(w, http.StatusNotFound, "not_found", "disco no encontrado")
+	writeErr(w, http.StatusNotFound, "not_found", "disk not found")
 }
 
 // smartAttrsOrEmpty — atributos del detalle, o lista vacía si no hay detalle

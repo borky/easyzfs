@@ -50,8 +50,8 @@ const (
 
 // Errores de dominio.
 var (
-	ErrNotFound   = errors.New("operación no encontrada")
-	ErrNotRunning = errors.New("la operación ya no está en curso")
+	ErrNotFound   = errors.New("operation not found")
+	ErrNotRunning = errors.New("the operation is no longer running")
 )
 
 // Op — una operación larga (contrato GET /api/longops y evento longop.update).
@@ -95,7 +95,7 @@ func (m *Manager) Start(typ, target, name string, args ...string) (*Op, error) {
 	cmd.Stderr = cmd.Stdout // salida combinada
 	if err := cmd.Start(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("lanzar %s: %w", name, err)
+		return nil, fmt.Errorf("start %s: %w", name, err)
 	}
 	m.mu.Lock()
 	m.seq++
@@ -128,7 +128,7 @@ type Stage struct {
 // any stage fails, like 'set -o pipefail'. Cancel kills every stage.
 func (m *Manager) StartPipeline(typ, target string, stages ...Stage) (*Op, error) {
 	if len(stages) == 0 {
-		return nil, errors.New("pipeline vacío")
+		return nil, errors.New("empty pipeline")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	outR, outW, err := os.Pipe()
@@ -167,7 +167,7 @@ func (m *Manager) StartPipeline(typ, target string, stages ...Stage) (*Op, error
 				_ = started.Wait()
 			}
 			closeAll(append(links, outR, outW))
-			return nil, fmt.Errorf("lanzar %s: %w", stages[i].Name, err)
+			return nil, fmt.Errorf("start %s: %w", stages[i].Name, err)
 		}
 		pids = append(pids, c.Process.Pid)
 	}
@@ -250,7 +250,7 @@ func (m *Manager) watch(op *Op, cmds []*exec.Cmd, stdout io.Reader, closeAfter i
 	}
 	op.cancel = nil
 	m.mu.Unlock()
-	log.Printf("longops: %s %s terminó (%s)", op.Type, op.Target, op.Status)
+	log.Printf("longops: %s %s finished (%s)", op.Type, op.Target, op.Status)
 	m.publish(op)
 }
 

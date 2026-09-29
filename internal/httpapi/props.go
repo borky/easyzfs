@@ -71,7 +71,7 @@ func (s *Server) listDatasetProps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.findDataset(name) == nil {
-		writeErr(w, http.StatusNotFound, "not_found", "dataset no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "dataset not found")
 		return
 	}
 	props, err := cachedProps(name, func() ([]model.DatasetProp, error) {
@@ -97,7 +97,7 @@ func (s *Server) patchDatasetProps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Property == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "property requerida")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "property required")
 		return
 	}
 	if s.cfg.Mock {
@@ -111,7 +111,7 @@ func (s *Server) patchDatasetProps(w http.ResponseWriter, r *http.Request) {
 	}
 	ds := s.findDataset(name)
 	if ds == nil {
-		writeErr(w, http.StatusNotFound, "not_found", "dataset no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "dataset not found")
 		return
 	}
 	if err := s.act.DatasetPropSet(r.Context(), actor(r), name, body.Property, body.Value, ds.Type, body.AcknowledgeRisk); err != nil {
@@ -147,7 +147,7 @@ func (s *Server) inheritDatasetProp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.findDataset(name) == nil {
-		writeErr(w, http.StatusNotFound, "not_found", "dataset no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "dataset not found")
 		return
 	}
 	// Comprobar source == local contra la última lectura (no-op inocuo si
@@ -163,14 +163,14 @@ func (s *Server) inheritDatasetProp(w http.ResponseWriter, r *http.Request) {
 			found = true
 			if p.Source != "local" {
 				writeErr(w, http.StatusConflict, "not_local",
-					"la propiedad no es local, no se puede heredar")
+					"the property is not local, it cannot be inherited")
 				return
 			}
 			break
 		}
 	}
 	if !found {
-		writeErr(w, http.StatusBadRequest, "invalid_property", "propiedad no encontrada")
+		writeErr(w, http.StatusBadRequest, "invalid_property", "property not found")
 		return
 	}
 	if err := s.act.DatasetPropInherit(r.Context(), actor(r), name, prop, body.AcknowledgeRisk); err != nil {

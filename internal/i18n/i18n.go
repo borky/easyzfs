@@ -1,16 +1,17 @@
-// Package i18n translates the human-readable text the API sends (error
+// Package i18n translates the human-readable text the server writes (error
 // messages, host/disk reasons, warnings, alert texts, job errors, SSE
-// events) into English for a UI set to English.
+// events, notifications) into Spanish for a user who selected Spanish.
 //
-// The server speaks Spanish: its messages are part of the API contract and
-// stay as they are for every other client. Translation happens once, on the
-// way out (see httpapi's language middleware), from a catalogue keyed by the
-// exact Spanish format strings in the code: "%s es un volumen físico LVM"
-// becomes a pattern whose %s is captured and put back verbatim in the English
-// template. Messages are built from nested pieces ("disco en uso: " + reason
-// + hint), so every entry is applied over the whole text, longest first, and
-// each piece is translated by its own entry. TestCatalogueCoversTheCode
-// fails when a user-visible Spanish string in the code has no entry.
+// English is the language of the product: the code writes English, and that
+// is what every client gets unless it asks for Spanish. Translation happens
+// once, on the way out (httpapi's language middleware, the notification
+// senders), from a catalogue keyed by the exact English format strings in
+// the code: "%s is an LVM physical volume" becomes a pattern whose %s is
+// captured and put back verbatim in the Spanish template. Messages are built
+// from nested pieces ("disk in use: " + reason + hint), so every entry is
+// applied over the whole text, longest first, and each piece is translated
+// by its own entry. TestCatalogueCoversTheCode fails when a user-visible
+// message in the code has no entry.
 package i18n
 
 import (
@@ -63,7 +64,7 @@ func compile() {
 	for es, en := range catalogue {
 		e, err := compileEntry(es, en)
 		if err != nil {
-			log.Printf("i18n: entrada no válida %q: %v", es, err)
+			log.Printf("i18n: invalid catalogue entry %q: %v", es, err)
 			continue
 		}
 		entries = append(entries, e)
@@ -81,6 +82,8 @@ func compile() {
 
 func literalLen(k string) int { return len(reVerb.ReplaceAllString(k, "")) }
 
+// compileEntry — src is the catalogue key (the code's English), dst its
+// translation.
 func compileEntry(es, en string) (*entry, error) {
 	var re strings.Builder
 	re.WriteString(`(?s)`)
@@ -222,13 +225,12 @@ func (e *entry) apply(s string) string {
 var (
 	cacheMu sync.Mutex
 	cache   = map[string]string{}
-	missed  = map[string]bool{}
 )
 
 const cacheMax = 8192
 
-// English translates s; text with nothing to translate comes back as it is.
-func English(s string) string {
+// Spanish translates s; text with nothing to translate comes back as it is.
+func Spanish(s string) string {
 	if s == "" || !hasLetters(s) {
 		return s
 	}
@@ -256,15 +258,6 @@ func English(s string) string {
 		cache = map[string]string{}
 	}
 	cache[s] = out
-	// Observability: Spanish that reached an English response untranslated
-	// (a new message, or one built at run time) is logged once.
-	if looksSpanish(out) && !missed[out] {
-		if len(missed) >= 1024 {
-			missed = map[string]bool{} // start over rather than go quiet
-		}
-		missed[out] = true
-		log.Printf("i18n: sin traducción al inglés: %q", out)
-	}
 	cacheMu.Unlock()
 	return out
 }
@@ -278,6 +271,6 @@ func hasLetters(s string) bool {
 	return false
 }
 
+// reSpanishMark — letters English never uses (tests check the source is
+// English with it).
 var reSpanishMark = regexp.MustCompile(`[áéíóúñ¿¡]`)
-
-func looksSpanish(s string) bool { return reSpanishMark.MatchString(s) }

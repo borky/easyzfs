@@ -30,14 +30,14 @@ type User struct {
 
 // Errores de dominio (mapeados a códigos HTTP en httpapi).
 var (
-	ErrExists        = errors.New("el usuario ya existe")
-	ErrNotFound      = errors.New("usuario no encontrado")
-	ErrInvalidName   = errors.New("nombre de usuario inválido")
-	ErrInvalidRole   = errors.New("rol inválido (admin|user)")
-	ErrInvalidLang   = errors.New("idioma inválido (auto|es|en)")
-	ErrInvalidEmail  = errors.New("email inválido")
-	ErrWeakPassword  = errors.New("la contraseña debe tener al menos 8 caracteres")
-	ErrBadCredential = errors.New("credenciales incorrectas")
+	ErrExists        = errors.New("the user already exists")
+	ErrNotFound      = errors.New("user not found")
+	ErrInvalidName   = errors.New("invalid username")
+	ErrInvalidRole   = errors.New("invalid role (admin|user)")
+	ErrInvalidLang   = errors.New("invalid language (auto|es|en)")
+	ErrInvalidEmail  = errors.New("invalid email")
+	ErrWeakPassword  = errors.New("the password must be at least 8 characters long")
+	ErrBadCredential = errors.New("wrong credentials")
 )
 
 var nameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,32}$`)
@@ -89,9 +89,9 @@ func (s *Store) Bootstrap(ctx context.Context, adminPassword string) error {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 	if generated {
-		log.Printf("BOOTSTRAP: creado usuario 'admin' con contraseña generada: %s (cámbiala tras el primer login)", adminPassword)
+		log.Printf("BOOTSTRAP: created user 'admin' with generated password: %s (change it after the first login)", adminPassword)
 	} else {
-		log.Println("BOOTSTRAP: creado usuario 'admin' con la contraseña de ADMIN_PASSWORD")
+		log.Println("BOOTSTRAP: created user 'admin' with the password from ADMIN_PASSWORD")
 	}
 	return nil
 }
@@ -112,7 +112,9 @@ func (s *Store) Create(ctx context.Context, name, password, role string) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"INSERT INTO users(user, pass_hash, role) VALUES (?,?,?)", name, hash, role)
+		// English until the user picks another language: the column's own
+		// default ('auto', from v11) would follow the browser instead.
+		"INSERT INTO users(user, pass_hash, role, language) VALUES (?,?,?,'en')", name, hash, role)
 	if err != nil {
 		if isUniqueErr(err) {
 			return ErrExists
@@ -307,7 +309,7 @@ func (s *Store) SetUILang(ctx context.Context, name, lang string) (bool, error) 
 // NotifyLang — the language for notifications that go to no user in
 // particular (ntfy, Gotify, Telegram, syslog, the webhook) when the admin
 // left it on "auto": the one the most recently active admin reads the UI
-// in. Spanish when there is no admin to ask.
+// in. English when there is no admin to ask.
 func (s *Store) NotifyLang(ctx context.Context) string { return NotifyLang(ctx, s.db) }
 
 // NotifyLang — Store.NotifyLang for code that holds only the database.
@@ -316,7 +318,7 @@ func NotifyLang(ctx context.Context, db *sql.DB) string {
 	err := db.QueryRowContext(ctx,
 		"SELECT language, ui_lang FROM users WHERE role='admin' ORDER BY last_login IS NULL, last_login DESC LIMIT 1").Scan(&lang, &ui)
 	if err != nil {
-		return "es"
+		return "en"
 	}
 	return i18n.Resolve(lang, ui, "")
 }

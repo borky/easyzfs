@@ -15,7 +15,7 @@ func (s *Server) getSeries(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("source")
 	if !series.ValidSource(src) {
 		writeErr(w, http.StatusBadRequest, "invalid_source",
-			"source debe ser pool.<nombre>.used_pct o disk.<dev>.temp")
+			"source must be pool.<name>.used_pct or disk.<dev>.temp")
 		return
 	}
 	days, err := strconv.Atoi(r.URL.Query().Get("days"))

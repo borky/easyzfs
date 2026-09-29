@@ -24,16 +24,16 @@ import (
 
 // Errores de dominio mapeados a códigos HTTP en httpapi.
 var (
-	ErrInvalidName   = errors.New("nombre inválido (solo [a-zA-Z0-9_.-/])")
-	ErrInvalidDev    = errors.New("dispositivo inválido")
-	ErrInvalidTopo   = errors.New("topología inválida")
-	ErrInvalidAction = errors.New("acción inválida")
-	ErrInvalidInput  = errors.New("entrada inválida")
-	ErrSnapshotNotFound = errors.New("el snapshot no existe; refresca la lista")
+	ErrInvalidName   = errors.New("invalid name (only [a-zA-Z0-9_.-/])")
+	ErrInvalidDev    = errors.New("invalid device")
+	ErrInvalidTopo   = errors.New("invalid topology")
+	ErrInvalidAction = errors.New("invalid action")
+	ErrInvalidInput  = errors.New("invalid input")
+	ErrSnapshotNotFound = errors.New("the snapshot does not exist; refresh the list")
 	// ErrWrongKey — the current passphrase supplied to change-key is not the
 	// dataset's key. Mapped to 403 (never 401: the frontend reads any 401 as an
 	// expired session and logs the user out).
-	ErrWrongKey = errors.New("la passphrase actual no es correcta")
+	ErrWrongKey = errors.New("the current passphrase is not correct")
 )
 
 // Whitelists de nombres (lección 6 + ejecución segura del skill).
@@ -114,7 +114,7 @@ func (s *Service) PoolCreate(ctx context.Context, actor, name, topo string, disk
 		return ErrInvalidTopo
 	}
 	if ashift != 0 && (ashift < 9 || ashift > 16) {
-		return fmt.Errorf("%w: ashift debe estar entre 9 y 16 (o 0 = automático)", ErrInvalidInput)
+		return fmt.Errorf("%w: ashift must be between 9 and 16 (or 0 = automatic)", ErrInvalidInput)
 	}
 	args, err := vdevArgs(topo, disks)
 	if err != nil {
@@ -141,7 +141,7 @@ func (s *Service) PoolCreate(ctx context.Context, actor, name, topo string, disk
 	s.audit(ctx, actor, "pool.create", name, params, confirmed)
 	_, err = executil.Run(ctx, 60*time.Second, "zpool", cli...)
 	if err != nil {
-		return fmt.Errorf("crear pool: %w", err)
+		return fmt.Errorf("create pool: %w", err)
 	}
 	return nil
 }
@@ -175,7 +175,7 @@ func (s *Service) PoolImport(ctx context.Context, actor, name string) (warnings 
 	}
 	s.audit(ctx, actor, "pool.import", name, nil, false)
 	if _, err := executil.Run(ctx, 60*time.Second, "zpool", "import", "-N", name); err != nil {
-		return nil, fmt.Errorf("importar pool: %w", err)
+		return nil, fmt.Errorf("import pool: %w", err)
 	}
 	return s.mountTree(ctx, name), nil
 }
@@ -192,7 +192,7 @@ func (s *Service) PoolExport(ctx context.Context, actor, name string, force, des
 		map[string]any{"force": force, "destroy": destroy}, true)
 	if destroy {
 		if _, err := executil.Run(ctx, 60*time.Second, "zpool", "destroy", name); err != nil {
-			return fmt.Errorf("destruir pool: %w", err)
+			return fmt.Errorf("destroy pool: %w", err)
 		}
 		return nil
 	}
@@ -202,7 +202,7 @@ func (s *Service) PoolExport(ctx context.Context, actor, name string, force, des
 	}
 	args = append(args, name)
 	if _, err := executil.Run(ctx, 60*time.Second, "zpool", args...); err != nil {
-		return fmt.Errorf("exportar pool: %w", err)
+		return fmt.Errorf("export pool: %w", err)
 	}
 	return nil
 }
@@ -290,7 +290,7 @@ func (s *Service) CheckpointDiscard(ctx context.Context, actor, pool string) err
 	}
 	s.audit(ctx, actor, "pool.checkpoint.discard", pool, nil, true)
 	if _, err := executil.Run(ctx, 30*time.Second, "zpool", "checkpoint", "-d", pool); err != nil {
-		return fmt.Errorf("descartar checkpoint: %w", err)
+		return fmt.Errorf("discard checkpoint: %w", err)
 	}
 	return nil
 }
@@ -332,13 +332,13 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 	if checkpoint {
 		cp, err := executil.RunRead(ctx, 10*time.Second, "zpool", "get", "-Hp", "-o", "value", "checkpoint", pool)
 		if err != nil {
-			return fmt.Errorf("leer el checkpoint de %s: %w", pool, err)
+			return fmt.Errorf("read the checkpoint of %s: %w", pool, err)
 		}
 		if v := strings.TrimSpace(string(cp)); v != "" && v != "-" {
-			return fmt.Errorf("%w: %s ya tiene un checkpoint (de otra fecha); descártalo antes, o añade sin checkpoint", ErrConflict, pool)
+			return fmt.Errorf("%w: %s already has a checkpoint (from another date); discard it first, or add without a checkpoint", ErrConflict, pool)
 		}
 		if _, err := executil.Run(ctx, 30*time.Second, "zpool", "checkpoint", pool); err != nil {
-			return fmt.Errorf("crear el checkpoint (no se ha añadido nada; ¿pool sin feature@zpool_checkpoint?): %w", err)
+			return fmt.Errorf("create the checkpoint (nothing was added; pool without feature@zpool_checkpoint?): %w", err)
 		}
 		created = true
 	}
@@ -347,7 +347,7 @@ func (s *Service) VdevAdd(ctx context.Context, actor, pool, topo string, disks [
 	_, err = executil.Run(ctx, 60*time.Second, "zpool",
 		append([]string{"add", pool}, args...)...)
 	if err != nil {
-		return fmt.Errorf("añadir vdev: %w", err)
+		return fmt.Errorf("add vdev: %w", err)
 	}
 	return nil
 }
@@ -427,7 +427,7 @@ func (s *Service) PowerOff(ctx context.Context, actor, dev string) error {
 		return nil
 	}
 	if _, err := executil.Run(ctx, 15*time.Second, "hdparm", "-y", "/dev/"+dev); err != nil {
-		return fmt.Errorf("apagar disco: %w", err)
+		return fmt.Errorf("power off disk: %w", err)
 	}
 	return nil
 }
@@ -448,7 +448,7 @@ func (s *Service) IdentifyDisk(ctx context.Context, actor, dev string) error {
 		return nil // dd cortado por el contexto: el parpadeo ya cumplió su función
 	}
 	if err != nil {
-		return fmt.Errorf("identificar disco: %w", err)
+		return fmt.Errorf("identify disk: %w", err)
 	}
 	return nil
 }
@@ -481,7 +481,7 @@ func (s *Service) SysTaskSetSchedule(ctx context.Context, actor string, task mod
 			return ErrInvalidName
 		}
 		if _, err := executil.Run(ctx, 30*time.Second, sysdHelper, "timer-set", task.Name, schedule); err != nil {
-			return fmt.Errorf("cambiar timer: %w", err)
+			return fmt.Errorf("change timer: %w", err)
 		}
 		return nil
 	}
@@ -493,7 +493,7 @@ func (s *Service) SysTaskSetSchedule(ctx context.Context, actor string, task mod
 	}
 	if _, err := executil.Run(ctx, 30*time.Second, sysdHelper, "cron-set",
 		task.Origin, strconv.Itoa(task.Line), schedule); err != nil {
-		return fmt.Errorf("cambiar cron: %w", err)
+		return fmt.Errorf("change cron: %w", err)
 	}
 	return nil
 }
@@ -510,7 +510,7 @@ func (s *Service) SysTaskMigrate(ctx context.Context, actor string, task model.S
 		map[string]any{"origin": task.Origin, "line": task.Line, "unit": "easyzfs-" + newName + ".timer"}, true)
 	if _, err := executil.Run(ctx, 30*time.Second, sysdHelper, "cron-to-timer",
 		task.Origin, strconv.Itoa(task.Line), newName); err != nil {
-		return fmt.Errorf("migrar a systemd: %w", err)
+		return fmt.Errorf("migrate to systemd: %w", err)
 	}
 	return nil
 }
@@ -564,7 +564,7 @@ func (s *Service) PoolExpand(ctx context.Context, actor, pool, vdev, disk string
 		return ErrInvalidName
 	}
 	if !reRaidzVdev.MatchString(vdev) {
-		return fmt.Errorf("%w: el vdev objetivo debe ser raidz[123]-N", ErrInvalidInput)
+		return fmt.Errorf("%w: the target vdev must be raidz[123]-N", ErrInvalidInput)
 	}
 	if !reDev.MatchString(disk) {
 		return ErrInvalidDev
@@ -578,7 +578,7 @@ func (s *Service) PoolExpand(ctx context.Context, actor, pool, vdev, disk string
 	s.audit(ctx, actor, "pool.expand", pool,
 		map[string]any{"vdev": vdev, "disk": disk}, confirmed)
 	if _, err := executil.Run(ctx, 60*time.Second, "zpool", "attach", pool, vdev, disk); err != nil {
-		return fmt.Errorf("expandir raidz: %w", err)
+		return fmt.Errorf("expand raidz: %w", err)
 	}
 	return nil
 }
@@ -589,7 +589,7 @@ func (s *Service) PoolExpand(ctx context.Context, actor, pool, vdev, disk string
 // estable '/dev/disk/by-id/...' (preferida, issue #107).
 func vdevArgs(topo string, disks []string) ([]string, error) {
 	if len(disks) == 0 {
-		return nil, fmt.Errorf("%w: se requiere al menos 1 disco", ErrInvalidDev)
+		return nil, fmt.Errorf("%w: at least 1 disk is required", ErrInvalidDev)
 	}
 	args := []string{}
 	if topo != "stripe" {
@@ -622,16 +622,16 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 		return ErrInvalidName
 	}
 	if InTrash(full) { // the recycle bin's names are the app's own (trash.go)
-		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
+		return fmt.Errorf("%w: %s is reserved for the recycle bin", ErrInvalidInput, TrashDir)
 	}
 	if err := guardNewName(ctx, full); err != nil {
 		return err
 	}
 	if compression != "lz4" && compression != "zstd" && compression != "off" {
-		return fmt.Errorf("compresión inválida (lz4|zstd|off)")
+		return fmt.Errorf("invalid compression (lz4|zstd|off)")
 	}
 	if atime != "" && atime != "on" && atime != "off" && atime != "relatime" {
-		return fmt.Errorf("%w: atime debe ser on, off o relatime", ErrInvalidInput)
+		return fmt.Errorf("%w: atime must be on, off or relatime", ErrInvalidInput)
 	}
 	args := []string{"create", "-p", "-o", "compression=" + compression}
 	if atime != "" {
@@ -642,16 +642,16 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 	}
 	if typ == "volume" {
 		if volsize == 0 {
-			return fmt.Errorf("volsize_bytes requerido para type=volume")
+			return fmt.Errorf("volsize_bytes is required for type=volume")
 		}
 		args = append(args, "-V", strconv.FormatUint(volsize, 10))
 	} else if typ != "fs" {
-		return fmt.Errorf("type inválido (fs|volume)")
+		return fmt.Errorf("invalid type (fs|volume)")
 	}
 	var keyBuf []byte
 	if encrypted {
 		if len(passphrase) < 8 {
-			return fmt.Errorf("%w: la passphrase debe tener al menos 8 caracteres", ErrInvalidInput)
+			return fmt.Errorf("%w: the passphrase must be at least 8 characters long", ErrInvalidInput)
 		}
 		args = append(args, "-o", "encryption=aes-256-gcm",
 			"-o", "keyformat=passphrase", "-o", "keylocation=prompt")
@@ -682,7 +682,7 @@ func (s *Service) DatasetCreate(ctx context.Context, actor, pool, name, typ, com
 		_, err = executil.Run(ctx, 30*time.Second, "zfs", args...)
 	}
 	if err != nil {
-		return fmt.Errorf("crear dataset: %w", err)
+		return fmt.Errorf("create dataset: %w", err)
 	}
 	return nil
 }
@@ -696,13 +696,13 @@ func (s *Service) DatasetLoadKey(ctx context.Context, actor, name, passphrase st
 		return ErrInvalidName
 	}
 	if passphrase == "" {
-		return fmt.Errorf("%w: passphrase requerida", ErrInvalidInput)
+		return fmt.Errorf("%w: passphrase required", ErrInvalidInput)
 	}
 	s.audit(ctx, actor, "dataset.unlock", name, nil, false) // SIN la clave
 	keyBuf := []byte(passphrase + "\n")
 	defer executil.Zero(keyBuf)
 	if _, err := executil.RunStdin(ctx, 30*time.Second, keyBuf, "zfs", "load-key", name); err != nil {
-		return fmt.Errorf("desbloquear dataset: %w", err)
+		return fmt.Errorf("unlock dataset: %w", err)
 	}
 	return nil
 }
@@ -719,7 +719,7 @@ func (s *Service) DatasetUnloadKey(ctx context.Context, actor, name string) erro
 	}
 	s.audit(ctx, actor, "dataset.lock", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "unload-key", name); err != nil {
-		return fmt.Errorf("bloquear dataset: %w", err)
+		return fmt.Errorf("lock dataset: %w", err)
 	}
 	return nil
 }
@@ -736,10 +736,10 @@ func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, currentPass
 		return ErrInvalidName
 	}
 	if currentPassphrase == "" {
-		return fmt.Errorf("%w: se requiere la passphrase actual", ErrInvalidInput)
+		return fmt.Errorf("%w: the current passphrase is required", ErrInvalidInput)
 	}
 	if len(newPassphrase) < 8 {
-		return fmt.Errorf("%w: la passphrase nueva debe tener al menos 8 caracteres", ErrInvalidInput)
+		return fmt.Errorf("%w: the new passphrase must be at least 8 characters long", ErrInvalidInput)
 	}
 	if err := guardHost(ctx, OpDatasetSensitive, "", name); err != nil {
 		return err
@@ -755,7 +755,7 @@ func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, currentPass
 	defer executil.Zero(keyBuf)
 	if _, err := executil.RunStdin(ctx, 30*time.Second, keyBuf, "zfs",
 		"change-key", "-o", "keyformat=passphrase", name); err != nil {
-		return fmt.Errorf("cambiar clave: %w", err)
+		return fmt.Errorf("change key: %w", err)
 	}
 	return nil
 }
@@ -773,11 +773,11 @@ func (s *Service) DatasetChangeKey(ctx context.Context, actor, name, currentPass
 func (s *Service) verifyDatasetKey(ctx context.Context, name, passphrase string) error {
 	out, err := executil.Run(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "encryptionroot", name)
 	if err != nil {
-		return fmt.Errorf("verificar clave actual: %w", err)
+		return fmt.Errorf("verify current key: %w", err)
 	}
 	root := strings.TrimSpace(string(out))
 	if !reDataset.MatchString(root) {
-		return fmt.Errorf("verificar clave actual: raíz de cifrado inesperada %q", root)
+		return fmt.Errorf("verify current key: unexpected encryption root %q", root)
 	}
 	keyBuf := []byte(passphrase + "\n")
 	defer executil.Zero(keyBuf)
@@ -786,7 +786,7 @@ func (s *Service) verifyDatasetKey(ctx context.Context, name, passphrase string)
 		if strings.Contains(strings.ToLower(err.Error()), "incorrect key") {
 			return ErrWrongKey
 		}
-		return fmt.Errorf("verificar clave actual: %w", err)
+		return fmt.Errorf("verify current key: %w", err)
 	}
 	return nil
 }
@@ -803,7 +803,7 @@ func (s *Service) DatasetPatch(ctx context.Context, actor, name string,
 	}
 	if compression != nil {
 		if *compression != "lz4" && *compression != "zstd" && *compression != "off" {
-			return fmt.Errorf("compresión inválida (lz4|zstd|off)")
+			return fmt.Errorf("invalid compression (lz4|zstd|off)")
 		}
 		props = append(props, "compression="+*compression)
 	}
@@ -842,7 +842,7 @@ func (s *Service) DatasetDelete(ctx context.Context, actor, name string, recursi
 	}
 	args = append(args, name)
 	if _, err := executil.Run(ctx, 60*time.Second, "zfs", args...); err != nil {
-		return fmt.Errorf("borrar dataset: %w", err)
+		return fmt.Errorf("delete dataset: %w", err)
 	}
 	return nil
 }
@@ -865,7 +865,7 @@ func (s *Service) SnapshotCreate(ctx context.Context, actor, dataset, name strin
 	}
 	s.audit(ctx, actor, "snapshot.create", full, map[string]any{"recursive": recursive}, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", args...); err != nil {
-		return fmt.Errorf("crear snapshot: %w", err)
+		return fmt.Errorf("create snapshot: %w", err)
 	}
 	return nil
 }
@@ -884,7 +884,7 @@ func (s *Service) SnapshotDelete(ctx context.Context, actor, full string) error 
 		if strings.Contains(err.Error(), "could not find any snapshots to destroy") {
 			return ErrSnapshotNotFound
 		}
-		return fmt.Errorf("borrar snapshot: %w", err)
+		return fmt.Errorf("delete snapshot: %w", err)
 	}
 	return nil
 }
@@ -969,7 +969,7 @@ func (s *Service) SnapshotDiff(ctx context.Context, older, newer string) ([]Diff
 	}
 	out, err := executil.Run(ctx, 30*time.Second, "zfs", "diff", "-FHt", older, newer)
 	if err != nil {
-		return nil, fmt.Errorf("diff entre snapshots: %w", err)
+		return nil, fmt.Errorf("diff between snapshots: %w", err)
 	}
 	var entries []DiffEntry
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -998,7 +998,7 @@ func (s *Service) SmartTest(ctx context.Context, actor, dev, testType string) er
 		return ErrInvalidDev
 	}
 	if testType != "short" && testType != "long" {
-		return fmt.Errorf("type inválido (short|long)")
+		return fmt.Errorf("invalid type (short|long)")
 	}
 	s.audit(ctx, actor, "disk.smart_test."+testType, dev, nil, false)
 	out, err := executil.RunTolerant(ctx, 15*time.Second, "smartctl",
@@ -1028,7 +1028,7 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 		return ErrInvalidName
 	}
 	if InTrash(target) {
-		return fmt.Errorf("%w: %s está reservado para la papelera", ErrInvalidInput, TrashDir)
+		return fmt.Errorf("%w: %s is reserved for the recycle bin", ErrInvalidInput, TrashDir)
 	}
 	if err := guardNewName(ctx, target); err != nil {
 		return err
@@ -1067,7 +1067,7 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 	s.audit(ctx, actor, "snapshot.clone", target,
 		map[string]any{"snapshot": snapshotFull, "mountpoint": mountpoint}, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", args...); err != nil {
-		return fmt.Errorf("clonar snapshot: %w", err)
+		return fmt.Errorf("clone snapshot: %w", err)
 	}
 	return nil
 }
@@ -1077,7 +1077,7 @@ func (s *Service) SnapshotClone(ctx context.Context, actor, snapshotFull, target
 func (s *Service) isVolume(ctx context.Context, dataset string) (bool, error) {
 	out, err := executil.RunRead(ctx, 10*time.Second, "zfs", "get", "-H", "-o", "value", "type", dataset)
 	if err != nil {
-		return false, fmt.Errorf("%w: no se puede leer el tipo de %s: %v", ErrInvalidInput, dataset, err)
+		return false, fmt.Errorf("%w: cannot read the type of %s: %v", ErrInvalidInput, dataset, err)
 	}
 	return strings.TrimSpace(string(out)) == "volume", nil
 }
@@ -1101,7 +1101,7 @@ func (s *Service) DatasetPromote(ctx context.Context, actor, name string) error 
 	}
 	s.audit(ctx, actor, "dataset.promote", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "promote", name); err != nil {
-		return fmt.Errorf("promocionar dataset: %w", err)
+		return fmt.Errorf("promote dataset: %w", err)
 	}
 	return nil
 }
@@ -1113,7 +1113,7 @@ func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName str
 		return ErrInvalidName
 	}
 	if InTrash(oldName) || InTrash(newName) { // restore it from the bin instead
-		return fmt.Errorf("%w: %s está reservado para la papelera; usa Restaurar", ErrInvalidInput, TrashDir)
+		return fmt.Errorf("%w: %s is reserved for the recycle bin; use Restore", ErrInvalidInput, TrashDir)
 	}
 	// ZFS remounts on rename, and a new parent means a new inherited path (§1).
 	if err := checkRenameMount(ctx, oldName, newName); err != nil {
@@ -1128,7 +1128,7 @@ func (s *Service) DatasetRename(ctx context.Context, actor, oldName, newName str
 	s.audit(ctx, actor, "dataset.rename", oldName,
 		map[string]any{"new": newName}, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "rename", oldName, newName); err != nil {
-		return fmt.Errorf("renombrar dataset: %w", err)
+		return fmt.Errorf("rename dataset: %w", err)
 	}
 	return nil
 }
@@ -1151,7 +1151,7 @@ func (s *Service) DatasetMount(ctx context.Context, actor, name string) error {
 		if strings.Contains(err.Error(), "already mounted") {
 			return nil
 		}
-		return fmt.Errorf("montar dataset: %w", err)
+		return fmt.Errorf("mount dataset: %w", err)
 	}
 	return nil
 }
@@ -1168,7 +1168,7 @@ func (s *Service) DatasetUnmount(ctx context.Context, actor, name string) error 
 	}
 	s.audit(ctx, actor, "dataset.unmount", name, nil, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zfs", "unmount", name); err != nil {
-		return fmt.Errorf("desmontar dataset: %w", err)
+		return fmt.Errorf("unmount dataset: %w", err)
 	}
 	return nil
 }
@@ -1189,7 +1189,7 @@ func (s *Service) PoolClear(ctx context.Context, actor, pool, dev string) error 
 	s.audit(ctx, actor, "pool.clear", pool,
 		map[string]any{"dev": dev}, false)
 	if _, err := executil.Run(ctx, 30*time.Second, "zpool", args...); err != nil {
-		return fmt.Errorf("limpiar errores: %w", err)
+		return fmt.Errorf("clear errors: %w", err)
 	}
 	return nil
 }

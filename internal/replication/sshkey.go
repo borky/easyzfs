@@ -54,7 +54,7 @@ func (r *Runner) EnsureSSHKey() (string, error) {
 	if _, err := os.Stat(privPath); errors.Is(err, os.ErrNotExist) {
 		pub, priv, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
-			return "", fmt.Errorf("generar clave ed25519: %w", err)
+			return "", fmt.Errorf("generate ed25519 key: %w", err)
 		}
 		sshPub, err := ssh.NewPublicKey(pub)
 		if err != nil {
@@ -79,7 +79,7 @@ func (r *Runner) EnsureSSHKey() (string, error) {
 	}
 	b, err := os.ReadFile(pubPath)
 	if err != nil {
-		return "", fmt.Errorf("leer clave pública: %w", err)
+		return "", fmt.Errorf("read public key: %w", err)
 	}
 	return strings.TrimSpace(string(b)), nil
 }
@@ -98,7 +98,7 @@ func (r *Runner) TestConnection(ctx context.Context, host, user string, port int
 		return "", err
 	}
 	if r.mock {
-		return "", fmt.Errorf("autenticación fallida: Permission denied (publickey) — instala la clave pública del servidor en el destino")
+		return "", fmt.Errorf("authentication failed: Permission denied (publickey) — install the server's public key on the destination")
 	}
 	if _, err := r.EnsureSSHKey(); err != nil {
 		return "", err
@@ -114,7 +114,7 @@ func (r *Runner) TestConnection(ctx context.Context, host, user string, port int
 	// con la primera como versión remota legible.
 	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
 	if line == "" {
-		line = "zfs (versión desconocida)"
+		line = "zfs (unknown version)"
 	}
 	return line, nil
 }
@@ -124,17 +124,17 @@ func classifySSHError(err error) error {
 	s := err.Error()
 	switch {
 	case strings.Contains(s, "Permission denied"):
-		return fmt.Errorf("autenticación fallida (Permission denied): instala la clave pública del servidor en el authorized_keys del usuario destino (GET /api/replication/sshkey)")
+		return fmt.Errorf("authentication failed (Permission denied): install the server's public key in the destination user's authorized_keys (GET /api/replication/sshkey)")
 	case strings.Contains(s, "command not found"), strings.Contains(s, "no such file"):
-		return fmt.Errorf("el destino no tiene ZFS instalado o no está en el PATH del usuario remoto: %s", s)
+		return fmt.Errorf("the destination has no ZFS installed, or it is not in the remote user's PATH: %s", s)
 	case strings.Contains(s, "Connection refused"):
-		return fmt.Errorf("conexión rechazada: ¿sshd escuchando en ese puerto? (%s)", s)
+		return fmt.Errorf("connection refused: is sshd listening on that port? (%s)", s)
 	case strings.Contains(s, "Could not resolve"), strings.Contains(s, "Name or service not known"):
-		return fmt.Errorf("no se puede resolver el host: %s", s)
+		return fmt.Errorf("cannot resolve the host: %s", s)
 	case strings.Contains(s, "timed out"), strings.Contains(s, "timeout"):
-		return fmt.Errorf("timeout de conexión (host inalcanzable o cortafuegos): %s", s)
+		return fmt.Errorf("connection timeout (host unreachable or firewall): %s", s)
 	case strings.Contains(s, "Host key verification failed"):
-		return fmt.Errorf("la clave del host cambió o no es de confianza; revisa %s: %s", "known_hosts", s)
+		return fmt.Errorf("the host key changed or is not trusted; check %s: %s", "known_hosts", s)
 	}
 	return fmt.Errorf("ssh: %s", s)
 }

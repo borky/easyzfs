@@ -29,8 +29,9 @@ self.addEventListener("push", (event) => {
       // El texto ya llega FINAL e i18n desde el servidor (ES/EN).
       const titulo = datos.title || "EasyZFS";
       const opciones = {
-        // Fallback bilingüe: ante payload corrupto no se conoce el idioma.
-        body: datos.body || "Tienes una alerta nueva · New alert",
+        // With a broken payload the reader's language is unknown: English,
+        // the product's language.
+        body: datos.body || "You have a new alert.",
         icon: ICON,
         badge: ICON,
         tag: datos.tag || "easyzfs", // coalescing: mismo tag reemplaza la anterior

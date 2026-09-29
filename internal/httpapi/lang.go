@@ -1,11 +1,11 @@
-// lang.go — English responses for a UI set to English (internal/i18n).
+// lang.go — Spanish responses for a UI set to Spanish (internal/i18n).
 //
-// The API speaks Spanish; that is its contract, and what every client that
-// does not ask for anything else gets. The web UI sends its language with
-// every request (Accept-Language, or ?lang= on an EventSource, which cannot
-// set headers), and for "en" the prose in JSON bodies and SSE events is
-// translated on the way out. Handlers do not change: whatever they write,
-// in whatever helper, passes through here.
+// The API speaks English, and that is what every client that does not ask
+// for anything else gets. The web UI sends its language with every request
+// (Accept-Language, or ?lang= on an EventSource, which cannot set headers),
+// and for "es" the prose in JSON bodies and SSE events is translated on the
+// way out. Handlers do not change: whatever they write, in whatever helper,
+// passes through here.
 package httpapi
 
 import (
@@ -20,17 +20,17 @@ import (
 	"easyzfs/internal/i18n"
 )
 
-// requestLang — "en" or "es".
+// requestLang — "en" (the default) or "es".
 func requestLang(r *http.Request) string {
 	if q := r.URL.Query().Get("lang"); q == "en" || q == "es" {
 		return q
 	}
 	first, _, _ := strings.Cut(r.Header.Get("Accept-Language"), ",")
 	first, _, _ = strings.Cut(first, ";")
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(first)), "en") {
-		return "en"
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(first)), "es") {
+		return "es"
 	}
-	return "es"
+	return "en"
 }
 
 func langMiddleware(next http.Handler) http.Handler {
@@ -38,7 +38,7 @@ func langMiddleware(next http.Handler) http.Handler {
 		// The body depends on the language: a cache in between must not
 		// hand one user's English to another's Spanish.
 		w.Header().Add("Vary", "Accept-Language")
-		if requestLang(r) != "en" {
+		if requestLang(r) != "es" {
 			next.ServeHTTP(w, r)
 			return
 		}

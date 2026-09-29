@@ -22,7 +22,7 @@ import (
 // POST /api/update/check.
 func (s *Server) getUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
-		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "actualizaciones desactivadas (sin DATA_DIR)")
+		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "updates disabled (no DATA_DIR)")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.updater.Status())
@@ -33,7 +33,7 @@ func (s *Server) getUpdateStatus(w http.ResponseWriter, r *http.Request) {
 // Es la única vía que consulta la red bajo demanda.
 func (s *Server) postUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
-		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "actualizaciones desactivadas (sin DATA_DIR)")
+		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "updates disabled (no DATA_DIR)")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -51,7 +51,7 @@ func (s *Server) postUpdateCheck(w http.ResponseWriter, r *http.Request) {
 // getUpdatePlan — GET /api/update/plan (admin). Comprobaciones pre-vuelo.
 func (s *Server) getUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
-		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "actualizaciones desactivadas (sin DATA_DIR)")
+		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "updates disabled (no DATA_DIR)")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.updater.Plan())
@@ -61,7 +61,7 @@ func (s *Server) getUpdatePlan(w http.ResponseWriter, r *http.Request) {
 // nuevo y toca el flag; el servicio se reinicia vía easyzfs-update.path.
 func (s *Server) postUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
-		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "actualizaciones desactivadas (sin DATA_DIR)")
+		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "updates disabled (no DATA_DIR)")
 		return
 	}
 	st := s.updater.Status()
@@ -85,12 +85,12 @@ func (s *Server) postUpdateApply(w http.ResponseWriter, r *http.Request) {
 // que el cliente debe tratarlo como fase "restarting" y sondear /api/health.
 func (s *Server) getUpdateStream(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
-		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "actualizaciones desactivadas (sin DATA_DIR)")
+		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "updates disabled (no DATA_DIR)")
 		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, http.StatusInternalServerError, "streaming_unsupported", "SSE no soportado por el servidor")
+		writeErr(w, http.StatusInternalServerError, "streaming_unsupported", "SSE not supported by the server")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -127,7 +127,7 @@ func (s *Server) getUpdateStream(w http.ResponseWriter, r *http.Request) {
 // anterior (.old) y toca el flag para que easyzfs-update.path reinicie.
 func (s *Server) postUpdateRollback(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
-		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "actualizaciones desactivadas (sin DATA_DIR)")
+		writeErr(w, http.StatusServiceUnavailable, "update_unavailable", "updates disabled (no DATA_DIR)")
 		return
 	}
 	if err := s.updater.Rollback(); err != nil {

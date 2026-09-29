@@ -228,16 +228,16 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 // Devuelve "" si todo es válido o el mensaje de error.
 func validateSettings(st settingsBody) string {
 	if st.CapWarnPct < 1 || st.CapWarnPct > 100 {
-		return "cap_warn_pct debe estar entre 1 y 100"
+		return "cap_warn_pct must be between 1 and 100"
 	}
 	if st.CapCritPct < 1 || st.CapCritPct > 100 {
-		return "cap_crit_pct debe estar entre 1 y 100"
+		return "cap_crit_pct must be between 1 and 100"
 	}
 	if st.CapWarnPct >= st.CapCritPct {
-		return "cap_warn_pct debe ser menor que cap_crit_pct"
+		return "cap_warn_pct must be lower than cap_crit_pct"
 	}
 	if st.DiskTempC < 20 || st.DiskTempC > 90 {
-		return "disk_temp_c debe estar entre 20 y 90"
+		return "disk_temp_c must be between 20 and 90"
 	}
 	return ""
 }
@@ -271,7 +271,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ackAlert(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid_id", "id de alerta inválido")
+		writeErr(w, http.StatusBadRequest, "invalid_id", "invalid alert id")
 		return
 	}
 	if err := s.alerter.Ack(r.Context(), id); err != nil {
@@ -322,7 +322,7 @@ func (s *Server) sysTimerSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	task, ok := s.findSysTimer(body.sysTimerID)
 	if !ok || !task.Editable {
-		writeErr(w, http.StatusNotFound, "not_found", "tarea no encontrada o no editable")
+		writeErr(w, http.StatusNotFound, "not_found", "task not found or not editable")
 		return
 	}
 	if err := s.act.SysTaskSetSchedule(r.Context(), actor(r), task, body.Schedule); err != nil {
@@ -344,14 +344,14 @@ func (s *Server) sysTimerMigrate(w http.ResponseWriter, r *http.Request) {
 	}
 	task, ok := s.findSysTimer(body.sysTimerID)
 	if !ok || !task.Editable || task.Source != "cron" {
-		writeErr(w, http.StatusNotFound, "not_found", "tarea no encontrada o no migrable")
+		writeErr(w, http.StatusNotFound, "not_found", "task not found or cannot be migrated")
 		return
 	}
 	// Defensa en backend (la UI oculta el botón, pero el endpoint es público):
 	// sin systemd no se puede crear un timer.
 	if !s.sysTimers.SystemdAvailable() {
 		writeErr(w, http.StatusBadRequest, "systemd_unavailable",
-			"systemd no está disponible en este sistema; no se puede cambiar a systemd timer")
+			"systemd is not available on this system; cannot switch to a systemd timer")
 		return
 	}
 	if err := s.act.SysTaskMigrate(r.Context(), actor(r), task, body.NewName); err != nil {

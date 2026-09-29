@@ -55,12 +55,12 @@ func (s *Server) requireReauthIf(pred func([]byte) bool, next http.HandlerFunc) 
 			!strings.HasPrefix(r.Header.Get("Content-Type"), "application/json"):
 			// Not JSON and no headers: ask, without reading the body.
 			writeErr(w, http.StatusForbidden, "reauth_required",
-				"esta acción no se puede deshacer: confírmala con tu contraseña")
+				"this action cannot be undone: confirm it with your password")
 			return
 		default:
 			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 			if err != nil {
-				writeErr(w, http.StatusBadRequest, "bad_json", "body demasiado grande o ilegible")
+				writeErr(w, http.StatusBadRequest, "bad_json", "body too large or unreadable")
 				return
 			}
 			// The handler reads the same body afterwards.
@@ -76,7 +76,7 @@ func (s *Server) requireReauthIf(pred func([]byte) bool, next http.HandlerFunc) 
 		}
 		if re.Password == "" {
 			writeErr(w, http.StatusForbidden, "reauth_required",
-				"esta acción no se puede deshacer: confírmala con tu contraseña")
+				"this action cannot be undone: confirm it with your password")
 			return
 		}
 
@@ -85,28 +85,28 @@ func (s *Server) requireReauthIf(pred func([]byte) bool, next http.HandlerFunc) 
 		now := time.Now()
 		if ok, retry := s.loginLimiter.allow(key, now); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
-			writeErr(w, http.StatusTooManyRequests, "rate_limited", "demasiados intentos; inténtalo más tarde")
+			writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many attempts; try again later")
 			return
 		}
 		_, verr := s.verifyArgon(r.Context(), user, re.Password)
 		if verr != nil {
 			s.loginLimiter.failure(key, now)
-			writeErr(w, http.StatusForbidden, "reauth_failed", "contraseña incorrecta")
+			writeErr(w, http.StatusForbidden, "reauth_failed", "wrong password")
 			return
 		}
 		if on, err := s.users.TOTPEnabled(r.Context(), user); err != nil || on {
 			secret, serr := s.users.TOTPSecret(r.Context(), user)
 			switch {
 			case err != nil || serr != nil || secret == "":
-				writeErr(w, http.StatusInternalServerError, "db_error", "no se pudo comprobar la verificación en dos pasos")
+				writeErr(w, http.StatusInternalServerError, "db_error", "could not check two-step verification")
 				return
 			case strings.TrimSpace(re.Code) == "":
 				writeErr(w, http.StatusForbidden, "reauth_code_required",
-					"confírmala también con el código de tu app de autenticación")
+					"confirm it with the code from your authenticator app too")
 				return
 			case !totp.Validate(strings.TrimSpace(re.Code), secret, now):
 				s.loginLimiter.failure(key, now)
-				writeErr(w, http.StatusForbidden, "reauth_failed", "código incorrecto")
+				writeErr(w, http.StatusForbidden, "reauth_failed", "wrong code")
 				return
 			}
 		}

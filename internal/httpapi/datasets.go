@@ -60,7 +60,7 @@ func (s *Server) createDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Encryption && len(body.Passphrase) < 8 {
 		writeErr(w, http.StatusBadRequest, "invalid_input",
-			"la passphrase debe tener al menos 8 caracteres")
+			"the passphrase must be at least 8 characters long")
 		return
 	}
 	if s.cfg.Mock {
@@ -100,11 +100,11 @@ func (s *Server) findDataset(name string) *model.Dataset {
 func (s *Server) requireEncrypted(w http.ResponseWriter, name string) bool {
 	d := s.findDataset(name)
 	if d == nil {
-		writeErr(w, http.StatusNotFound, "not_found", "dataset no encontrado")
+		writeErr(w, http.StatusNotFound, "not_found", "dataset not found")
 		return false
 	}
 	if d.Encryption == "" || d.Encryption == "off" || d.Encryption == "-" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "el dataset no está cifrado")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "the dataset is not encrypted")
 		return false
 	}
 	return true
@@ -122,7 +122,7 @@ func (s *Server) unlockDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Key == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "se requiere la passphrase")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "the passphrase is required")
 		return
 	}
 	if !s.requireEncrypted(w, name) {
@@ -179,12 +179,12 @@ func (s *Server) changeKeyDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.CurrentKey == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "se requiere la passphrase actual")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "the current passphrase is required")
 		return
 	}
 	if len(body.NewKey) < 8 {
 		writeErr(w, http.StatusBadRequest, "invalid_input",
-			"la passphrase nueva debe tener al menos 8 caracteres")
+			"the new passphrase must be at least 8 characters long")
 		return
 	}
 	if !s.requireEncrypted(w, name) {
@@ -245,7 +245,7 @@ func (s *Server) renameDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.NewName == "" {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "new_name requerido")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "new_name required")
 		return
 	}
 	if err := s.act.DatasetRename(r.Context(), actor(r), name, body.NewName); err != nil {
@@ -304,7 +304,7 @@ func (s *Server) deleteDataset(w http.ResponseWriter, r *http.Request) {
 	// What is in the bin goes through /api/trash, under the bin's lock; a
 	// plain destroy here could race a restore.
 	if actions.InTrash(name) {
-		writeErr(w, http.StatusBadRequest, "invalid_input", "está en la papelera: restáuralo o bórralo desde la papelera")
+		writeErr(w, http.StatusBadRequest, "invalid_input", "it is in the recycle bin: restore it or delete it from the recycle bin")
 		return
 	}
 	var err error
