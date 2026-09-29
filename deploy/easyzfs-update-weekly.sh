@@ -25,12 +25,12 @@ log() { logger -t "$APP-update-weekly" "$@"; }
 echo "STEP:detect"
 VER=$(curl -fsSL --max-time 20 "https://api.github.com/repos/$REPO/releases/latest" \
   | sed -n 's/.*"tag_name": *"\(v\?[0-9][^"]*\)".*/\1/p' | head -n1)
-[ -n "$VER" ] || { log "no se pudo resolver la última release estable"; exit 4; }
+[ -n "$VER" ] || { log "could not resolve the latest stable release"; exit 4; }
 VER_NO_V=$(printf '%s' "$VER" | sed 's/^v//')
 
 # ¿Ya instalado?
 if [ -f "$MARKER" ] && [ "$(cat "$MARKER" 2>/dev/null || true)" = "$VER_NO_V" ]; then
-  log "al día ($VER_NO_V)"; exit 0
+  log "up to date ($VER_NO_V)"; exit 0
 fi
 
 # 2. Download the binary only. Verifying and installing it is the apply
@@ -39,7 +39,7 @@ fi
 # sha256, which a checksum fetched next to the binary cannot replace. A
 # second, weaker install path here would be the one an attacker uses.
 echo "STEP:download"
-[ -x "$APPLY_HELPER" ] || { log "falta $APPLY_HELPER: no se instala nada"; exit 5; }
+[ -x "$APPLY_HELPER" ] || { log "$APPLY_HELPER is missing: nothing is installed"; exit 5; }
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 BIN="${APP}_linux_${ARCH}"
 BASE="https://github.com/$REPO/releases/download/$VER"
@@ -51,10 +51,10 @@ printf '%s\n' "$VER" > "$TMP_DIR/$APP.new.tag"
 # piled up every week a release was refused.
 echo "STEP:install"
 if ! "$APPLY_HELPER" "$TMP_DIR" "$INSTALL_BIN"; then
-  log "la release $VER no pasó la verificación (firma/sha256): no se instala"
+  log "release $VER failed verification (signature/sha256): not installed"
   exit 5
 fi
 printf '%s\n' "$VER_NO_V" > "$MARKER"
 
-log "actualizado a $VER_NO_V"
+log "updated to $VER_NO_V"
 echo "OK:$VER_NO_V"

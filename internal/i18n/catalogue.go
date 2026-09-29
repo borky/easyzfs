@@ -409,4 +409,21 @@ var catalogue = map[string]string{
 	"rollback: no backup available (.old not found)":                                                "rollback: no hay copia disponible (no existe .old)",
 	"SMTP_HOST not set":                                                                             "SMTP_HOST no definido",
 	"SMTP_FROM not set":                                                                             "SMTP_FROM no definido",
+
+	// --- deploy/easyzfs-apply-update refusals (shown as applyRefused) ---
+	"no trusted signing public key configured: automatic updates are disabled (use 'make update' from the checkout)": "no hay clave pública de firma configurada: las actualizaciones automáticas están desactivadas (usa 'make update' desde el checkout)",
+	"minisign is not installed: the signature cannot be verified, nothing is installed":                              "minisign no está instalado: no se puede verificar la firma, no se instala",
+	"the staged release's tag is missing: it cannot be verified, nothing is installed":                               "falta la etiqueta de la release preparada: no se puede verificar, no se instala",
+	"invalid release tag":          "etiqueta de release no válida",
+	"unsupported architecture: %s": "arquitectura no soportada: %s",
+	"could not read the staged binary (missing, or a symbolic link?)":                       "no se pudo leer el binario preparado (¿falta o es un enlace simbólico?)",
+	"the staged binary is empty":                                                            "el binario preparado está vacío",
+	"could not download checksums.txt for %s":                                               "no se pudo descargar checksums.txt de %s",
+	"release %s publishes no signature (checksums.txt.minisig): not installed":              "la release %s no publica firma (checksums.txt.minisig): no se instala",
+	"the signature of checksums.txt for %s is not valid for the trusted key: not installed": "la firma de checksums.txt de %s no es válida para la clave de confianza: no se instala",
+	"checksums.txt for %s does not list %s":                                                 "checksums.txt de %s no lista %s",
+	"the staged binary does not match the official release %s: not installed":               "el binario preparado no coincide con la release oficial %s: no se instala",
+	"could not copy the new binary next to %s: not installed":                               "no se pudo copiar el binario nuevo junto a %s: no se instala",
+	"could not keep %s.prev: not installed":                                                 "no se pudo guardar %s.prev: no se instala",
+	"could not replace %s: the previous one stays":                                          "no se pudo sustituir %s: sigue el anterior",
 }

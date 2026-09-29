@@ -121,7 +121,7 @@ write_root_file() {
   local path="$1" mode="$2"
   if [ "$DRY_RUN" = "1" ]; then
     cat > /dev/null # consume stdin
-    printf '%s\n' "${C_GRAY:-}[DRY-RUN]${C_RESET:-} escribir ${path} (modo ${mode})" >&2
+    printf '%s\n' "${C_GRAY:-}[DRY-RUN]${C_RESET:-} write ${path} (mode ${mode})" >&2
     return 0
   fi
   "${SUDO[@]}" install -m "$mode" /dev/stdin "$path"
@@ -138,9 +138,9 @@ banner() {
 ███████╗██║  ██║███████║   ██║   ███████╗██║     ███████║
 ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚══════╝
 EOF
-  printf '%s\n' "${C_RESET:-}  Instalador de ${APP} v${SCRIPT_VERSION} — gestión ZFS para tu NAS"
+  printf '%s\n' "${C_RESET:-}  ${APP} installer v${SCRIPT_VERSION} — ZFS management for your NAS"
   if [ "$DRY_RUN" = "1" ]; then
-    printf '%s\n\n' "${C_YELLOW:-}  *** MODO DRY-RUN: no se aplicará ningún cambio real ***${C_RESET:-}"
+    printf '%s\n\n' "${C_YELLOW:-}  *** DRY-RUN MODE: no real change will be made ***${C_RESET:-}"
   else
     printf '\n'
   fi
@@ -148,48 +148,48 @@ EOF
 
 usage() {
   cat <<'EOF'
-Instalador de EasyZFS — despliegue en cualquier servidor Linux con systemd.
+EasyZFS installer — deploys on any Linux server with systemd.
 
-Uso:
-  bash install.sh [opciones]
+Usage:
+  bash install.sh [options]
   curl -fsSL <url>/install.sh | bash -s -- --yes
-  DRY_RUN=1 bash install.sh --binary ./easyzfs --yes   # ensayo sin cambios
+  DRY_RUN=1 bash install.sh --binary ./easyzfs --yes   # rehearsal, no changes
 
-Opciones:
-  --binary <ruta>   Binario local (defecto, desde un checkout: el ./easyzfs que
-                    deja 'make build'; sin él, se para y pide 'make install')
-  --url <url>       Solo se descarga si se indica (o con 'curl | bash', sin
-                    checkout). URL de release; acepta {arch}. Si la URL
-                    no apunta a un fichero, se asume <base>/easyzfs-linux-<arch>.
-                    También vía EASYZFS_RELEASE_URL. Defecto: releases gnacho/easyzfs.
-  --source <dir>    Compila desde el repo fuente (go + make; node/npm si hay web/)
-                    Bajo sudo se rechaza (compilaría como root en el checkout):
-                    usa 'make install' / 'make update'.
-  --listen <dir>    Dónde escucha la web: 127.0.0.1 (defecto con --yes), una IPv4
-                    de este equipo, o all (todas las interfaces)
-  --port <n>        Puerto de escucha (defecto: 8080)
-  --demo            Arranca en modo demo (DEMO=1: datos de muestra, mutaciones 403)
-  --root-mode       El servicio corre como root (sin usuario easyzfs ni sudoers)
+Options:
+  --binary <path>   Local binary (default, from a checkout: the ./easyzfs that
+                    'make build' leaves; without it, stops and asks for 'make install')
+  --url <url>       Downloads only when given (or with 'curl | bash', without a
+                    checkout). Release URL; accepts {arch}. If the URL does not
+                    point to a file, <base>/easyzfs-linux-<arch> is assumed.
+                    Also via EASYZFS_RELEASE_URL. Default: gnacho/easyzfs releases.
+  --source <dir>    Builds from the source repo (go + make; node/npm if web/ exists)
+                    Refused under sudo (it would build as root in the checkout):
+                    use 'make install' / 'make update'.
+  --listen <addr>   Where the web UI listens: 127.0.0.1 (default with --yes), an
+                    IPv4 of this host, or all (every interface)
+  --port <n>        Listen port (default: 8080)
+  --demo            Starts in demo mode (DEMO=1: sample data, changes get 403)
+  --root-mode       The service runs as root (no easyzfs user, no sudoers)
   --i-understand-root-mode
-                    Obligatorio junto a --root-mode --yes (sin preguntas no se
-                    acepta el modo root sin reconocerlo expresamente)
-  --read-only       Solo monitorización con datos reales: la API rechaza todo
-                    cambio de almacenamiento y sudoers solo permite lecturas
-                    (smartctl, zpool events/history, zfs diff). Sin helper root
+                    Required with --root-mode --yes (unattended, root mode is
+                    not accepted without an explicit acknowledgement)
+  --read-only       Monitoring only, with real data: the API refuses every
+                    storage change and sudoers only allows reads
+                    (smartctl, zpool events/history, zfs diff). No root helper
   --allow-unpinned-sudo
-                    Sin efecto (se acepta por compatibilidad): el servicio ya no
-                    recibe zpool/zfs sin restringir con ninguna versión de sudo.
-  --uninstall       Desinstala unit, binario y sudoers (pregunta por los datos)
-  --update          Actualiza una instalación existente con --binary o --source:
-                    cambia binario y helper y reinicia; no toca la config ni
-                    los datos, y nunca descarga (lo usa 'make update')
-  --yes, -y         No interactivo: todo por defecto
-  --help, -h        Muestra esta ayuda
+                    No effect (accepted for compatibility): the service no
+                    longer gets unrestricted zpool/zfs with any sudo version.
+  --uninstall       Removes the unit, binary and sudoers (asks about the data)
+  --update          Updates an existing install with --binary or --source:
+                    replaces the binary and helper and restarts; does not touch
+                    the config or the data, and never downloads (used by 'make update')
+  --yes, -y         Non-interactive: every default
+  --help, -h        Shows this help
 
-Entorno:
-  DRY_RUN=1              Imprime los comandos sin ejecutarlos
-  EASYZFS_RELEASE_URL     Equivalente a --url
-  NO_COLOR=1             Desactiva los colores
+Environment:
+  DRY_RUN=1              Prints the commands without running them
+  EASYZFS_RELEASE_URL     Same as --url
+  NO_COLOR=1             Disables colours
 EOF
 }
 
@@ -241,7 +241,7 @@ _read_line() {
 
 # confirm "pregunta" [defecto: 0=no, 1=sí] → devuelve 0 (sí) o 1 (no)
 confirm() {
-  local text="$1" def="${2:-0}" reply="" hint="s/N"
+  local text="$1" def="${2:-0}" reply="" hint="y/N"
   # def is 1 for "yes" but a shell status of 0 means yes, so returning "$def"
   # directly inverted every answer: Enter at [s/N] said yes (and at the
   # uninstall prompt deleted DATA_DIR and ENV_DIR), and --yes did the same.
@@ -259,7 +259,7 @@ confirm() {
     fi
     return $?
   fi
-  [ "$def" = "1" ] && hint="S/n"
+  [ "$def" = "1" ] && hint="Y/n"
   while true; do
     _prompt_out "${text} [${hint}] "
     _read_line reply
@@ -267,7 +267,7 @@ confirm() {
       "") [ "$def" = "1" ]; return ;;
       s|si|sí|y|yes) return 0 ;;
       n|no) return 1 ;;
-      *) _prompt_out "Responde 's' o 'n'.\n" ;;
+      *) _prompt_out "Answer 'y' or 'n'.\n" ;;
     esac
   done
 }
@@ -293,7 +293,7 @@ prompt_password() {
   if [ "$USE_WHIPTAIL" = "1" ]; then
     reply=$(whiptail --title "$APP" --passwordbox "$text" 10 68 3>&1 1>&2 2>&3) || reply=""
   else
-    _prompt_out "${text} (oculta; vacío = generar aleatoria): "
+    _prompt_out "${text} (hidden; empty = generate a random one): "
     _read_line reply 1
   fi
   printf -v "$__var" '%s' "$reply"
@@ -317,7 +317,7 @@ menu() {
       shift 2
       i=$((i + 1))
     done
-    _prompt_out "Elige [1-${#tags[@]}] (vacío = cancelar): "
+    _prompt_out "Choose [1-${#tags[@]}] (empty = cancel): "
     _read_line n
     if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#tags[@]}" ]; then
       __choice="${tags[$((n - 1))]}"
@@ -368,42 +368,42 @@ detect_arch() {
 check_root() {
   SUDO=()
   if [ "$(id -u)" -eq 0 ]; then
-    ok "Ejecutando como root."
+    ok "Running as root."
     return 0
   fi
   if [ "$DRY_RUN" = "1" ]; then
-    warn "DRY-RUN sin root: los comandos se mostrarán prefijados con 'sudo'."
+    warn "DRY-RUN without root: commands will be shown prefixed with 'sudo'."
     SUDO=(sudo)
     return 0
   fi
   if command -v sudo >/dev/null 2>&1; then
     SUDO=(sudo)
     if sudo -v; then
-      ok "Sin root; se usará sudo para los pasos privilegiados."
+      ok "Not root; sudo will be used for the privileged steps."
       return 0
     fi
   fi
-  die "Se necesita root (o sudo con contraseña validable). Reejecuta como root o con sudo."
+  die "Root is needed (or sudo with a password that can be validated). Run again as root or with sudo."
 }
 
 # check_systemd — requiere systemd en ejecución (PID 1). Alpine/OpenRC: no soportado.
 check_systemd() {
   if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
-    ok "systemd detectado y en ejecución."
+    ok "systemd detected and running."
     return 0
   fi
   if [ "$DISTRO_FAMILY" = "alpine" ]; then
     if [ "$DRY_RUN" = "1" ]; then
-      warn "Alpine usa OpenRC: aún no soportado (DRY-RUN: continúo el ensayo)."
+      warn "Alpine uses OpenRC: not supported yet (DRY-RUN: continuing the rehearsal)."
       return 0
     fi
-    die "Alpine usa OpenRC y este instalador aún no soporta servicios OpenRC (solo systemd)."
+    die "Alpine uses OpenRC, and this installer does not support OpenRC services yet (systemd only)."
   fi
   if [ "$DRY_RUN" = "1" ]; then
-    warn "systemd no está activo en este entorno (DRY-RUN: continúo el ensayo)."
+    warn "systemd is not active here (DRY-RUN: continuing the rehearsal)."
     return 0
   fi
-  die "No se detectó systemd en ejecución (PID 1). Este instalador requiere systemd."
+  die "No running systemd found (PID 1). This installer requires systemd."
 }
 
 # check_resources — pre-flight de disco y RAM (bloquea solo si el disco es crítico).
@@ -412,17 +412,17 @@ check_resources() {
   avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
   if [ -n "$avail" ]; then
     if [ "$avail" -lt 300 ]; then
-      die "Espacio en disco insuficiente: ${avail} MB libres (mínimo 300 MB para ZFS + EasyZFS)."
+      die "Not enough disk space: ${avail} MB free (at least 300 MB for ZFS + EasyZFS)."
     elif [ "$avail" -lt 600 ]; then
-      warn "Poco espacio en disco: ${avail} MB libres (recomendado 600+ MB)."
+      warn "Low disk space: ${avail} MB free (600+ MB recommended)."
     else
-      ok "Espacio en disco: ${avail} MB libres."
+      ok "Disk space: ${avail} MB free."
     fi
   fi
   local mem=""
   mem="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
   if [ -n "$mem" ] && [ "$mem" -lt 512 ]; then
-    warn "RAM disponible baja: ${mem} MB. ZFS rinde mejor con 512+ MB libres."
+    warn "Low available RAM: ${mem} MB. ZFS works better with 512+ MB free."
   fi
 }
 
@@ -467,7 +467,7 @@ deps_debian() {
   local missing=() pkg
   if ! zpool version >/dev/null 2>&1; then
     if is_pve; then
-      die "ZFS no responde en este Proxmox ('zpool version' falló). Proxmox trae ZFS de serie y este instalador no toca sus paquetes: revisa el sistema antes de instalar EasyZFS."
+      die "ZFS does not answer on this Proxmox host ('zpool version' failed). Proxmox ships ZFS and this installer does not touch its packages: check the system before installing EasyZFS."
     fi
     missing+=(zfsutils-linux)
   fi
@@ -479,21 +479,21 @@ deps_debian() {
   command -v curl     >/dev/null 2>&1 || missing+=(curl)
   [ -e /etc/ssl/certs/ca-certificates.crt ] || missing+=(ca-certificates)
   if [ "${#missing[@]}" -eq 0 ]; then
-    ok "Dependencias ya presentes: no se instala ni se actualiza ningún paquete."
+    ok "Dependencies already present: no package is installed or upgraded."
     return 0
   fi
-  info "Faltan: ${missing[*]}. Se instalan solo esos, sin actualizar nada de lo ya instalado."
+  info "Missing: ${missing[*]}. Installing only those, without upgrading anything already installed."
   apt_refresh
   run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade "${missing[@]}" \
-    || die "apt-get no pudo instalar: ${missing[*]}."
+    || die "apt-get could not install: ${missing[*]}."
   # Kernel headers are only for building ZFS with DKMS, i.e. only when ZFS
   # itself had to be installed here; never on Proxmox, whose kernels ship ZFS.
   for pkg in "${missing[@]}"; do
     [ "$pkg" = "zfsutils-linux" ] || continue
     if ! run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
         "linux-headers-$(uname -r)"; then
-      warn "No se pudieron instalar los headers del kernel ($(uname -r)); normal en LXC/contenedores."
-      warn "Si el módulo ZFS no carga, instala los headers correctos y ejecuta: dkms autoinstall"
+      warn "Could not install the kernel headers ($(uname -r)); normal in LXC/containers."
+      warn "If the ZFS module does not load, install the right headers and run: dkms autoinstall"
     fi
   done
 }
@@ -503,7 +503,7 @@ deps_debian() {
 # every refresh, which is its normal state, not a reason to stop.
 apt_refresh() {
   if ! run "${SUDO[@]}" apt-get update -qq; then
-    warn "apt-get update devolvió error (¿repositorio enterprise sin suscripción?): se usan las listas de paquetes actuales."
+    warn "apt-get update returned an error (enterprise repository without a subscription?): using the current package lists."
   fi
 }
 
@@ -514,7 +514,7 @@ ensure_sudo() {
   if command -v sudo >/dev/null 2>&1 && command -v visudo >/dev/null 2>&1; then
     return 0
   fi
-  info "Falta 'sudo' (el servicio lo necesita para los comandos permitidos en sudoers): se instala solo ese paquete."
+  info "'sudo' is missing (the service needs it for the commands sudoers allows): installing only that package."
   case "$DISTRO_FAMILY" in
     debian) apt_refresh
             run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade sudo ;;
@@ -523,34 +523,34 @@ ensure_sudo() {
     suse)   run "${SUDO[@]}" zypper --non-interactive install sudo ;;
     alpine) run "${SUDO[@]}" apk add --no-cache sudo ;;
     *)      false ;;
-  esac || die "No se pudo instalar 'sudo'. Instálalo a mano, o usa --root-mode."
+  esac || die "Could not install 'sudo'. Install it by hand, or use --root-mode."
   if [ "$DRY_RUN" != "1" ] && ! command -v visudo >/dev/null 2>&1; then
-    die "'sudo' instalado pero falta 'visudo': no se puede validar el fichero sudoers."
+    die "'sudo' is installed but 'visudo' is missing: the sudoers file cannot be validated."
   fi
 }
 
 # preflight_report — what this host is, printed before anything changes, so
 # the operator sees what the installer is about to run on. Read-only.
 preflight_report() {
-  step "Inventario del host (solo lectura)"
+  step "Host inventory (read-only)"
   if is_pve; then
-    info "Proxmox VE: $(pveversion 2>/dev/null || echo 'detectado')"
+    info "Proxmox VE: $(pveversion 2>/dev/null || echo 'detected')"
   fi
   info "Kernel: $(uname -r)"
-  info "ZFS: $(zfs version 2>/dev/null | tr '\n' ' ' || echo 'no disponible')"
-  info "Arranque: $([ -d /sys/firmware/efi ] && echo UEFI || echo BIOS)$(secure_boot_state)"
-  info "Sistema de ficheros raíz: $(findmnt -no SOURCE,FSTYPE / 2>/dev/null || echo '?')"
-  info "Pools: $(zpool list -H -o name,health 2>/dev/null | tr '\t\n' ': ' || echo 'ninguno')"
+  info "ZFS: $(zfs version 2>/dev/null | tr '\n' ' ' || echo 'not available')"
+  info "Boot: $([ -d /sys/firmware/efi ] && echo UEFI || echo BIOS)$(secure_boot_state)"
+  info "Root file system: $(findmnt -no SOURCE,FSTYPE / 2>/dev/null || echo '?')"
+  info "Pools: $(zpool list -H -o name,health 2>/dev/null | tr '\t\n' ': ' || echo 'none')"
   local esp
   esp="$(lsblk -no NAME,PARTTYPENAME 2>/dev/null | awk '/EFI System/ {print $1}' | tr -d '└├─│ ' | tr '\n' ' ')"
-  [ -n "$esp" ] && info "Particiones ESP: ${esp}"
+  [ -n "$esp" ] && info "ESP partitions: ${esp}"
   if [ -e /etc/pve/corosync.conf ]; then
-    info "Clúster Proxmox: sí (este nodo forma parte de un clúster)"
+    info "Proxmox cluster: yes (this node is part of a cluster)"
   elif is_pve; then
-    info "Clúster Proxmox: no"
+    info "Proxmox cluster: no"
   fi
   if is_pve; then
-    info "En Proxmox el instalador no instala, actualiza ni quita paquetes de ZFS o del kernel."
+    info "On Proxmox the installer does not install, upgrade or remove ZFS or kernel packages."
   fi
 }
 
@@ -566,24 +566,24 @@ secure_boot_state() {
 }
 
 deps_arch() {
-  info "Instalando paquetes con pacman…"
+  info "Installing packages with pacman…"
   if run "${SUDO[@]}" pacman -Sy --needed --noconfirm zfs-utils smartmontools util-linux curl; then
     return 0
   fi
-  warn "pacman no pudo instalar 'zfs-utils': no está en los repos oficiales de Arch."
+  warn "pacman could not install 'zfs-utils': it is not in Arch's official repos."
   cat >&2 <<'EOF'
-  Opciones para ZFS en Arch/Manjaro/EndeavourOS:
-    1) Repo [archzfs] — añade a /etc/pacman.conf:
+  Options for ZFS on Arch/Manjaro/EndeavourOS:
+    1) [archzfs] repo — add to /etc/pacman.conf:
          [archzfs]
          Server = https://archzfs.com/$repo/$arch
-       Importa y firma la clave:
+       Import and sign the key:
          pacman-key -r DDF7DB817396A49B2A2723F7403BD972F75D9D76
          pacman-key --lsign-key DDF7DB817396A49B2A2723F7403BD972F75D9D76
-       Luego: pacman -Sy zfs-utils
-    2) AUR (DKMS): yay -S zfs-dkms zfs-utils   (requiere base-devel y headers)
+       Then: pacman -Sy zfs-utils
+    2) AUR (DKMS): yay -S zfs-dkms zfs-utils   (needs base-devel and headers)
 EOF
-  confirm "¿Ya tienes zfs-utils instalado por otra vía y quieres continuar?" 0 \
-    || die "Instala ZFS (archzfs o AUR) y reintenta."
+  confirm "Do you already have zfs-utils installed another way, and want to continue?" 0 \
+    || die "Install ZFS (archzfs or AUR) and try again."
 }
 
 deps_rhel() {
@@ -595,73 +595,73 @@ deps_rhel() {
   [ "$DISTRO_ID" = "fedora" ] || base="epel"
   if [ -n "$dist" ]; then
     local repo_url="https://zfsonlinux.org/${base}/zfs-release-2-3${dist}.noarch.rpm"
-    info "Añadiendo el repo ZFS on Linux: ${repo_url}"
+    info "Adding the ZFS on Linux repo: ${repo_url}"
     if ! run "${SUDO[@]}" "$pm" install -y "$repo_url"; then
-      warn "No se pudo instalar zfs-release (¿no hay build para ${DISTRO_PRETTY}?)."
-      warn "Descarga el RPM correcto de https://zfsonlinux.org/ e instálalo a mano."
+      warn "Could not install zfs-release (no build for ${DISTRO_PRETTY}?)."
+      warn "Download the right RPM from https://zfsonlinux.org/ and install it by hand."
     fi
   else
-    warn "No se pudo evaluar %%{dist}; instala el repo zfs-release a mano si falla 'zfs'."
+    warn "Could not evaluate %%{dist}; install the zfs-release repo by hand if 'zfs' fails."
   fi
   run "${SUDO[@]}" "$pm" install -y zfs smartmontools util-linux curl \
-    || warn "La instalación de paquetes falló; revisa el repo ZFS on Linux."
+    || warn "The package install failed; check the ZFS on Linux repo."
   # kernel-devel para DKMS (solo aviso si no está)
   run "${SUDO[@]}" "$pm" install -y kernel-devel \
-    || warn "kernel-devel no disponible: DKMS podría no compilar el módulo ZFS."
+    || warn "kernel-devel not available: DKMS may fail to build the ZFS module."
 }
 
 deps_suse() {
-  info "Instalando paquetes con zypper…"
+  info "Installing packages with zypper…"
   if run "${SUDO[@]}" zypper --non-interactive install --no-recommends \
       zfs smartmontools util-linux curl; then
     return 0
   fi
-  warn "zypper falló: 'zfs' puede requerir el repo 'filesystems' de openSUSE."
+  warn "zypper failed: 'zfs' may need openSUSE's 'filesystems' repo."
   cat >&2 <<'EOF'
-  Añade el repo (sustituye <VERSION>, p. ej. openSUSE_Leap_15.6):
+  Add the repo (replace <VERSION>, e.g. openSUSE_Leap_15.6):
     zypper ar -f https://download.opensuse.org/repositories/filesystems/<VERSION>/ filesystems
     zypper ref && zypper install zfs
 EOF
-  confirm "¿Continuar asumiendo que ZFS ya está instalado?" 0 \
-    || die "Instala ZFS (repo filesystems) y reintenta."
+  confirm "Continue assuming ZFS is already installed?" 0 \
+    || die "Install ZFS (filesystems repo) and try again."
 }
 
 deps_alpine() {
-  warn "Alpine: asegúrate de tener el repo 'community' habilitado en /etc/apk/repositories."
+  warn "Alpine: make sure the 'community' repo is enabled in /etc/apk/repositories."
   run "${SUDO[@]}" apk add zfs smartmontools util-linux curl \
-    || die "apk falló (¿está habilitado el repo community?)."
+    || die "apk failed (is the community repo enabled?)."
 }
 
 # verify_zfs_stack — modprobe + comprobación real de zpool y smartctl.
 verify_zfs_stack() {
-  info "Cargando el módulo ZFS y verificando herramientas…"
+  info "Loading the ZFS module and checking the tools…"
   run "${SUDO[@]}" modprobe zfs || true
   if [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] verificaría: zpool version && smartctl --version"
+    info "[DRY-RUN] would check: zpool version && smartctl --version"
     return 0
   fi
   if ! zpool version >/dev/null 2>&1; then
-    err "El módulo ZFS no está disponible ('zpool version' falló tras modprobe)."
+    err "The ZFS module is not available ('zpool version' failed after modprobe)."
     cat >&2 <<'EOF'
-  Pistas:
-    • DKMS sin headers del kernel: instala linux-headers / kernel-devel
-      y ejecuta: dkms autoinstall && modprobe zfs
-    • Secure Boot: un módulo sin firmar no carga; fírmalo con mokutil
-      o desactiva Secure Boot en la UEFI
-    • Contenedor LXC: el host debe cargar ZFS y pasar el módulo/dispositivos
+  Hints:
+    • DKMS without kernel headers: install linux-headers / kernel-devel
+      and run: dkms autoinstall && modprobe zfs
+    • Secure Boot: an unsigned module does not load; sign it with mokutil
+      or disable Secure Boot in the UEFI
+    • LXC container: the host must load ZFS and pass the module/devices through
 EOF
     exit 1
   fi
-  ok "ZFS operativo: $(zpool version 2>/dev/null | head -1)"
+  ok "ZFS working: $(zpool version 2>/dev/null | head -1)"
   if smartctl --version >/dev/null 2>&1; then
     ok "smartmontools: $(smartctl --version 2>/dev/null | head -1)"
   else
-    warn "smartctl no disponible: las funciones SMART de EasyZFS no funcionarán."
+    warn "smartctl not available: EasyZFS SMART features will not work."
   fi
 }
 
 install_dependencies() {
-  step "Dependencias del sistema (${DISTRO_FAMILY})"
+  step "System dependencies (${DISTRO_FAMILY})"
   case "$DISTRO_FAMILY" in
     debian) deps_debian ;;
     arch)   deps_arch ;;
@@ -669,10 +669,10 @@ install_dependencies() {
     suse)   deps_suse ;;
     alpine) deps_alpine ;;
     *)
-      warn "Distribución no reconocida (${DISTRO_PRETTY}): no hay mapeo automático de paquetes."
-      warn "Instala manualmente: zfs (utils), smartmontools, util-linux, curl, ca-certificates."
-      confirm "¿Continuar en modo manual (asumo dependencias ya instaladas)?" 0 \
-        || die "Instalación cancelada. Instala las dependencias y reintenta."
+      warn "Unrecognised distribution (${DISTRO_PRETTY}): no automatic package mapping."
+      warn "Install by hand: zfs (utils), smartmontools, util-linux, curl, ca-certificates."
+      confirm "Continue in manual mode (dependencies assumed installed)?" 0 \
+        || die "Installation cancelled. Install the dependencies and try again."
       ;;
   esac
   verify_zfs_stack
@@ -724,25 +724,25 @@ select_binary_source() {
   if [ -n "$dir" ]; then
     if [ -x "${dir}/../easyzfs" ]; then
       OPT_BINARY="$(cd "${dir}/.." && pwd)/easyzfs"; BIN_MODE="local"
-      info "Binario del checkout: ${OPT_BINARY}"
+      info "Checkout binary: ${OPT_BINARY}"
       return 0
     fi
-    die "No hay binario compilado en el checkout ($(cd "${dir}/.." && pwd)/easyzfs). Usa 'make install': compila como tu usuario e instala."
+    die "No built binary in the checkout ($(cd "${dir}/.." && pwd)/easyzfs). Use 'make install': it builds as your user and installs."
   fi
   OPT_URL="$DEFAULT_RELEASE_URL"; BIN_MODE="download"
 }
 
 install_binary() {
-  step "Instalación del binario (${BIN_MODE})"
+  step "Binary install (${BIN_MODE})"
   case "$BIN_MODE" in
     local)
       if [ ! -f "$OPT_BINARY" ] && [ "$DRY_RUN" != "1" ]; then
-        die "No existe el binario: ${OPT_BINARY}"
+        die "The binary does not exist: ${OPT_BINARY}"
       fi
       run "${SUDO[@]}" install -m 0755 "$OPT_BINARY" "$INSTALL_BIN"
       ;;
     download)
-      [ "$ARCH" != "unknown" ] || die "Arquitectura '$(uname -m)' no soportada para descarga (x86_64/aarch64)."
+      [ "$ARCH" != "unknown" ] || die "Architecture '$(uname -m)' not supported for download (x86_64/aarch64)."
       local url=""
       url="$(resolve_asset_url "$OPT_URL")"
       # Naming nuevo (v3+): easyzfs_linux_{GOARCH} + checksums.txt único.
@@ -773,14 +773,14 @@ install_binary() {
              && want_sums="${rel_base}/checksums-${ARCH}.txt"
       fi
 
-      info "Descargando: ${want_url}"
+      info "Downloading: ${want_url}"
       if [ "$DRY_RUN" = "1" ]; then
         info "[DRY-RUN] curl -fsSL '${want_url}' → ${INSTALL_BIN}"
         DOWNLOADED_TAG="$(release_tag_of "$want_url" || true)"
       else
         local tmp="" bin=""
         tmp="$(mktemp -d)"
-        curl -fsSL "$want_url" -o "${tmp}/asset" || die "La descarga falló: ${want_url}"
+        curl -fsSL "$want_url" -o "${tmp}/asset" || die "The download failed: ${want_url}"
         # Verificación sha256 contra el checksums (único o por arch).
         if [ -n "$want_sums" ]; then
           curl -fsSL "$want_sums" -o "${tmp}/checksums.txt" 2>/dev/null || rm -f "${tmp}/checksums.txt"
@@ -790,22 +790,22 @@ install_binary() {
           want="$(grep " ${asset_name}\$" "${tmp}/checksums.txt" | awk '{print $1}' | head -1)"
           [ -n "$want" ] || want="$(grep " ${asset_name}" "${tmp}/checksums.txt" | awk '{print $1}' | head -1)"
           got="$(sha256sum "${tmp}/asset" | awk '{print $1}')"
-          [ -n "$want" ] || die "checksums no lista ${asset_name} (¿release sin asset para esta arch?)."
-          [ "$want" = "$got" ] || die "sha256 NO COINCIDE para ${asset_name} — descarga corrupta o manipulada."
-          ok "sha256 verificado contra $(basename "$want_sums")."
+          [ -n "$want" ] || die "checksums does not list ${asset_name} (release without an asset for this arch?)."
+          [ "$want" = "$got" ] || die "sha256 DOES NOT MATCH for ${asset_name} — corrupted or tampered download."
+          ok "sha256 verified against $(basename "$want_sums")."
         else
-          warn "La release no publica checksums: descarga SIN verificar."
+          warn "The release publishes no checksums: download NOT verified."
           # Default no. Under the old inverted confirm() a default of 1 already
           # meant no; now that it means yes, it would let Enter and --yes skip
           # the checksum.
-          confirm "¿Continuar sin verificación de integridad?" 0 || die "Instalación cancelada por seguridad."
+          confirm "Continue without integrity verification?" 0 || die "Installation cancelled for safety."
         fi
         bin="${tmp}/asset"
         # Si el asset es un .tar.gz (releases antiguas comprimidas), se extrae.
         if file "${tmp}/asset" 2>/dev/null | grep -qi 'gzip compressed'; then
-          tar -xzf "${tmp}/asset" -C "$tmp" || die "No se pudo descomprimir el asset."
+          tar -xzf "${tmp}/asset" -C "$tmp" || die "Could not unpack the asset."
           bin="$(find "$tmp" -type f -name easyzfs -print -quit)"
-          [ -n "$bin" ] || die "El asset descargado no contiene un binario 'easyzfs'."
+          [ -n "$bin" ] || die "The downloaded asset contains no 'easyzfs' binary."
         fi
         "${SUDO[@]}" install -m 0755 "$bin" "$INSTALL_BIN"
         rm -rf "$tmp"
@@ -819,28 +819,28 @@ install_binary() {
       # break the next build as the user. 'make install' / 'make update' build as
       # the user and only install as root.
       if [ "$(id -u)" = "0" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-        die "--source bajo sudo compilaría como root en tu checkout. Usa 'make install' o 'make update' (sin sudo), o ejecuta el instalador sin sudo."
+        die "--source under sudo would build as root in your checkout. Use 'make install' or 'make update' (without sudo), or run the installer without sudo."
       fi
-      [ -d "$OPT_SOURCE" ] || die "No existe el directorio fuente: ${OPT_SOURCE}"
+      [ -d "$OPT_SOURCE" ] || die "The source directory does not exist: ${OPT_SOURCE}"
       if [ "$DRY_RUN" != "1" ]; then
-        command -v go   >/dev/null 2>&1 || die "Falta 'go' para compilar (instálalo o usa --binary/--url)."
-        command -v make >/dev/null 2>&1 || die "Falta 'make' para compilar."
+        command -v go   >/dev/null 2>&1 || die "'go' is missing to build (install it or use --binary/--url)."
+        command -v make >/dev/null 2>&1 || die "'make' is missing to build."
         if [ -d "${OPT_SOURCE}/web" ] && ! command -v npm >/dev/null 2>&1; then
-          die "Existe ${OPT_SOURCE}/web pero falta 'npm' para compilar el front (Node 20+)."
+          die "${OPT_SOURCE}/web exists but 'npm' is missing to build the front end (Node 20+)."
         fi
-        info "Compilando con make (web + binario estático)…"
-        make -C "$OPT_SOURCE" build || die "La compilación falló."
-        [ -f "${OPT_SOURCE}/easyzfs" ] || die "make no produjo ${OPT_SOURCE}/easyzfs."
+        info "Building with make (web + static binary)…"
+        make -C "$OPT_SOURCE" build || die "The build failed."
+        [ -f "${OPT_SOURCE}/easyzfs" ] || die "make did not produce ${OPT_SOURCE}/easyzfs."
         "${SUDO[@]}" install -m 0755 "${OPT_SOURCE}/easyzfs" "$INSTALL_BIN"
       else
         info "[DRY-RUN] make -C ${OPT_SOURCE} build && install easyzfs → ${INSTALL_BIN}"
       fi
       ;;
     *)
-      die "Modo de instalación del binario desconocido: ${BIN_MODE}"
+      die "Unknown binary install mode: ${BIN_MODE}"
       ;;
   esac
-  ok "Binario instalado en ${INSTALL_BIN}"
+  ok "Binary installed at ${INSTALL_BIN}"
 }
 
 # release_tag_of <url> — the release tag behind an asset URL of this project's
@@ -894,42 +894,42 @@ local_deploy_file() {
 }
 
 install_sysd_helper() {
-  step "Helper de tareas del sistema (easyzfs-sysd)"
+  step "System tasks helper (easyzfs-sysd)"
   # Read-only installs get no root helper at all (it edits cron and systemd);
   # one left by an earlier full install is removed.
   if [ "$OPT_READONLY" = "1" ]; then
     if [ -e "$SYSD_HELPER" ]; then
-      run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper eliminado (modo solo lectura): ${SYSD_HELPER}"
+      run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper removed (read-only mode): ${SYSD_HELPER}"
     else
-      info "Modo solo lectura: no se instala el helper root."
+      info "Read-only mode: the root helper is not installed."
     fi
     return 0
   fi
   run "${SUDO[@]}" mkdir -p "$(dirname "$SYSD_HELPER")" \
-    || die "No se pudo crear $(dirname "$SYSD_HELPER")"
+    || die "Could not create $(dirname "$SYSD_HELPER")"
   local src; src="$(local_deploy_file easyzfs-sysd)"
   if [ -n "$src" ]; then
-    info "Helper local: ${src}"
+    info "Local helper: ${src}"
     run "${SUDO[@]}" install -m 0755 "$src" "$SYSD_HELPER" \
-      || die "No se pudo instalar el helper en $SYSD_HELPER"
+      || die "Could not install the helper at $SYSD_HELPER"
   elif [ -n "${DOWNLOADED_TAG:-}" ]; then
     local url="https://raw.githubusercontent.com/gnacho/easyzfs/${DOWNLOADED_TAG}/deploy/easyzfs-sysd"
-    info "Descargando helper de la release ${DOWNLOADED_TAG}: $url"
+    info "Downloading the helper from release ${DOWNLOADED_TAG}: $url"
     if [ "$DRY_RUN" = "1" ]; then
       info "[DRY-RUN] curl -fsSL '${url}' → ${SYSD_HELPER}"
     else
       local tmp; tmp="$(mktemp)"
-      curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; die "No se pudo descargar el helper."; }
+      curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; die "Could not download the helper."; }
       head -1 "$tmp" | grep -q '^#!/usr/bin/env bash' \
-        || { rm -f "$tmp"; die "El helper descargado no es el script esperado."; }
+        || { rm -f "$tmp"; die "The downloaded helper is not the expected script."; }
       run "${SUDO[@]}" install -m 0755 "$tmp" "$SYSD_HELPER" \
-        || { rm -f "$tmp"; die "No se pudo instalar el helper en $SYSD_HELPER"; }
+        || { rm -f "$tmp"; die "Could not install the helper at $SYSD_HELPER"; }
       rm -f "$tmp"
     fi
   else
-    die "No hay helper local y no se sabe de qué release vino el binario: ejecuta el instalador desde el repo (bash deploy/install.sh) o usa --source."
+    die "No local helper, and the release the binary came from is unknown: run the installer from the repo (bash deploy/install.sh) or use --source."
   fi
-  ok "Helper instalado en ${SYSD_HELPER}"
+  ok "Helper installed at ${SYSD_HELPER}"
 }
 
 # =============================================================================
@@ -937,29 +937,29 @@ install_sysd_helper() {
 # =============================================================================
 
 setup_user_and_sudoers() {
-  step "Cuenta de servicio y privilegios"
+  step "Service account and privileges"
   # Read-only is guaranteed by the service account's sudoers: root is not
   # offered with it (root_mode_gate refuses the combination anyway).
   if [ "$OPT_ROOT_MODE" = "0" ] && [ "$OPT_YES" = "0" ] && [ "$OPT_READONLY" = "0" ]; then
     local choice=""
-    menu choice "EasyZFS — privilegios" "¿Con qué usuario debe correr el servicio?" \
-      easyzfs "Usuario de sistema 'easyzfs' + sudoers limitado (recomendado)" \
-      root "root — administración completa sin sudoers (decisión consciente)"
+    menu choice "EasyZFS — privileges" "Which user should the service run as?" \
+      easyzfs "System user 'easyzfs' + restricted sudoers (recommended)" \
+      root "root — full administration without sudoers (a deliberate choice)"
     [ "$choice" = "root" ] && OPT_ROOT_MODE=1
   fi
   root_mode_gate
   if [ "$OPT_ROOT_MODE" = "1" ]; then
-    warn "Modo root: el servicio correrá como root (appliance de administración; sin sudoers)."
+    warn "Root mode: the service will run as root (an administration appliance; no sudoers)."
     return 0
   fi
   if id "$SVC_USER" >/dev/null 2>&1; then
-    ok "El usuario de sistema '${SVC_USER}' ya existe."
+    ok "The system user '${SVC_USER}' already exists."
   else
     run "${SUDO[@]}" useradd --system --shell /usr/sbin/nologin \
         --home-dir "$DATA_DIR" --comment "EasyZFS service" "$SVC_USER" \
       || run "${SUDO[@]}" useradd -r -s /usr/sbin/nologin -d "$DATA_DIR" "$SVC_USER" \
-      || die "No se pudo crear el usuario de sistema '${SVC_USER}'."
-    ok "Usuario de sistema '${SVC_USER}' creado."
+      || die "Could not create the system user '${SVC_USER}'."
+    ok "System user '${SVC_USER}' created."
   fi
   ensure_sudo
   write_sudoers
@@ -989,22 +989,22 @@ root_mode_gate() {
   # against the env file too: configure_env later turns read-only back on
   # from an existing install's EASYZFS_READONLY=1.
   if [ "$OPT_READONLY" = "1" ] || env_readonly; then
-    die "El modo solo lectura no se combina con el modo root: se garantiza con el sudoers del usuario 'easyzfs', y como root no hay ninguno. Quita --root-mode (o EASYZFS_READONLY de ${ENV_FILE})."
+    die "Read-only mode does not combine with root mode: it is guaranteed by the 'easyzfs' user's sudoers, and as root there is none. Drop --root-mode (or EASYZFS_READONLY from ${ENV_FILE})."
   fi
-  warn "Modo root: el servicio web correrá como root. Las comprobaciones de EasyZFS siguen, pero dentro del mismo proceso: un fallo o una intrusión en el servicio es root en el host (y en Proxmox, en todas sus VMs). Con el usuario 'easyzfs' cada operación de almacenamiento pasa por un gateway root con su propia validación."
+  warn "Root mode: the web service will run as root. EasyZFS's checks still run, but inside the same process: a bug or a break-in in the service is root on the host (and on Proxmox, in all its VMs). With the 'easyzfs' user every storage operation goes through a root gateway with its own validation."
   if [ "$OPT_YES" = "1" ]; then
-    [ "$OPT_ROOT_ACK" = "1" ] || die "--root-mode con --yes requiere --i-understand-root-mode."
-    warn "Modo root reconocido con --i-understand-root-mode."
+    [ "$OPT_ROOT_ACK" = "1" ] || die "--root-mode with --yes requires --i-understand-root-mode."
+    warn "Root mode acknowledged with --i-understand-root-mode."
     return 0
   fi
   if [ "$OPT_ROOT_ACK" = "1" ]; then
     return 0
   fi
-  if confirm "¿Instalar de todos modos en modo root? (recomendado: no, usar el usuario 'easyzfs')" 0; then
+  if confirm "Install in root mode anyway? (recommended: no, use the 'easyzfs' user)" 0; then
     return 0
   fi
   OPT_ROOT_MODE=0
-  info "Modo root descartado: se usará el usuario de sistema '${SVC_USER}'."
+  info "Root mode declined: the system user '${SVC_USER}' will be used."
 }
 
 # sudo_has_regex — whole-argument regular expressions (^…$) in sudoers
@@ -1017,7 +1017,7 @@ sudo_has_regex() {
 
 # require_sudo_regex — the read-only file cannot be written any other way.
 require_sudo_regex() {
-  sudo_has_regex || die "El modo solo lectura necesita sudo ≥ 1.9.10 (hay: $(sudo -V 2>/dev/null | awk 'NR==1 {print $3}'))."
+  sudo_has_regex || die "Read-only mode needs sudo ≥ 1.9.10 (found: $(sudo -V 2>/dev/null | awk 'NR==1 {print $3}'))."
 }
 
 # pinned_sudoers — the full-mode grant. The service may run exactly one thing
@@ -1074,7 +1074,7 @@ write_sudoers() {
   else
     # sudo < 1.9.10 has no argument regexes: lsblk and fuser are granted
     # whole (both only read), and the gateway, a glob, is the same as above.
-    warn "sudo < 1.9.10: lsblk y fuser se conceden sin fijar argumentos (solo leen)."
+    warn "sudo < 1.9.10: lsblk and fuser are granted without pinned arguments (they only read)."
     content="${SVC_USER} ALL=(root) NOPASSWD: ${INSTALL_BIN} priv *, ${lsblk_path}, ${fuser_path}, ${crontab_path} -l, ${SYSD_HELPER}"
   fi
   if [ "$OPT_READONLY" = "1" ]; then
@@ -1094,7 +1094,7 @@ write_sudoers() {
   # Refused attempts are still logged.
   content="Defaults:${SVC_USER} !pam_session, !log_allowed"$'\n'"${content}"
   if [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] escribiría ${SUDOERS_PATH} (0440) y validaría con visudo -cf:"
+    info "[DRY-RUN] would write ${SUDOERS_PATH} (0440) and validate it with visudo -cf:"
     printf '    %s\n' "$content"
     return 0
   fi
@@ -1105,11 +1105,11 @@ write_sudoers() {
   # file that cannot be checked is not installed.
   if ! visudo -cf "$tmp" >/dev/null; then
     rm -f "$tmp"
-    die "visudo rechazó el fichero sudoers generado (no se instala)."
+    die "visudo rejected the generated sudoers file (not installed)."
   fi
   "${SUDO[@]}" install -m 0440 "$tmp" "$SUDOERS_PATH"
   rm -f "$tmp"
-  ok "Sudoers limitado instalado: ${SUDOERS_PATH} ($(printf '%s\n' "$content" | grep -c NOPASSWD) reglas)"
+  ok "Restricted sudoers installed: ${SUDOERS_PATH} ($(printf '%s\n' "$content" | grep -c NOPASSWD) rules)"
 }
 
 # =============================================================================
@@ -1117,12 +1117,12 @@ write_sudoers() {
 # =============================================================================
 
 setup_dirs() {
-  step "Directorios"
+  step "Directories"
   local owner="root" group="root"
   if [ "$OPT_ROOT_MODE" = "0" ]; then owner="$SVC_USER"; group="$SVC_USER"; fi
   run "${SUDO[@]}" install -d -m 0755 -o "$owner" -g "$group" "$DATA_DIR"
   run "${SUDO[@]}" install -d -m 0750 "$ENV_DIR"
-  ok "${DATA_DIR} (datos) y ${ENV_DIR} (config) listos."
+  ok "${DATA_DIR} (data) and ${ENV_DIR} (config) ready."
 }
 
 # random_password — contraseña aleatoria de 20 caracteres alfanuméricos.
@@ -1143,25 +1143,25 @@ choose_listen_host() {
     if [ "$OPT_YES" = "1" ]; then
       LISTEN_HOST="127.0.0.1"
     else
-      local opts=(127.0.0.1 "Solo este equipo (proxy inverso o túnel 'ssh -L'). Recomendado") ip iface
+      local opts=(127.0.0.1 "This host only (reverse proxy or 'ssh -L' tunnel). Recommended") ip iface
       while read -r iface ip; do
-        opts+=("$ip" "Solo la red de ${iface} (${ip})")
+        opts+=("$ip" "Only the ${iface} network (${ip})")
       done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $2, $4}')
-      opts+=(all "Todas las interfaces (cualquiera que alcance este equipo; cortafuegos a tu cargo)")
-      menu LISTEN_HOST "EasyZFS — dirección de escucha" "¿Desde dónde se podrá abrir la interfaz web?" "${opts[@]}"
+      opts+=(all "Every interface (anyone who can reach this host; the firewall is up to you)")
+      menu LISTEN_HOST "EasyZFS — listen address" "Where should the web UI be reachable from?" "${opts[@]}"
     fi
   fi
   case "$LISTEN_HOST" in
     all|127.0.0.1) ;;
     *)
-      [[ "$LISTEN_HOST" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "Dirección de escucha inválida: ${LISTEN_HOST} (127.0.0.1, una IPv4 de este equipo o all)."
+      [[ "$LISTEN_HOST" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "Invalid listen address: ${LISTEN_HOST} (127.0.0.1, an IPv4 of this host, or all)."
       if [ "$DRY_RUN" != "1" ] && ! ip -4 -o addr show 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}' | grep -qx "$LISTEN_HOST"; then
-        die "La dirección ${LISTEN_HOST} no pertenece a este equipo."
+        die "The address ${LISTEN_HOST} does not belong to this host."
       fi
       ;;
   esac
   if [ "$LISTEN_HOST" = "all" ]; then
-    warn "La interfaz web escuchará en todas las interfaces: limita el puerto con el cortafuegos."
+    warn "The web UI will listen on every interface: restrict the port with the firewall."
     PROBE_HOST="127.0.0.1"
   else
     PROBE_HOST="$LISTEN_HOST"
@@ -1174,7 +1174,7 @@ listen_addr() {
 }
 
 configure_env() {
-  step "Configuración (${ENV_FILE})"
+  step "Configuration (${ENV_FILE})"
 
   # Reutilizar secretos y puerto existentes (idempotencia en reinstalaciones)
   local existing_secret="" existing_admin="" existing_port=""
@@ -1199,10 +1199,10 @@ configure_env() {
     # DEMO is written by the installer but was never read back, so a reinstall
     # without --demo silently switched a demo install to production.
     if [ "$OPT_DEMO" = "0" ] && [ "$(sed -n 's/^DEMO=//p' "$ENV_FILE" | head -1)" = "1" ]; then
-      OPT_DEMO=1; info "Se conserva DEMO=1 de ${ENV_FILE}."
+      OPT_DEMO=1; info "Keeping DEMO=1 from ${ENV_FILE}."
     fi
     if [ "$OPT_READONLY" = "0" ] && [ "$(sed -n 's/^EASYZFS_READONLY=//p' "$ENV_FILE" | head -1)" = "1" ]; then
-      OPT_READONLY=1; info "Se conserva el modo solo lectura (EASYZFS_READONLY=1)."
+      OPT_READONLY=1; info "Keeping read-only mode (EASYZFS_READONLY=1)."
     fi
   fi
   # Prioridad del puerto: --port > puerto del env existente > defecto (8080)
@@ -1212,10 +1212,10 @@ configure_env() {
 
   choose_listen_host
   if [ "$OPT_YES" = "0" ] && [ "$PORT_FROM_FLAG" = "0" ]; then
-    prompt OPT_PORT "Puerto de escucha de la interfaz web" "$OPT_PORT"
+    prompt OPT_PORT "Web UI listen port" "$OPT_PORT"
   fi
   if ! [[ "$OPT_PORT" =~ ^[0-9]+$ ]] || [ "$OPT_PORT" -lt 1 ] || [ "$OPT_PORT" -gt 65535 ]; then
-    die "Puerto inválido: ${OPT_PORT}"
+    die "Invalid port: ${OPT_PORT}"
   fi
 
   # Puerto ocupado: si coincide con el del env existente es NUESTRO propio
@@ -1224,30 +1224,30 @@ configure_env() {
   # no interactivo usa el siguiente libre con aviso.
   if [ "$DRY_RUN" != "1" ] && [ "$OPT_PORT" != "$existing_port" ] && port_in_use "$OPT_PORT"; then
     if [ "$PORT_FROM_FLAG" = "1" ]; then
-      die "El puerto ${OPT_PORT} ya está en uso (se pidió con --port). Elige otro: ss -tlnp | grep :${OPT_PORT}"
+      die "Port ${OPT_PORT} is already in use (asked for with --port). Choose another: ss -tlnp | grep :${OPT_PORT}"
     fi
     local next=""
     next="$(next_free_port "$OPT_PORT")" || next=""
     if [ "$OPT_YES" = "0" ] && tty_ok; then
       local elegido=""
       while true; do
-        prompt elegido "El puerto ${OPT_PORT} está ocupado. ¿En qué puerto escucha EasyZFS?" "${next:-}"
+        prompt elegido "Port ${OPT_PORT} is taken. Which port should EasyZFS listen on?" "${next:-}"
         if ! [[ "$elegido" =~ ^[0-9]+$ ]] || [ "$elegido" -lt 1 ] || [ "$elegido" -gt 65535 ]; then
-          warn "Puerto inválido: ${elegido} (1-65535)."
+          warn "Invalid port: ${elegido} (1-65535)."
           continue
         fi
         if port_in_use "$elegido"; then
-          warn "El puerto ${elegido} también está en uso."
+          warn "Port ${elegido} is in use too."
           continue
         fi
         OPT_PORT="$elegido"
         break
       done
     elif [ -n "$next" ]; then
-      warn "El puerto ${OPT_PORT} está en uso por otro proceso; EasyZFS escuchará en ${next}."
+      warn "Port ${OPT_PORT} is used by another process; EasyZFS will listen on ${next}."
       OPT_PORT="$next"
     else
-      die "Puerto ${OPT_PORT} ocupado y ninguno libre entre $((OPT_PORT + 1)) y $((OPT_PORT + 21))."
+      die "Port ${OPT_PORT} is taken and none is free between $((OPT_PORT + 1)) and $((OPT_PORT + 21))."
     fi
   fi
 
@@ -1263,7 +1263,7 @@ configure_env() {
   local admin="$existing_admin"
   if [ -z "$admin" ]; then
     local typed=""
-    prompt_password typed "Contraseña del usuario 'admin'"
+    prompt_password typed "Password for the 'admin' user"
     if [ -n "$typed" ]; then
       admin="$typed"
     else
@@ -1274,7 +1274,7 @@ configure_env() {
 
   # Modo demo: --demo, o pregunta en instalaciones nuevas interactivas.
   if [ "$OPT_DEMO" = "0" ] && [ ! -r "$ENV_FILE" ] && [ "$OPT_YES" = "0" ] && [ "$DRY_RUN" != "1" ]; then
-    if confirm "¿Arrancar en MODO DEMO? (pools/discos de muestra para explorar; tus discos no se tocan)" 0; then
+    if confirm "Start in DEMO MODE? (sample pools/disks to explore; your disks are not touched)" 0; then
       OPT_DEMO=1
     fi
   fi
@@ -1296,11 +1296,11 @@ configure_env() {
         vapid_priv="$(printf '%s\n' "$vapid_keys" | sed -n 's/^VAPID_PRIVATE_KEY=//p' | head -1)"
       fi
       if [ -z "$vapid_priv" ]; then
-        warn "No se pudieron generar las claves VAPID: push desactivado (el servicio arrancará igual; añade VAPID_* a ${ENV_FILE} a mano)."
+        warn "Could not generate the VAPID keys: push disabled (the service starts anyway; add VAPID_* to ${ENV_FILE} by hand)."
       fi
     fi
   else
-    info "Claves VAPID ya presentes en ${ENV_FILE}: se conservan."
+    info "VAPID keys already in ${ENV_FILE}: kept."
   fi
 
   # WEBHOOK_SECRET: firma HMAC para webhooks salientes. Generar UNA vez;
@@ -1337,7 +1337,7 @@ EASYZFS_READONLY=1"
   fi
 
   if [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] escribiría ${ENV_FILE} (modo 0600):"
+    info "[DRY-RUN] would write ${ENV_FILE} (mode 0600):"
     printf '    %s\n' "LISTEN_ADDR=$(listen_addr)" "DB_PATH=${DATA_DIR}/app.db" \
       "SESSION_SECRET=***" "ADMIN_PASSWORD=***" \
       "WEBHOOK_SECRET=***" \
@@ -1361,36 +1361,36 @@ EASYZFS_READONLY=1"
 
 ${kept_hdr}
 ${kept}"
-      info "Se conservan las líneas añadidas a mano en ${ENV_FILE}."
+      info "Keeping the lines added by hand to ${ENV_FILE}."
     fi
     printf '%s\n' "$env_content" | write_root_file "$ENV_FILE" 0600
   fi
-  ok "Configuración escrita en ${ENV_FILE} (modo 600)."
+  ok "Configuration written to ${ENV_FILE} (mode 600)."
   if [ "$OPT_DEMO" = "1" ]; then
-    info "MODO DEMO activado (DEMO=1): datos de muestra; las mutaciones responden 403 demo_mode."
-    info "Para pasar a producción: quita DEMO=1 de ${ENV_FILE} y reinicia el servicio."
+    info "DEMO MODE on (DEMO=1): sample data; changes answer 403 demo_mode."
+    info "To go to production: remove DEMO=1 from ${ENV_FILE} and restart the service."
   else
-    info "Opcionales que puedes añadir: COOKIE_SECURE=1 (tras proxy TLS), RETENTION_DAYS=30, EASYZFS_ZPOOL_INTERVAL=10 (segundos con UI abierta), EASYZFS_ZPOOL_ALERT_INTERVAL=60 (heartbeat cerrada), EASYZFS_ZPOOL_IDLE_INTERVAL=300 (full collect cerrada), DEMO=1, MOCK=1."
+    info "Optional settings you can add: COOKIE_SECURE=1 (behind a TLS proxy), TRUST_PROXY=1, RETENTION_DAYS=30, EASYZFS_ZPOOL_INTERVAL=10 (seconds with the UI open), EASYZFS_ZPOOL_ALERT_INTERVAL=60 (heartbeat, UI closed), EASYZFS_ZPOOL_IDLE_INTERVAL=300 (full collect, UI closed), DEMO=1, MOCK=1."
   fi
 }
 
 # write_unit — unit basada en deploy/easyzfs.service del repo, con el usuario elegido.
 write_unit() {
-  step "Servicio systemd"
+  step "systemd service"
   local user="root" group="root"
-  local nota="modo root: administración completa (decisión consciente, ver README)"
+  local nota="root mode: full administration (a deliberate choice, see README)"
   local nnp="NoNewPrivileges=yes"
   if [ "$OPT_ROOT_MODE" = "0" ]; then
     user="$SVC_USER"; group="$SVC_USER"
-    nota="zpool/zfs/smartctl/lsblk/crontab vía sudoers limitado: ${SUDOERS_PATH}"
+    nota="storage tools through the privileged gateway, restricted sudoers: ${SUDOERS_PATH}"
     # NoNewPrivileges=yes bloquea el bit setuid de sudo: solo se puede poner
     # en modo root (sin sudo). En modo usuario+sudoers tiene que ir fuera.
-    nnp="# NoNewPrivileges=yes (incompatible con sudo setuid; superficie root limitada por sudoers)"
+    nnp="# NoNewPrivileges=yes (incompatible with setuid sudo; the root surface is bounded by sudoers)"
   fi
   local unit=""
   unit="$(cat <<EOF
 [Unit]
-Description=EasyZFS — gestión ZFS del NAS (colector + PWA)
+Description=EasyZFS — ZFS management for the NAS (collector + PWA)
 After=network-online.target
 Wants=network-online.target
 
@@ -1403,7 +1403,7 @@ ExecStart=${INSTALL_BIN}
 Restart=on-failure
 RestartSec=5
 
-# Huella y longevidad
+# Footprint and lifetime
 MemoryMax=256M
 LimitNOFILE=4096
 
@@ -1433,7 +1433,7 @@ KeyringMode=private
 # the property at the next import. Mountpoints are checked when set
 # (internal/actions/props.go); the root surface is the pinned sudoers file.
 
-# Solo si escucha en puerto <1024 (preferir puerto alto + proxy):
+# Only if it listens on a port <1024 (prefer a high port + proxy):
 # AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
@@ -1441,7 +1441,7 @@ WantedBy=multi-user.target
 EOF
 )"
   if [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] escribiría ${UNIT_PATH} (modo 0644):"
+    info "[DRY-RUN] would write ${UNIT_PATH} (mode 0644):"
     printf '%s\n' "$unit" | sed 's/^/    /'
   else
     printf '%s\n' "$unit" | write_root_file "$UNIT_PATH" 0644
@@ -1450,7 +1450,7 @@ EOF
   run "${SUDO[@]}" systemctl daemon-reload
   run "${SUDO[@]}" systemctl enable easyzfs.service
   run "${SUDO[@]}" systemctl restart easyzfs.service
-  ok "Servicio habilitado y (re)iniciado."
+  ok "Service enabled and (re)started."
 
   setup_update_units
 }
@@ -1471,7 +1471,7 @@ detect_bin_channel() {
   fi
   BIN_CHANNEL="$("$bin" -update-channel 2>/dev/null)" || BIN_CHANNEL=""
   [ "$BIN_CHANNEL" = "local" ] || BIN_CHANNEL="github"
-  info "Canal de actualización del binario: ${BIN_CHANNEL}"
+  info "Binary update channel: ${BIN_CHANNEL}"
 }
 
 # remove_update_units — stops and deletes every unit that applies upstream
@@ -1486,18 +1486,18 @@ remove_update_units() {
   fi
   for u in $UPDATE_UNITS; do
     if [ -e "/etc/systemd/system/${u}" ]; then
-      run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"; removed=1
+      run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit removed: /etc/systemd/system/${u}"; removed=1
     fi
   done
   if [ -d /opt/easyzfs ]; then
-    run "${SUDO[@]}" rm -rf /opt/easyzfs; ok "Eliminado: /opt/easyzfs"; removed=1
+    run "${SUDO[@]}" rm -rf /opt/easyzfs; ok "Removed: /opt/easyzfs"; removed=1
   fi
   if [ -e "$APPLY_HELPER" ]; then
-    run "${SUDO[@]}" rm -f "$APPLY_HELPER"; ok "Eliminado: ${APPLY_HELPER}"
+    run "${SUDO[@]}" rm -f "$APPLY_HELPER"; ok "Removed: ${APPLY_HELPER}"
   fi
   # Whatever the old in-app updater staged for easyzfs-update.path to apply.
   if [ -d "${DATA_DIR}/update" ]; then
-    run "${SUDO[@]}" rm -rf "${DATA_DIR}/update"; ok "Eliminado: ${DATA_DIR}/update"
+    run "${SUDO[@]}" rm -rf "${DATA_DIR}/update"; ok "Removed: ${DATA_DIR}/update"
   fi
   if [ "$removed" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     run "${SUDO[@]}" systemctl daemon-reload || true
@@ -1511,7 +1511,7 @@ remove_update_units() {
 # upstream release are removed: nothing can then replace it from GitHub.
 setup_update_units() {
   if [ "$BIN_CHANNEL" = "local" ]; then
-    info "Binario del checkout local: sin auto-update desde GitHub (se actualiza con 'make update')."
+    info "Local checkout binary: no auto-update from GitHub (it is updated with 'make update')."
     remove_update_units
     return 0
   fi
@@ -1530,26 +1530,26 @@ setup_update_units() {
   # .path unit is not installed and an update is applied by hand.
   local apply_src; apply_src="$(local_deploy_file easyzfs-apply-update)"
   if [ -z "$apply_src" ]; then
-    info "Sin easyzfs-apply-update junto al instalador: no se instala easyzfs-update.path (las versiones descargadas se aplican a mano)."
+    info "No easyzfs-apply-update next to the installer: easyzfs-update.path is not installed (downloaded versions are applied by hand)."
     local u
     for u in easyzfs-update.path easyzfs-update.service; do
       if [ -e "/etc/systemd/system/${u}" ]; then
         [ "$u" = easyzfs-update.path ] && { run "${SUDO[@]}" systemctl disable --now "$u" || true; }
-        run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"
+        run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit removed: /etc/systemd/system/${u}"
       fi
     done
   elif [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] escribiría ${upd_path} y ${upd_svc} (auto-update: ${upd_dir}/.restart-me)"
+    info "[DRY-RUN] would write ${upd_path} and ${upd_svc} (auto-update: ${upd_dir}/.restart-me)"
   else
     # The helper installs nothing it cannot verify with minisign. Without it
     # every update is refused, which is safe but would look broken, so say so.
     if ! command -v minisign >/dev/null 2>&1; then
       run "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade minisign \
-        || warn "No se pudo instalar minisign: las actualizaciones descargadas se rechazarán (sin verificar la firma no se instala nada)."
+        || warn "Could not install minisign: downloaded updates will be refused (nothing is installed without verifying the signature)."
     fi
     run "${SUDO[@]}" mkdir -p "$(dirname "$APPLY_HELPER")"
     run "${SUDO[@]}" install -m 0755 -o root -g root "$apply_src" "$APPLY_HELPER" \
-      || die "No se pudo instalar ${APPLY_HELPER}"
+      || die "Could not install ${APPLY_HELPER}"
     # upd_dir sits in DATA_DIR, which the service account owns, so it may
     # have been replaced by a symlink: a plain chown would then hand the
     # link's target (say /etc/systemd/system) to that account. Drop anything
@@ -1561,7 +1561,7 @@ setup_update_units() {
     "${SUDO[@]}" chown -h "${user}:${group}" "$upd_dir"
     write_root_file "$upd_path" 0644 <<EOF
 [Unit]
-Description=Reinicia EasyZFS cuando el updater prepara una versión nueva
+Description=Restarts EasyZFS when the updater stages a new version
 
 [Path]
 PathChanged=${upd_dir}/.restart-me
@@ -1571,7 +1571,7 @@ WantedBy=multi-user.target
 EOF
     write_root_file "$upd_svc" 0644 <<EOF
 [Unit]
-Description=Aplica la actualización de EasyZFS (instala el binario nuevo y reinicia)
+Description=Applies the EasyZFS update (installs the new binary and restarts)
 After=network-online.target
 
 [Service]
@@ -1580,7 +1580,7 @@ ExecStart=${APPLY_HELPER} ${upd_dir} ${INSTALL_BIN}
 EOF
     run "${SUDO[@]}" systemctl daemon-reload
     run "${SUDO[@]}" systemctl enable --now easyzfs-update.path
-    ok "Auto-update: easyzfs-update.path activo (aplica versiones descargadas por /api/update/apply)."
+    ok "Auto-update: easyzfs-update.path active (applies versions downloaded by /api/update/apply)."
 
   fi
 
@@ -1611,26 +1611,26 @@ EOF
   local weekly_apply; weekly_apply="$(local_deploy_file easyzfs-apply-update)"
   local weekly_skip=""
   if [ "$BIN_MODE" != "download" ]; then
-    weekly_skip="el binario es local o compilado (${BIN_MODE}), y el timer lo sustituiría por la última release oficial"
+    weekly_skip="the binary is local or built (${BIN_MODE}), and the timer would replace it with the latest official release"
   elif [ -z "${DOWNLOADED_TAG:-}" ]; then
-    weekly_skip="no se pudo determinar de qué release oficial viene el binario (¿URL propia?)"
+    weekly_skip="could not tell which official release the binary came from (custom URL?)"
   elif [ -z "$weekly_src" ] || [ -z "$weekly_apply" ]; then
-    weekly_skip="faltan easyzfs-update-weekly.sh o easyzfs-apply-update junto al instalador"
+    weekly_skip="easyzfs-update-weekly.sh or easyzfs-apply-update is missing next to the installer"
   elif [ -z "$(sed -n "s/^TRUSTED_MINISIGN_KEY=[\"']\{0,1\}\([^\"']*\).*/\1/p" "$weekly_apply" | head -n1)" ]; then
-    weekly_skip="easyzfs-apply-update no tiene clave de firma de confianza: toda release se rechazaría"
+    weekly_skip="easyzfs-apply-update has no trusted signing key: every release would be refused"
   fi
   if [ -n "$weekly_skip" ]; then
-    info "Auto-update semanal NO instalado: ${weekly_skip}."
+    info "Weekly auto-update NOT installed: ${weekly_skip}."
     local u
     for u in easyzfs-update-weekly.timer easyzfs-update-weekly.service; do
       if [ -e "/etc/systemd/system/${u}" ]; then
         [ "$u" = easyzfs-update-weekly.timer ] && { run "${SUDO[@]}" systemctl disable --now "$u" || true; }
-        run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit eliminada: /etc/systemd/system/${u}"
+        run "${SUDO[@]}" rm -f "/etc/systemd/system/${u}"; ok "Unit removed: /etc/systemd/system/${u}"
       fi
     done
     if [ -e "$upd_script" ]; then run "${SUDO[@]}" rm -f "$upd_script"; fi
   elif [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] instalaría easyzfs-update-weekly.timer + .service + script (release ${DOWNLOADED_TAG})"
+    info "[DRY-RUN] would install easyzfs-update-weekly.timer + .service + script (release ${DOWNLOADED_TAG})"
   else
     "${SUDO[@]}" mkdir -p /opt/easyzfs
     "${SUDO[@]}" install -m 0755 "$weekly_src" "$upd_script"
@@ -1663,7 +1663,7 @@ WantedBy=timers.target
 EOF
     run "${SUDO[@]}" systemctl daemon-reload
     run "${SUDO[@]}" systemctl enable --now easyzfs-update-weekly.timer
-    ok "Auto-update semanal: easyzfs-update-weekly.timer activo (comprueba y aplica releases estables 1 vez/semana)."
+    ok "Weekly auto-update: easyzfs-update-weekly.timer active (checks and applies stable releases once a week)."
   fi
 }
 
@@ -1686,9 +1686,9 @@ verify_service() {
   # strict: no HTTP answer is a failure, not a warning (used by --update, where
   # "updated" must mean "the new binary is serving").
   local strict="${1:-}"
-  step "Verificación"
+  step "Verification"
   if [ "$DRY_RUN" = "1" ]; then
-    info "[DRY-RUN] comprobaría: systemctl is-active easyzfs y HTTP en ${PROBE_HOST}:${OPT_PORT}"
+    info "[DRY-RUN] would check: systemctl is-active easyzfs and HTTP on ${PROBE_HOST}:${OPT_PORT}"
     return 0
   fi
   local i
@@ -1697,10 +1697,10 @@ verify_service() {
     sleep 1
   done
   if ! systemctl is-active --quiet easyzfs; then
-    err "El servicio no arrancó. Revisa: journalctl -u easyzfs -n 50 --no-pager"
+    err "The service did not start. Check: journalctl -u easyzfs -n 50 --no-pager"
     return 1
   fi
-  ok "Servicio activo (systemd)."
+  ok "Service active (systemd)."
   # /api/version: 200 si responde, 401 si exige login — ambos prueban que escucha.
   # OJO: curl imprime "000" con -w incluso al fallar la conexión; no concatenar
   # otro "000" con `|| echo 000` (salía "000000"). Reintenta unos segundos:
@@ -1713,11 +1713,11 @@ verify_service() {
     sleep 1
   done
   if [ "$code" = "000" ]; then
-    warn "Sin respuesta HTTP en ${PROBE_HOST}:${OPT_PORT} (¿firewall o arranque lento?)."
-    warn "Comprueba: systemctl status easyzfs && journalctl -u easyzfs -n 50"
+    warn "No HTTP answer on ${PROBE_HOST}:${OPT_PORT} (firewall or slow start?)."
+    warn "Check: systemctl status easyzfs && journalctl -u easyzfs -n 50"
     if [ "$strict" = "strict" ]; then return 1; fi
   else
-    ok "HTTP escuchando en ${PROBE_HOST}:${OPT_PORT} (/api/version → código ${code})."
+    ok "HTTP listening on ${PROBE_HOST}:${OPT_PORT} (/api/version → code ${code})."
   fi
 }
 
@@ -1729,45 +1729,45 @@ summary() {
   ip="${ip:-127.0.0.1}"
   # The URL is only reachable where the service listens.
   case "$LISTEN_HOST" in all|"") ;; *) ip="$LISTEN_HOST" ;; esac
-  step "Instalación completada"
+  step "Installation complete"
   cat <<EOF
   URL:      http://${ip}:${OPT_PORT}
-  Usuario:  admin
+  User:     admin
 EOF
   if [ -n "$GENERATED_ADMIN" ]; then
-    printf '  Clave:    %s  %s\n' "$GENERATED_ADMIN" \
-      "${C_YELLOW:-}(guárdala: solo se muestra esta vez)${C_RESET:-}"
+    printf '  Password: %s  %s\n' "$GENERATED_ADMIN" \
+      "${C_YELLOW:-}(keep it: it is only shown this once)${C_RESET:-}"
   else
-    printf '  Clave:    la de ADMIN_PASSWORD en %s\n' "$ENV_FILE"
+    printf '  Password: the ADMIN_PASSWORD in %s\n' "$ENV_FILE"
   fi
   cat <<EOF
 
-  Comandos útiles:
+  Useful commands:
     systemctl status easyzfs
     journalctl -u easyzfs -f
     systemctl restart easyzfs
-  Config: ${ENV_FILE}  ·  Datos: ${DATA_DIR}
+  Config: ${ENV_FILE}  ·  Data: ${DATA_DIR}
 EOF
   if [ "$OPT_DEMO" = "1" ]; then
     cat <<EOF
-  MODO DEMO activo: pools y discos de muestra; nada se modifica (403 demo_mode).
-  Para usar tus discos reales: quita DEMO=1 de ${ENV_FILE} y reinicia.
+  DEMO MODE on: sample pools and disks; nothing is changed (403 demo_mode).
+  To use your real disks: remove DEMO=1 from ${ENV_FILE} and restart.
 EOF
   else
     cat <<EOF
-  Para explorar primero con datos de muestra: añade DEMO=1 a ${ENV_FILE} y reinicia.
+  To explore with sample data first: add DEMO=1 to ${ENV_FILE} and restart.
 EOF
   fi
   # A checkout install is updated and removed from that checkout; pointing it
   # at upstream's script would undo the point of installing from here.
   if [ "$BIN_CHANNEL" = "local" ]; then
     cat <<EOF
-  Actualizar:  desde el checkout, git pull y después make update
-  Desinstalar: desde el checkout, sudo bash deploy/install.sh --uninstall
+  Update:    from the checkout, git pull and then make update
+  Uninstall: from the checkout, sudo bash deploy/install.sh --uninstall
 EOF
   else
     cat <<EOF
-  Desinstalar: curl -fsSL https://raw.githubusercontent.com/gnacho/easyzfs/main/deploy/install.sh | bash -s -- --uninstall
+  Uninstall: curl -fsSL https://raw.githubusercontent.com/gnacho/easyzfs/main/deploy/install.sh | bash -s -- --uninstall
 EOF
   fi
 }
@@ -1786,9 +1786,9 @@ EOF
 # the data, the service account or the unit, and never downloads a binary:
 # it takes --binary or --source only.
 do_update() {
-  step "Actualización de ${APP}"
+  step "${APP} update"
   [ -e "$INSTALL_BIN" ] && [ -e "$UNIT_PATH" ] \
-    || die "No hay una instalación que actualizar (${INSTALL_BIN}, ${UNIT_PATH}). Usa 'make install'."
+    || die "No install to update (${INSTALL_BIN}, ${UNIT_PATH}). Use 'make install'."
   if [ -n "$OPT_BINARY" ]; then BIN_MODE="local"
   elif [ -n "$OPT_SOURCE" ]; then BIN_MODE="build"
   else die "--update necesita --binary o --source: nunca descarga."
@@ -1805,7 +1805,7 @@ do_update() {
       case "${la%:*}" in ""|0.0.0.0|"[::]") PROBE_HOST="127.0.0.1" ;; *) PROBE_HOST="${la%:*}" ;; esac
     fi
   else
-    warn "No se puede leer ${ENV_FILE}: se comprobará ${PROBE_HOST}:${OPT_PORT}."
+    warn "Cannot read ${ENV_FILE}: ${PROBE_HOST}:${OPT_PORT} will be checked."
   fi
   # A local build gets no update units. Remove them before the swap: the old
   # daemon's updater and easyzfs-update.path are live until then, and a
@@ -1816,8 +1816,8 @@ do_update() {
   fi
   if [ "$new_ch" = "local" ]; then remove_update_units; fi
   run "${SUDO[@]}" cp -p "$INSTALL_BIN" "${INSTALL_BIN}.prev" \
-    || die "No se pudo guardar el binario actual en ${INSTALL_BIN}.prev; no se actualiza sin copia."
-  ok "Binario anterior guardado en ${INSTALL_BIN}.prev"
+    || die "Could not keep the current binary as ${INSTALL_BIN}.prev; not updating without a copy."
+  ok "Previous binary kept as ${INSTALL_BIN}.prev"
   install_binary
   install_sysd_helper
   if [ "$(service_user)" != "root" ]; then write_sudoers; fi
@@ -1828,7 +1828,7 @@ do_update() {
   if grep -qE '^(ProtectSystem|ProtectHome|PrivateTmp|ReadWritePaths)=' "$UNIT_PATH"; then
     run "${SUDO[@]}" sed -i -E '/^(ProtectSystem|ProtectHome|PrivateTmp|ReadWritePaths)=/d' "$UNIT_PATH"
     run "${SUDO[@]}" systemctl daemon-reload
-    ok "Unit: quitado el espacio de montaje privado (los montajes de ZFS ahora son los del host)."
+    ok "Unit: private mount namespace removed (ZFS mounts are now the host's)."
   fi
   # Units written before the P5 hardening lines: add them after
   # LimitNOFILE (or before [Install]), leaving the rest as it is.
@@ -1841,15 +1841,15 @@ do_update() {
       run "${SUDO[@]}" sed -i "/${anchor}/i LimitCORE=0\nRemoveIPC=yes\nKeyringMode=private\n" "$UNIT_PATH"
     fi
     run "${SUDO[@]}" systemctl daemon-reload
-    ok "Unit: añadidos LimitCORE=0, RemoveIPC=yes y KeyringMode=private."
+    ok "Unit: added LimitCORE=0, RemoveIPC=yes and KeyringMode=private."
   fi
   run "${SUDO[@]}" systemctl restart easyzfs.service
-  verify_service strict || die "El servicio no responde con el binario nuevo. Para volver al anterior: sudo install -m 0755 ${INSTALL_BIN}.prev ${INSTALL_BIN} && sudo systemctl restart easyzfs"
-  ok "Actualizado. Config, datos y ${ENV_FILE} sin tocar."
+  verify_service strict || die "The service does not answer with the new binary. To go back to the previous one: sudo install -m 0755 ${INSTALL_BIN}.prev ${INSTALL_BIN} && sudo systemctl restart easyzfs"
+  ok "Updated. Config, data and ${ENV_FILE} untouched."
 }
 
 do_uninstall() {
-  step "Desinstalación de ${APP}"
+  step "${APP} uninstall"
   local found=0
   [ -e "$UNIT_PATH" ] && found=1
   [ -e "$INSTALL_BIN" ] && found=1
@@ -1862,7 +1862,7 @@ do_uninstall() {
   for u in $UPDATE_UNITS; do [ -e "/etc/systemd/system/${u}" ] && found=1; done
   [ -d /opt/easyzfs ] && found=1
   if [ "$found" = "0" ]; then
-    ok "No hay nada instalado de ${APP}; nada que hacer."
+    ok "Nothing of ${APP} is installed; nothing to do."
     return 0
   fi
   check_root
@@ -1873,32 +1873,32 @@ do_uninstall() {
   # Uninstall used to leave these behind, and the weekly timer kept running as
   # root afterwards. Removed first, so neither can fire mid-uninstall.
   remove_update_units
-  [ -e "$UNIT_PATH" ] && { run "${SUDO[@]}" rm -f "$UNIT_PATH"; ok "Unit eliminada: ${UNIT_PATH}"; }
+  [ -e "$UNIT_PATH" ] && { run "${SUDO[@]}" rm -f "$UNIT_PATH"; ok "Unit removed: ${UNIT_PATH}"; }
   if command -v systemctl >/dev/null 2>&1; then
     run "${SUDO[@]}" systemctl daemon-reload || true
   fi
-  [ -e "$INSTALL_BIN" ] && { run "${SUDO[@]}" rm -f "$INSTALL_BIN"; ok "Binario eliminado: ${INSTALL_BIN}"; }
-  [ -e "${INSTALL_BIN}.prev" ] && { run "${SUDO[@]}" rm -f "${INSTALL_BIN}.prev"; ok "Eliminado: ${INSTALL_BIN}.prev"; }
-  [ -e "$SYSD_HELPER" ] && { run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper eliminado: ${SYSD_HELPER}"; }
-  [ -e "$APPLY_HELPER" ] && { run "${SUDO[@]}" rm -f "$APPLY_HELPER"; ok "Helper eliminado: ${APPLY_HELPER}"; }
-  [ -e "$SUDOERS_PATH" ] && { run "${SUDO[@]}" rm -f "$SUDOERS_PATH"; ok "Sudoers eliminado: ${SUDOERS_PATH}"; }
+  [ -e "$INSTALL_BIN" ] && { run "${SUDO[@]}" rm -f "$INSTALL_BIN"; ok "Binary removed: ${INSTALL_BIN}"; }
+  [ -e "${INSTALL_BIN}.prev" ] && { run "${SUDO[@]}" rm -f "${INSTALL_BIN}.prev"; ok "Removed: ${INSTALL_BIN}.prev"; }
+  [ -e "$SYSD_HELPER" ] && { run "${SUDO[@]}" rm -f "$SYSD_HELPER"; ok "Helper removed: ${SYSD_HELPER}"; }
+  [ -e "$APPLY_HELPER" ] && { run "${SUDO[@]}" rm -f "$APPLY_HELPER"; ok "Helper removed: ${APPLY_HELPER}"; }
+  [ -e "$SUDOERS_PATH" ] && { run "${SUDO[@]}" rm -f "$SUDOERS_PATH"; ok "Sudoers removed: ${SUDOERS_PATH}"; }
 
   if [ -d "$DATA_DIR" ] || [ -d "$ENV_DIR" ]; then
     if [ "$OPT_YES" = "1" ]; then
-      warn "Se conservan los datos (${DATA_DIR}) y la config (${ENV_DIR})."
-      warn "Para borrarlos: rm -rf ${DATA_DIR} ${ENV_DIR}"
-    elif confirm "¿Borrar también los datos y la configuración (${DATA_DIR}, ${ENV_DIR})?" 0; then
+      warn "Keeping the data (${DATA_DIR}) and the config (${ENV_DIR})."
+      warn "To delete them: rm -rf ${DATA_DIR} ${ENV_DIR}"
+    elif confirm "Also delete the data and the configuration (${DATA_DIR}, ${ENV_DIR})?" 0; then
       run "${SUDO[@]}" rm -rf "$DATA_DIR" "$ENV_DIR"
-      ok "Datos y configuración eliminados."
+      ok "Data and configuration deleted."
     fi
   fi
   if id "$SVC_USER" >/dev/null 2>&1; then
-    if [ "$OPT_YES" = "0" ] && confirm "¿Eliminar también el usuario de sistema '${SVC_USER}'?" 0; then
+    if [ "$OPT_YES" = "0" ] && confirm "Also remove the system user '${SVC_USER}'?" 0; then
       run "${SUDO[@]}" userdel "$SVC_USER" || true
-      ok "Usuario '${SVC_USER}' eliminado."
+      ok "User '${SVC_USER}' removed."
     fi
   fi
-  ok "Desinstalación completada."
+  ok "Uninstall complete."
 }
 
 # =============================================================================
@@ -1908,15 +1908,15 @@ do_uninstall() {
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
-      --binary)   [ $# -ge 2 ] || die "--binary requiere un valor"; OPT_BINARY="$2"; shift 2 ;;
+      --binary)   [ $# -ge 2 ] || die "--binary needs a value"; OPT_BINARY="$2"; shift 2 ;;
       --binary=*)  OPT_BINARY="${1#*=}"; shift ;;
-      --url)      [ $# -ge 2 ] || die "--url requiere un valor"; OPT_URL="$2"; shift 2 ;;
+      --url)      [ $# -ge 2 ] || die "--url needs a value"; OPT_URL="$2"; shift 2 ;;
       --url=*)     OPT_URL="${1#*=}"; shift ;;
-      --source)   [ $# -ge 2 ] || die "--source requiere un valor"; OPT_SOURCE="$2"; shift 2 ;;
+      --source)   [ $# -ge 2 ] || die "--source needs a value"; OPT_SOURCE="$2"; shift 2 ;;
       --source=*)  OPT_SOURCE="${1#*=}"; shift ;;
-      --port)     [ $# -ge 2 ] || die "--port requiere un valor"; OPT_PORT="$2"; PORT_FROM_FLAG=1; shift 2 ;;
+      --port)     [ $# -ge 2 ] || die "--port needs a value"; OPT_PORT="$2"; PORT_FROM_FLAG=1; shift 2 ;;
       --port=*)    OPT_PORT="${1#*=}"; PORT_FROM_FLAG=1; shift ;;
-      --listen)   [ $# -ge 2 ] || die "--listen requiere un valor"; LISTEN_HOST="$2"; LISTEN_FROM_FLAG=1; shift 2 ;;
+      --listen)   [ $# -ge 2 ] || die "--listen needs a value"; LISTEN_HOST="$2"; LISTEN_FROM_FLAG=1; shift 2 ;;
       --listen=*)  LISTEN_HOST="${1#*=}"; LISTEN_FROM_FLAG=1; shift ;;
       --demo)      OPT_DEMO=1; shift ;;
       --read-only) OPT_READONLY=1; shift ;;
@@ -1927,7 +1927,7 @@ parse_args() {
       --update)    OPT_UPDATE=1; shift ;;
       --yes|-y)    OPT_YES=1; shift ;;
       --help|-h)   usage; exit 0 ;;
-      *) die "Opción desconocida: $1 (usa --help)" ;;
+      *) die "Unknown option: $1 (use --help)" ;;
     esac
   done
   # Root mode is a fresh install's decision: on --update the service keeps
@@ -1935,18 +1935,18 @@ parse_args() {
   # service_user() answer root for an easyzfs install, skipping its sudoers
   # refresh and handing the update directory to root.
   if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_UPDATE" = "1" ]; then
-    die "--root-mode no se aplica a --update: la actualización conserva el usuario con el que ya corre el servicio."
+    die "--root-mode does not apply to --update: an update keeps the user the service already runs as."
   fi
   # Read-only's guarantee is its sudoers file, which grants no gateway; a
   # root service has no sudoers at all, so read-only would be the app's word
   # alone.
   if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_READONLY" = "1" ]; then
-    die "--read-only no se combina con --root-mode: el modo solo lectura se garantiza con el sudoers del usuario 'easyzfs', y como root no hay ninguno."
+    die "--read-only does not combine with --root-mode: read-only mode is guaranteed by the 'easyzfs' user's sudoers, and as root there is none."
   fi
   # Refuse an unacknowledged unattended root install before anything is done
   # (remediation spec P4); the interactive path asks in root_mode_gate.
   if [ "$OPT_ROOT_MODE" = "1" ] && [ "$OPT_YES" = "1" ] && [ "$OPT_ROOT_ACK" != "1" ]; then
-    die "--root-mode con --yes requiere también --i-understand-root-mode: en modo root el servicio web tiene privilegios de root y no hay frontera que limite lo que puede hacer."
+    die "--root-mode with --yes also requires --i-understand-root-mode: in root mode the web service has root privileges and no boundary limits what it can do."
   fi
 }
 
@@ -1955,7 +1955,7 @@ main() {
   banner
   setup_ui
   if [ "$DRY_RUN" = "1" ]; then
-    warn "MODO DRY-RUN: se imprimirán los comandos sin ejecutarlos."
+    warn "DRY-RUN MODE: commands will be printed without running them."
   fi
 
   if [ "$OPT_UNINSTALL" = "1" ]; then
@@ -1969,12 +1969,12 @@ main() {
 
   detect_arch
   if [ "$ARCH" = "unknown" ]; then
-    warn "Arquitectura no reconocida ($(uname -m)); solo x86_64 y aarch64 tienen assets de release."
+    warn "Unrecognised architecture ($(uname -m)); only x86_64 and aarch64 have release assets."
   fi
   detect_distro
-  ok "Sistema: ${DISTRO_PRETTY}  [familia=${DISTRO_FAMILY}, arch=${ARCH}]"
+  ok "System: ${DISTRO_PRETTY}  [family=${DISTRO_FAMILY}, arch=${ARCH}]"
   if [ "$DISTRO_FAMILY" = "unknown" ]; then
-    warn "Distribución desconocida: se ofrecerá continuar en modo manual en el paso de dependencias."
+    warn "Unknown distribution: continuing in manual mode will be offered at the dependencies step."
   fi
 
   check_root

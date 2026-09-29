@@ -1,5 +1,5 @@
 [Unit]
-Description=EasyZFS — gestión ZFS del NAS (colector + PWA)
+Description=EasyZFS — ZFS management for the NAS (collector + PWA)
 After=network-online.target
 Wants=network-online.target
 
@@ -12,13 +12,13 @@ ExecStart=/usr/local/bin/easyzfs
 Restart=on-failure
 RestartSec=5
 
-# Huella y longevidad
+# Footprint and lifetime
 MemoryMax=256M
 LimitNOFILE=4096
 
-# Hardening (la app ejecuta zpool/zfs/smartctl/lsblk/crontab vía sudoers
-# limitado — ver deploy/easyzfs.sudoers y README). NO poner NoNewPrivileges=yes:
-# sudo necesita el bit setuid para elevar privilegios.
+# Hardening (storage tools run through the privileged gateway, granted by a
+# restricted sudoers file — see deploy/easyzfs.sudoers and README). Do NOT set
+# NoNewPrivileges=yes: sudo needs its setuid bit to raise privileges.
 # No ProtectSystem/ProtectHome/PrivateTmp: each gives the service a private
 # mount namespace, and the zfs commands it runs through sudo inherit it. A
 # dataset it mounted was then visible only inside, and one it unmounted,
@@ -44,7 +44,7 @@ LimitCORE=0
 RemoveIPC=yes
 KeyringMode=private
 
-# Solo si escucha en puerto <1024 (preferir puerto alto + proxy):
+# Only if it listens on a port <1024 (prefer a high port + proxy):
 # AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]

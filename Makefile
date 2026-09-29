@@ -17,13 +17,13 @@ web:
 		cd web && npm ci && npm run build && \
 		cd .. && rm -rf dist && cp -r web/dist dist ; \
 	else \
-		echo "web/ no existe: usando dist/ placeholder" ; \
+		echo "web/ does not exist: using a placeholder dist/" ; \
 	fi
 
 go:
 	@if [ ! -d dist ]; then \
 		if [ -d web/dist ]; then cp -r web/dist dist; \
-		else echo "dist/ no existe: ejecuta 'make web' primero"; exit 1; fi \
+		else echo "dist/ does not exist: run 'make web' first"; exit 1; fi \
 	fi
 	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o easyzfs .
 

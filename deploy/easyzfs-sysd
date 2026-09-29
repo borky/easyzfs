@@ -44,17 +44,17 @@ valid_cron_file() {
   # result is not enough either: a symlink kept in a directory the caller owns
   # can point into cron.d for the check and be swapped before the file is read,
   # and cron-to-timer copies what it reads into a root unit's ExecStart=.
-  [ "$(dirname -- "$f")" = "$CROND_DIR" ] || die "fichero no permitido: $f"
+  [ "$(dirname -- "$f")" = "$CROND_DIR" ] || die "file not allowed: $f"
   local base; base="$(basename -- "$f")"
   case "$base" in
-    .|..) die "nombre de fichero no permitido: $base" ;;
-    *[!a-zA-Z0-9._-]*) die "nombre de fichero no permitido: $base" ;;
+    .|..) die "file name not allowed: $base" ;;
+    *[!a-zA-Z0-9._-]*) die "file name not allowed: $base" ;;
   esac
   # No symlinks inside cron.d either. With the parent fixed to a directory only
   # root can write, a regular file validated here cannot be replaced before it
   # is used, which is what makes this check hold.
-  [ -L "$f" ] && die "fichero no permitido (enlace simbólico): $f"
-  [ -f "$f" ] || die "no existe: $f"
+  [ -L "$f" ] && die "file not allowed (symbolic link): $f"
+  [ -f "$f" ] || die "does not exist: $f"
 }
 
 # schedule cron: 5 campos ([0-9*,/\-] + letras cortas tipo JAN,MON) o @atajo.
@@ -64,34 +64,34 @@ valid_cron_schedule() {
     @yearly|@annually|@monthly|@weekly|@daily|@midnight|@hourly) return 0 ;;
   esac
   local nfields; nfields="$(echo "$s" | wc -w)"
-  [ "$nfields" = "5" ] || die "schedule cron debe tener 5 campos o ser @atajo: '$s'"
+  [ "$nfields" = "5" ] || die "a cron schedule must have 5 fields or be an @shortcut: '$s'"
   echo "$s" | grep -qE '^[0-9A-Za-z*,/\-]+( +[0-9A-Za-z*,/\-]+){4}$' \
-    || die "caracteres no válidos en schedule: '$s'"
+    || die "invalid characters in schedule: '$s'"
 }
 
 valid_line_no() {
   local f="$1" n="$2"
-  [[ "$n" =~ ^[0-9]+$ ]] || die "línea no numérica: $n"
-  [ "$n" -ge 1 ] || die "línea fuera de rango: $n"
+  [[ "$n" =~ ^[0-9]+$ ]] || die "non-numeric line: $n"
+  [ "$n" -ge 1 ] || die "line out of range: $n"
   local total; total="$(wc -l < "$f")"
-  [ "$n" -le "$total" ] || die "línea $n fuera de rango (fichero tiene $total)"
+  [ "$n" -le "$total" ] || die "line $n out of range (the file has $total)"
   local content; content="$(sed -n "${n}p" "$f" | sed 's/^[[:space:]]*//')"
-  [ -n "$content" ] || die "la línea $n está vacía"
-  case "$content" in \#*) die "la línea $n es un comentario" ;; esac
+  [ -n "$content" ] || die "line $n is empty"
+  case "$content" in \#*) die "line $n is a comment" ;; esac
   case "$content" in *=*' '*|*=*)
     # asignación de entorno (VAR=valor sin espacio antes del =)
-    echo "$content" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' && die "la línea $n es una asignación de entorno"
+    echo "$content" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' && die "line $n is an environment assignment"
     ;;
   esac
 }
 
 # valid_unit: nombre de unidad sin rutas.
 valid_unit() {
-  echo "$1" | grep -qE '^[A-Za-z0-9_.@:-]+\.timer$' || die "unidad no válida: $1"
+  echo "$1" | grep -qE '^[A-Za-z0-9_.@:-]+\.timer$' || die "invalid unit: $1"
 }
 
 valid_name() {
-  echo "$1" | grep -qE '^[a-z0-9][a-z0-9-]*$' || die "nombre no válido (a-z 0-9 -): $1"
+  echo "$1" | grep -qE '^[a-z0-9][a-z0-9-]*$' || die "invalid name (a-z 0-9 -): $1"
 }
 
 backup_once() {
@@ -145,11 +145,11 @@ cron_to_oncalendar() { # cron_to_oncalendar "<5 campos>" → OnCalendar (validad
   read -r min hour dom mon dow <<< "$1"
   local cal=""
   if [ "$dow" != "*" ]; then
-    local names; names="$(dow_to_names "$dow")" || die "día de semana no soportado para migrar: '$dow'"
+    local names; names="$(dow_to_names "$dow")" || die "weekday not supported for migration: '$dow'"
     cal="$names "
   fi
   cal="${cal}*-$(step_conv "$mon")-$(step_conv "$dom") $(step_conv "$hour"):$(step_conv "$min"):00"
-  systemd-analyze calendar "$cal" >/dev/null 2>&1 || die "OnCalendar inválido: '$cal'"
+  systemd-analyze calendar "$cal" >/dev/null 2>&1 || die "invalid OnCalendar: '$cal'"
   echo "$cal"
 }
 
@@ -160,13 +160,13 @@ special_to_oncalendar() {
     @weekly) echo "weekly" ;;
     @daily|@midnight) echo "daily" ;;
     @hourly) echo "hourly" ;;
-    *) die "atajo no migrable: $1" ;;
+    *) die "shortcut cannot be migrated: $1" ;;
   esac
 }
 
 # valid_unix_user — the cron user field, written into User=.
 valid_unix_user() {
-  [[ "$1" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "usuario no válido en la línea cron: $1"
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "invalid user in the cron line: $1"
 }
 
 # cron_env <file> <line> <VAR> <default> — the value cron gives VAR for the
@@ -177,7 +177,7 @@ cron_env() {
   v="$(head -n "$((n - 1))" "$f" | sed -nE "s/^[[:space:]]*${var}[[:space:]]*=[[:space:]]*//p" | tail -1)"
   v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
   [ -n "$v" ] || v="$def"
-  [[ "$v" =~ ^[A-Za-z0-9._/:-]+$ ]] || die "$var='$v' en $f: valor no admitido para migrar"
+  [[ "$v" =~ ^[A-Za-z0-9._/:-]+$ ]] || die "$var='$v' in $f: value not accepted for migration"
   printf '%s' "$v"
 }
 
@@ -191,7 +191,7 @@ cron_cmd_to_execstart() {
   local c="$1"
   local probe="${c//\\%/}"
   case "$probe" in
-    *%*) die "el comando usa '%' sin escapar (en cron es un salto de línea y lo que sigue va a stdin): migración no automática" ;;
+    *%*) die "the command uses an unescaped '%' (in cron it is a newline and what follows goes to stdin): no automatic migration" ;;
   esac
   c="${c//\\%/%}"   # cron's escaped '%' is a literal '%'
   c="${c//\\/\\\\}" # then escape for a systemd double-quoted word…
@@ -217,19 +217,19 @@ cmd_cron_set() { # cron-set <fichero> <línea> <schedule>
   else
     rest="$(echo "$old" | sed -E 's/^[[:space:]]*[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+//')"
   fi
-  [ -n "$rest" ] || die "no se pudo preservar el comando de la línea $n"
+  [ -n "$rest" ] || die "could not keep the command of line $n"
   newline="$sched $rest"
   local tmp; tmp="$(mktemp)"
   awk -v n="$n" -v l="$newline" 'NR==n{print l; next} {print}' "$f" > "$tmp"
   cat "$tmp" | atomic_write "$f"
   rm -f "$tmp"
-  echo "cron-set: $f línea $n → '$sched'"
+  echo "cron-set: $f line $n → '$sched'"
 }
 
 cmd_timer_set() { # timer-set <unidad.timer> <OnCalendar>
   local unit="$1" cal="$2"
   valid_unit "$unit"
-  systemd-analyze calendar "$cal" >/dev/null 2>&1 || die "OnCalendar inválido: '$cal'"
+  systemd-analyze calendar "$cal" >/dev/null 2>&1 || die "invalid OnCalendar: '$cal'"
   mkdir -p "$SYSTEMD_DIR/${unit}.d"
   atomic_write "$SYSTEMD_DIR/${unit}.d/10-easyzfs-schedule.conf" <<EOF
 # Generado por EasyZFS — override de periodicidad.
@@ -249,7 +249,7 @@ cmd_cron_to_timer() { # cron-to-timer <fichero> <línea> <nombre>
   valid_line_no "$f" "$n"
   valid_name "$name"
   local unit="easyzfs-${name}.timer"
-  [ ! -e "$SYSTEMD_DIR/easyzfs-${name}.service" ] || die "ya existe easyzfs-${name}.service"
+  [ ! -e "$SYSTEMD_DIR/easyzfs-${name}.service" ] || die "easyzfs-${name}.service already exists"
 
   local line; line="$(sed -n "${n}p" "$f" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   local sched user cmd rest
@@ -267,7 +267,7 @@ cmd_cron_to_timer() { # cron-to-timer <fichero> <línea> <nombre>
   # campo de usuario entre schedule y comando
   user="$(awk '{print $1}' <<<"$rest")"
   cmd="$(sed -E 's/^[^[:space:]]+[[:space:]]+//' <<<"$rest")"
-  [ -n "$cmd" ] && [ "$cmd" != "$rest" ] || die "comando vacío en la línea $n"
+  [ -n "$cmd" ] && [ "$cmd" != "$rest" ] || die "empty command on line $n"
   valid_unix_user "$user"
   cmd="$(cron_cmd_to_execstart "$cmd")"
   # The environment cron gives the job: its SHELL runs the command, its PATH
@@ -279,12 +279,12 @@ cmd_cron_to_timer() { # cron-to-timer <fichero> <línea> <nombre>
   local shell path
   shell="$(cron_env "$f" "$n" SHELL /bin/sh)"
   path="$(cron_env "$f" "$n" PATH /usr/bin:/bin)"
-  [ -x "${ROOT}${shell}" ] || [ -n "$ROOT" ] || die "SHELL=$shell no existe o no es ejecutable"
+  [ -x "${ROOT}${shell}" ] || [ -n "$ROOT" ] || die "SHELL=$shell does not exist or is not executable"
 
   atomic_write "$SYSTEMD_DIR/easyzfs-${name}.service" <<EOF
-# Migrado desde cron por EasyZFS ($f línea $n; línea original comentada).
+# Migrated from cron by EasyZFS ($f line $n; the original line is commented out).
 [Unit]
-Description=$name (migrado de cron por EasyZFS)
+Description=$name (migrated from cron by EasyZFS)
 
 [Service]
 Type=oneshot
@@ -294,9 +294,9 @@ Environment="PATH=$path"
 ExecStart=$shell -c "$cmd"
 EOF
   atomic_write "$SYSTEMD_DIR/easyzfs-${name}.timer" <<EOF
-# Migrado desde cron por EasyZFS.
+# Migrated from cron by EasyZFS.
 [Unit]
-Description=$name (migrado de cron por EasyZFS)
+Description=$name (migrated from cron by EasyZFS)
 
 [Timer]
 OnCalendar=$sched
@@ -314,14 +314,14 @@ EOF
 
   sysd daemon-reload
   sysd enable --now "$unit"
-  echo "cron-to-timer: $f línea $n → $unit ('$sched')"
+  echo "cron-to-timer: $f line $n → $unit ('$sched')"
 }
 
-[ $# -ge 1 ] || die "operación requerida: cron-set|timer-set|cron-to-timer"
+[ $# -ge 1 ] || die "operation required: cron-set|timer-set|cron-to-timer"
 op="$1"; shift
 case "$op" in
-  cron-set)     [ $# = 3 ] || die "uso: cron-set <fichero> <línea> <schedule>"; cmd_cron_set "$@" ;;
-  timer-set)    [ $# = 2 ] || die "uso: timer-set <unidad.timer> <OnCalendar>"; cmd_timer_set "$@" ;;
-  cron-to-timer)[ $# = 3 ] || die "uso: cron-to-timer <fichero> <línea> <nombre>"; cmd_cron_to_timer "$@" ;;
-  *) die "operación desconocida: $op" ;;
+  cron-set)     [ $# = 3 ] || die "usage: cron-set <file> <line> <schedule>"; cmd_cron_set "$@" ;;
+  timer-set)    [ $# = 2 ] || die "usage: timer-set <unit.timer> <OnCalendar>"; cmd_timer_set "$@" ;;
+  cron-to-timer)[ $# = 3 ] || die "usage: cron-to-timer <file> <line> <name>"; cmd_cron_to_timer "$@" ;;
+  *) die "unknown operation: $op" ;;
 esac

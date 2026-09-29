@@ -25,7 +25,7 @@
 # Usage: easyzfs-apply-update <update dir> [<installed binary>]
 set -euo pipefail
 
-UPD="${1:?falta el directorio de actualización}"
+UPD="${1:?the update directory is missing}"
 BIN="${2:-/usr/local/bin/easyzfs}"
 # The minisign public key releases must be signed with ('RW…', base64). Empty:
 # no release can be verified, so none is installed.
@@ -51,22 +51,22 @@ die() {
 
 # Before anything else: without a way to verify a signature, nothing staged
 # can be trusted, whatever it is.
-[ -n "$KEY" ] || { rm -f "${UPD}/.restart-me"; die "no hay clave pública de firma configurada: las actualizaciones automáticas están desactivadas (usa 'make update' desde el checkout)"; }
-command -v minisign >/dev/null 2>&1 || { rm -f "${UPD}/.restart-me"; die "minisign no está instalado: no se puede verificar la firma, no se instala"; }
+[ -n "$KEY" ] || { rm -f "${UPD}/.restart-me"; die "no trusted signing public key configured: automatic updates are disabled (use 'make update' from the checkout)"; }
+command -v minisign >/dev/null 2>&1 || { rm -f "${UPD}/.restart-me"; die "minisign is not installed: the signature cannot be verified, nothing is installed"; }
 
 rm -f "${UPD}/.restart-me"
 staged="${UPD}/easyzfs.new"
 tagf="${UPD}/easyzfs.new.tag"
-[ -f "$tagf" ] && [ ! -L "$tagf" ] || die "falta la etiqueta de la release preparada: no se puede verificar, no se instala"
+[ -f "$tagf" ] && [ ! -L "$tagf" ] || die "the staged release's tag is missing: it cannot be verified, nothing is installed"
 # nofollow,nonblock: a symlink or FIFO swapped in after the test above is
 # refused or read as empty, instead of followed or blocking root forever.
 tag="$(dd if="$tagf" bs=64 count=1 iflag=nofollow,nonblock status=none 2>/dev/null | tr -d '\r\n')" || tag=""
-[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]] || die "etiqueta de release no válida"
+[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]] || die "invalid release tag"
 
 case "$ARCH" in
   x86_64)  asset="easyzfs_linux_amd64" ;;
   aarch64) asset="easyzfs_linux_arm64" ;;
-  *) die "arquitectura no soportada: ${ARCH}" ;;
+  *) die "unsupported architecture: ${ARCH}" ;;
 esac
 
 tmp="$(mktemp -d)"
@@ -74,31 +74,31 @@ trap 'rm -rf "$tmp"' EXIT
 # iflag=nofollow: a symlink planted in place of the binary is refused, not
 # followed to some file only root can read.
 dd if="$staged" of="$tmp/bin" bs=1M iflag=nofollow,nonblock status=none 2>/dev/null \
-  || die "no se pudo leer el binario preparado (¿falta o es un enlace simbólico?)"
-[ -s "$tmp/bin" ] || die "el binario preparado está vacío"
+  || die "could not read the staged binary (missing, or a symbolic link?)"
+[ -s "$tmp/bin" ] || die "the staged binary is empty"
 
 curl -fsSL --proto '=https' --max-time 60 "${RELEASES}/${tag}/checksums.txt" -o "$tmp/sums" \
-  || die "no se pudo descargar checksums.txt de ${tag}"
+  || die "could not download checksums.txt for ${tag}"
 curl -fsSL --proto '=https' --max-time 60 "${RELEASES}/${tag}/checksums.txt.minisig" -o "$tmp/sums.minisig" \
-  || die "la release ${tag} no publica firma (checksums.txt.minisig): no se instala"
+  || die "release ${tag} publishes no signature (checksums.txt.minisig): not installed"
 minisign -V -q -P "$KEY" -m "$tmp/sums" -x "$tmp/sums.minisig" >/dev/null 2>&1 \
-  || die "la firma de checksums.txt de ${tag} no es válida para la clave de confianza: no se instala"
+  || die "the signature of checksums.txt for ${tag} is not valid for the trusted key: not installed"
 want="$(awk -v a="$asset" '$2 == a || $2 == "*"a {print $1; exit}' "$tmp/sums")"
-[[ "$want" =~ ^[0-9a-f]{64}$ ]] || die "checksums.txt de ${tag} no lista ${asset}"
+[[ "$want" =~ ^[0-9a-f]{64}$ ]] || die "checksums.txt for ${tag} does not list ${asset}"
 got="$(sha256sum "$tmp/bin" | awk '{print $1}')"
-[ "$want" = "$got" ] || die "el binario preparado no coincide con la release oficial ${tag}: no se instala"
+[ "$want" = "$got" ] || die "the staged binary does not match the official release ${tag}: not installed"
 
 own=(); [ "$(id -u)" = 0 ] && own=(-o root -g root)   # tests run unprivileged
 install -m 0755 "${own[@]}" "$tmp/bin" "${BIN}.new-$$" \
-  || { rm -f "${BIN}.new-$$"; die "no se pudo copiar el binario nuevo junto a ${BIN}: no se instala"; }
+  || { rm -f "${BIN}.new-$$"; die "could not copy the new binary next to ${BIN}: not installed"; }
 # The binary being replaced stays as .prev (a hard link: the rename below
 # gives BIN a new inode and leaves this one alone) for a manual rollback.
 if [ -f "$BIN" ]; then
-  ln -f "$BIN" "${BIN}.prev" || { rm -f "${BIN}.new-$$"; die "no se pudo guardar ${BIN}.prev: no se instala"; }
+  ln -f "$BIN" "${BIN}.prev" || { rm -f "${BIN}.new-$$"; die "could not keep ${BIN}.prev: not installed"; }
 fi
-mv -f "${BIN}.new-$$" "$BIN" || { rm -f "${BIN}.new-$$"; die "no se pudo sustituir ${BIN}: sigue el anterior"; }
+mv -f "${BIN}.new-$$" "$BIN" || { rm -f "${BIN}.new-$$"; die "could not replace ${BIN}: the previous one stays"; }
 rm -f "${UPD}/apply-refused"
-echo "easyzfs-apply-update: instalada la release ${tag} (firma y sha256 verificados)"
+echo "easyzfs-apply-update: installed release ${tag} (signature and sha256 verified)"
 
 # Units written before the private mount namespace was dropped (see the
 # comment in deploy/easyzfs.service): an install that updates itself never
@@ -106,7 +106,7 @@ echo "easyzfs-apply-update: instalada la release ${tag} (firma y sha256 verifica
 UNIT="${EASYZFS_APPLY_UNIT:-/etc/systemd/system/easyzfs.service}"   # test seam
 if [ -f "$UNIT" ] && grep -qE '^(ProtectSystem|ProtectHome|PrivateTmp|ReadWritePaths)=' "$UNIT"; then
   sed -i -E '/^(ProtectSystem|ProtectHome|PrivateTmp|ReadWritePaths)=/d' "$UNIT"
-  echo "easyzfs-apply-update: quitado el espacio de montaje privado de ${UNIT}"
+  echo "easyzfs-apply-update: removed the private mount namespace from ${UNIT}"
   [ -n "${EASYZFS_APPLY_NO_RESTART:-}" ] || systemctl daemon-reload
 fi
 if [ -z "${EASYZFS_APPLY_NO_RESTART:-}" ]; then
